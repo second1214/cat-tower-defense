@@ -18,7 +18,7 @@ import "./battle.css";
 import type { BattleInput, BattleResult, Loadout } from "../core/types";
 import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
-import { getSprite, loadSpriteOverrides, spriteVersion, SPRITE_SIZE } from "./sprites";
+import { getCatPose, getSprite, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
 
 export interface BattleScreenOptions {
@@ -59,7 +59,7 @@ function iconCanvas(cls: string, parent: HTMLElement, cssSize: number): HTMLCanv
 function paintIcon(c: HTMLCanvasElement, img: CanvasImageSource): void {
   const g = c.getContext("2d")!;
   g.clearRect(0, 0, c.width, c.height);
-  g.drawImage(img, 0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0, c.width, c.height);
 }
 
 function timeText(t: number): string {
@@ -645,7 +645,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     overlay.classList.add("result");
     const card = el("div", `bt-dialog ${res.win ? "win" : "lose"}`, overlay);
     const pic = iconCanvas("bt-result-pic", card, 96);
-    paintIcon(pic, res.win ? getSprite("cat", loadout.char.id, { role: loadout.char.role }) : getSprite("mama", "scared"));
+    paintIcon(pic, res.win ? (getCatPose(loadout.char.id, "win") ?? getSprite("cat", loadout.char.id, { role: loadout.char.role })) : getSprite("mama", "scared"));
     el("div", "bt-dialog-title", card, res.win ? "ママを守った！" : "ママがにげちゃった…");
     const stats = el("div", "bt-stats", card);
     const row = (k: string, v: string) => {

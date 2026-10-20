@@ -55,6 +55,13 @@ function overrideKey(kind: SpriteKind, id: string): string {
   }
 }
 
+/** 戦闘中の猫のポーズ。PNG（"<id>_<pose>"）があるときだけ使い、無ければふつうの "cat" の絵。 */
+export type CatPose = "walk1" | "walk2" | "run" | "melee" | "ranged" | "aoe" | "hurt" | "win";
+
+export function getCatPose(id: string, pose: CatPose): HTMLImageElement | null {
+  return overrides.get(`${id}_${pose}`) ?? null;
+}
+
 /** 絵を受け取る（無ければ描いてためる）。hint はコードの絵を選ぶときだけ使う。 */
 export function getSprite(kind: SpriteKind, id: string, hint?: SpriteHint): SpriteImage {
   const ov = overrides.get(overrideKey(kind, id));

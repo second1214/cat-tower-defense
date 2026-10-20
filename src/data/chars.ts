@@ -63,7 +63,8 @@ function cat(
 
 export const CHARS: CharDef[] = [
   // ---- N ----
-  cat("chatora", "ちゃとら", "melee", "N", "体が大きくてがんじょう。近くの虫をねこパンチ。",
+  // 主人公（id は古いセーブとの互換のため "chatora" のまま。絵は public/sprites の PNG）
+  cat("chatora", "ノルウェージャン", "melee", "N", "ふさふさの長毛で体が大きく、がんじょう。近くの虫をねこパンチ。",
     ["ねこパンチ", "当てた虫を少し押しもどす"], { knockback: 0.3 }),
   cat("mike", "みけ", "ranged", "N", "離れたところから、ちょいちょいと手を出す。",
     ["ちょいちょい", "当てた虫が少しおそくなる"], { slowHit: 0.9 }),

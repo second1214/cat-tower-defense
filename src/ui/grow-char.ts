@@ -13,6 +13,7 @@ import {
 import type { Ctx } from "./ctx";
 import { badge, bar, fmtS, h, svgIcon } from "./dom";
 import { ICONS, branchSvg, catSvg } from "./icons";
+import { catIcon } from "./cafe";
 import { charCanLearn, gachaBadge } from "./badges";
 import { bondHearts, openGacha, rarityPill } from "./gacha";
 
@@ -43,7 +44,7 @@ export function renderCharList(ctx: Ctx): HTMLElement {
       badge(charCanLearn(save, def.id)),
       sel ? h("span", { class: "sel-tag" }, "出撃中") : null,
       h("span", { class: "cc-tags" }, h("span", { class: "rar-tag" }, def.rarity), h("span", { class: `role-tag role-${def.role}` }, ROLE_NAMES[def.role])),
-      svgIcon(catSvg(def.id), "card-ico"),
+      catIcon(def.id, "card-ico"),
       h("div", { class: "card-name" }, def.name),
       h("div", { class: "card-lv" }, `Lv ${cs.level}`),
       bondHearts(cs.bond, "bond-sm"),
@@ -112,7 +113,7 @@ export function openCharDetail(ctx: Ctx, charId: string): void {
       const setMode = (m: DetailMode) => { if (detailMode[charId] !== m) { detailMode[charId] = m; ctx.rerender(); } };
       return h("div", { class: "char-detail" },
         h("div", { class: "cd-top" },
-          h("div", { class: `cd-frame fr-${def.rarity}` }, svgIcon(catSvg(charId), "cd-ico")),
+          h("div", { class: `cd-frame fr-${def.rarity}` }, catIcon(charId, "cd-ico")),
           h("div", { class: "cd-info" },
             h("div", { class: "cd-row" },
               rarityPill(def.rarity),

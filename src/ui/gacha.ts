@@ -8,6 +8,7 @@ import { CHARS, CHAR_MAP, CHAR_RARITIES, MAX_BOND, ROLE_NAMES, type CharRarity }
 import type { Ctx } from "./ctx";
 import { bar, h, svgIcon } from "./dom";
 import { ICONS, carrierSvg, catSvg, tentSvg } from "./icons";
+import { catIcon } from "./cafe";
 
 /** ハート（なかよし度）を n/MAX_BOND で並べる。 */
 export function bondHearts(n: number, cls = ""): HTMLElement {
@@ -99,7 +100,7 @@ function showPullAnim(ctx: Ctx, results: PullResult[]): void {
       h("div", { class: "pr-glow" }),
       h("div", { class: "pr-closed" }, svgIcon(carrierSvg(false), "pr-box")),
       h("div", { class: "pr-open" },
-        h("div", { class: "pr-cat-wrap" }, svgIcon(catSvg(r.charId), "pr-cat"), svgIcon(carrierSvg(true), "pr-box-open")),
+        h("div", { class: "pr-cat-wrap" }, catIcon(r.charId, "pr-cat"), svgIcon(carrierSvg(true), "pr-box-open")),
         h("div", { class: "pr-rar" }, RARITY_LABEL[r.rarity], r.pity ? h("span", { class: "pr-extra" }, "かならず") : r.guaranteed ? h("span", { class: "pr-extra" }, "おまけ") : null),
         h("div", { class: "pr-name" }, def?.name ?? r.charId),
         resultLine(r)));
@@ -170,7 +171,7 @@ function openRates(ctx: Ctx): void {
           const def = CHAR_MAP[c.id];
           const own = !!ctx.save.chars[c.id];
           return h("div", { class: `rt-cat ${own ? "own" : ""}` },
-            svgIcon(catSvg(c.id, !own), "rt-cat-ico"),
+            catIcon(c.id, "rt-cat-ico", !own),
             h("div", { class: "rt-cat-name" }, own ? def?.name ?? c.id : "？？？"),
             h("div", { class: "rt-cat-rate" }, pct(c.rate)),
             def && own ? h("div", { class: "rt-role" }, ROLE_NAMES[def.role]) : null);
