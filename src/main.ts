@@ -1,4 +1,6 @@
-// 仮の入口: いまはデモの戦闘をすぐ始める（メニューができたら差しかえる）。
+// 入口: メニュー（成長・メイン・レリック）から始める。
+// 開発用: ?demo で手作りデータの戦闘だけ（?role=ranged|fast|aoe・?seed=N）、?sprites で仮の絵の一覧。
+import { startApp } from "./ui/app";
 import { startBattle } from "./battle/screen";
 import { demoLoadout } from "./battle/demo";
 import { debugSpriteSheet } from "./battle/sprites";
@@ -9,7 +11,7 @@ const q = new URLSearchParams(location.search);
 if (q.has("sprites")) {
   app.style.overflow = "auto";
   app.appendChild(debugSpriteSheet());
-} else {
+} else if (q.has("demo")) {
   const run = () => {
     const h = startBattle(app, demoLoadout((q.get("role") as CharRole) || "melee"), {
       onEnd: () => { h.destroy(); run(); },
@@ -18,4 +20,6 @@ if (q.has("sprites")) {
     });
   };
   run();
+} else {
+  startApp(app);
 }
