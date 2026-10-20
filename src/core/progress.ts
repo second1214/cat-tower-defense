@@ -8,7 +8,10 @@ import {
   SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, addNodeTotals, emptyTotals, modsFromTotals, nodeCost,
   nodeTotalCost,
 } from "../data/skills";
-import { OBJECTS, OBJECT_MAP, OBJ_LEVEL_GROWTH, OBJ_PRODUCE_PER_LEVEL, OBJ_RARITY_COST, OBJ_RARITY_DROP, shardsToNext } from "../data/objects";
+import {
+  OBJECTS, OBJECT_MAP, OBJ_LEVEL_GROWTH, OBJ_PRODUCE_PER_LEVEL, OBJ_RARITY_COST, OBJ_RARITY_DROP, type ObjectBase,
+  type ObjectPerk, shardsToNext,
+} from "../data/objects";
 import {
   AFFIX_MAP, EQUIPS, EQUIP_SLOTS, MAX_EQUIP_RARITY, type EquipItem, type EquipRarity, type EquipSlot,
   equipBaseStats, rollEquip,
@@ -303,7 +306,7 @@ export function sellEquip(save: SaveData, uid: string): Result<number> {
 /** 装備のだいたいの強さ（並べかえ・自動装備用）。 */
 export function equipScore(item: EquipItem): number {
   const b = equipBaseStats(item);
-  const aff = item.affixes.reduce((s, a) => s + a.value, 0);
+  const aff = item.affixes.reduce((s, a) => s + a.value * (AFFIX_MAP[a.id]?.flat ? 0.4 : 1), 0);
   return (1 + b.atk) * (1 + b.hp * 0.5) * (1 + aff * 0.5);
 }
 
@@ -349,12 +352,18 @@ export interface EquipBonus {
   objCost: number;                              // -割合
   objHp: number;                                // +割合
   produce: number;                              // +割合
+  objMultishot: number;                         // うつ物の弾 +数
+  objPierce: number;                            // うつ物の貫通 +数
+  objChain: number;                             // 電撃の連鎖 +数
+  objPoison: number;                            // 毒の強さ +割合
+  objCrit: number;                              // オブジェクトの会心 +確率
 }
 
 export function equipBonus(save: SaveData): EquipBonus {
   const r: EquipBonus = {
     baseAtkMul: 1, baseHpMul: 1, charAtkMul: 1, charHpMul: 1, charMoveMul: 1, objAtk: 0, objAtkKind: {}, objInterval: 0,
-    objIntervalKind: {}, objCost: 0, objHp: 0, produce: 0,
+    objIntervalKind: {}, objCost: 0, objHp: 0, produce: 0, objMultishot: 0, objPierce: 0, objChain: 0, objPoison: 0,
+    objCrit: 0,
   };
   let cAtk = 0, cHp = 0, cMove = 0;
   for (const s of EQUIP_SLOTS) {
@@ -382,6 +391,11 @@ export function equipBonus(save: SaveData): EquipBonus {
         case "charAtk": cAtk += a.value; break;
         case "charHp": cHp += a.value; break;
         case "charMove": cMove += a.value; break;
+        case "objMultishot": r.objMultishot += a.value; break;
+        case "objPierce": r.objPierce += a.value; break;
+        case "objChain": r.objChain += a.value; break;
+        case "objPoison": r.objPoison += a.value; break;
+        case "objCrit": r.objCrit += a.value; break;
       }
     }
   }
@@ -479,6 +493,31 @@ export function charPower(save: SaveData, charId: string): number {
   return charDps(c) * Math.sqrt(c.maxHp);
 }
 
+/** オブジェクトのレベルで解放される特殊効果の一覧（解放ずみかどうかつき）。持っていなければレベル1として。 */
+export function objectPerks(save: SaveData, id: string): { level: number; id: string; name: string; desc: string; unlocked: boolean }[] {
+  const def = OBJECT_MAP[id];
+  if (!def) return [];
+  const lv = save.objects[id]?.level ?? 1;
+  return def.perks.map((p) => ({ level: p.level, id: p.id, name: p.name, desc: p.desc, unlocked: lv >= p.level }));
+}
+
+/** レベル lv で解放されている特殊効果を、基本ステータスにかける（新しい値を返す）。 */
+export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): { stats: ObjectBase; names: string[] } {
+  const stats: ObjectBase = { ...base };
+  const names: string[] = [];
+  for (const p of perks) {
+    if (lv < p.level) continue;
+    names.push(p.name);
+    for (const e of p.effects) {
+      let v = stats[e.stat] as number;
+      if (e.add) v += e.add;
+      if (e.mul !== undefined) v *= e.mul;
+      (stats[e.stat] as number) = v;
+    }
+  }
+  return { stats, names };
+}
+
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
   if (!def) return null;
@@ -487,11 +526,13 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const eq = equipBonus(save);
   const rel = relicBonus(save);
   const sk = skillMods(save, save.selectedChar);
-  const b = def.base;
+  const { stats: b, names } = applyPerks(def.base, def.perks, lv);
   // 装備の基本の攻撃・体力は、猫が置くオブジェクトにも効く
   const atkMul = eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
   const intMul = Math.max(0.4, 1 - eq.objInterval - (eq.objIntervalKind[def.kind] ?? 0));
   const costMul = Math.max(0.4, 1 - eq.objCost - rel.objCost);
+  const attacks = b.atk > 0;
+  const shooter = def.kind === "shooter";
   return {
     id: def.id,
     name: def.name,
@@ -499,14 +540,29 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
     cost: Math.max(1, Math.round(b.cost * costMul)),
     maxHp: b.maxHp * g * eq.baseHpMul * (1 + eq.objHp) * sk.objHpMul,
     atk: b.atk * g * atkMul,
-    interval: b.interval * intMul,
+    interval: Math.max(0.1, b.interval * intMul),
     range: b.range,
-    slow: b.slow,
+    slow: Math.max(0.15, Math.min(1, b.slow)),
     produce: b.produce * (1 + OBJ_PRODUCE_PER_LEVEL * (lv - 1)) * (1 + eq.produce),
-    cooldown: b.cooldown,
+    cooldown: 0,
     upgradeCost: Math.max(1, Math.round(b.upgradeCost * costMul)),
     upgradeMul: b.upgradeMul,
     block: b.block,
+    w: b.w,
+    h: b.h,
+    multishot: Math.floor(b.multishot + (shooter ? eq.objMultishot : 0)),
+    // 弾を増やす補正だけのときは、少し広げる
+    spread: b.spread > 0 || !(shooter && eq.objMultishot > 0) ? b.spread : 0.4,
+    pierce: Math.floor(b.pierce + (shooter ? eq.objPierce : 0)),
+    splash: b.splash,
+    chain: Math.floor(b.chain + (def.kind === "zap" ? eq.objChain : 0)),
+    chainRange: b.chainRange,
+    poison: b.poison * (1 + eq.objPoison),
+    poisonSpread: b.poisonSpread,
+    knockback: b.knockback,
+    crit: attacks ? Math.min(1, b.crit + eq.objCrit) : 0,
+    critMul: Math.max(1.5, b.critMul),
+    perks: names,
   };
 }
 
@@ -545,22 +601,42 @@ export function charDps(c: ResolvedChar): number {
   return (c.atk / c.atkInterval) * critF * multiF * areaF * pierceF * poisonF;
 }
 
+/**
+ * オブジェクト1つのだいたいの DPS（虫の群れに対して。拡散・貫通・爆発・連鎖・毒・範囲をならしたもの）。
+ * 群れは次々に来るが、いつも全部に当たるわけではないので、まとめて当たる数は控えめに見る。
+ */
+export function objectDps(o: ResolvedObject): number {
+  const critF = 1 + (o.crit ?? 0) * Math.max(0, (o.critMul ?? 1.5) - 1);
+  const base = (o.atk / Math.max(0.1, o.interval)) * critF;
+  const poisonF = 1 + Math.min(4, (o.poison ?? 0) * 1.5) * (1 + 0.5 * (o.poisonSpread ?? 0));
+  const area = (r: number) => 1 + 0.6 * r;  // 半径 r の範囲で、だいたい何匹に当たるか
+  switch (o.kind) {
+    case "shooter": {
+      const f = (1 + 0.4 * (o.multishot ?? 0)) * (1 + 0.3 * (o.pierce ?? 0)) * (1 + 0.8 * (o.splash ?? 0));
+      return base * Math.min(8, f) * poisonF;
+    }
+    case "aoe": return base * area(o.range) * poisonF;
+    case "zap": return base * Math.min(8, 1 + 0.5 * (o.chain ?? 0)) * poisonF;
+    case "poison": return base * area(o.range) * poisonF;
+    case "slow": return base * area(Math.max(0, o.range - 0.5)) * poisonF;
+    // わなは1回きり。だいたい数秒に1つ置きなおすとして
+    case "mine": return (o.atk / 6) * critF * (1 + 1.2 * (o.splash ?? 0));
+    default: return 0;
+  }
+}
+
 /** だいたいの DPS（1秒あたりのダメージ）。 */
 export function estimateDps(lo: Pick<Loadout, "char" | "objects">): { char: number; objects: number; total: number } {
   const c = lo.char;
   const char = charDps(c);
   let objects = 0;
-  for (const o of lo.objects) {
-    if (o.kind === "shooter" || o.kind === "slow") objects += o.atk / o.interval;
-    else if (o.kind === "aoe") objects += (o.atk / o.interval) * 1.5;
-    else if (o.kind === "mine") objects += o.atk / Math.max(o.cooldown, 1);
-  }
+  for (const o of lo.objects) objects += objectDps(o);
   objects *= OBJ_COPIES * (1 + (c.objectAura ?? 0) * 0.5);
   return { char, objects, total: char + objects };
 }
 
-/** 虫がママまで歩く道のりの目安（マス）。7×11 の盤面で、迷路にすると遠回りする。 */
-export const PATH_TILES = 22;
+/** 虫がママまで歩く道のりの目安（マス）。14×18 の盤面で、家具やオブジェクトをよけて遠回りする。 */
+export const PATH_TILES = 30;
 
 /** ステージの虫の体力の合計と、だいたいの長さ（秒。最後の虫がママに着くまで）。 */
 export function stageLoad(stage: StageDef): { totalHp: number; duration: number; count: number } {
@@ -571,8 +647,7 @@ export function stageLoad(stage: StageDef): { totalHp: number; duration: number;
       const b = bugs[g.bug];
       totalHp += (b?.hp ?? 0) * stage.hpMul * g.count;
       count += g.count;
-      // 飛ぶ虫はまっすぐ（だいたい盤面の縦の長さ）
-      const walk = (b?.fly ? 10 : PATH_TILES) / Math.max(0.1, b?.speed ?? 0.5);
+      const walk = PATH_TILES / Math.max(0.1, b?.speed ?? 0.5);
       end = Math.max(end, w.at + g.count * g.every + walk * 0.5);
     }
   }

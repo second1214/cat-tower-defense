@@ -1,30 +1,30 @@
 // 戦闘の盤面を Canvas 2D で描く（エンジンの state を読むだけ。状態は変えない）。
 //
-// v2: 家の中の部屋を上から見た盤面（7列 × 11行）。上の壁に虫の出てくる穴（章 3 からは左右の壁にも）、
-// 一番下の真ん中のマスにママ（大きめに描く）。マスはだいたい正方形で、横幅に合わせる。
-// 通れないオブジェクトは影つきで立体に、通れるものは床に平たく描く。虫の通り道（出口からママまでの最短の道）を
-// うすい点線と矢印で出す（showPath で切りかえ）。猫のマスに通れないものを置くと道がなくなるときは、そのマスを赤くする。
+// v3: 焦げ茶のフローリングの大きな部屋（14列 × 18行）。上の壁に虫の出てくる穴（章 3 からは左右の壁の上の方にも）、
+// 一番下の真ん中の 2×2 にママ。マスは正方形で、幅と高さの小さい方に合わせる（390px 幅のスマホで 1 マス 27px ほど）。
+// オブジェクトは大きさ（w×h マス）どおりに描く。通れないものは影つきで立体に、通れるものは床に平たく。
+// 虫の通り道（出口からママまでの最短の道）をうすい点線と矢印で出す（showPath で切りかえ）。
+// 置こうとしているカードの「影」（ghost）を、置ける＝緑・置けない＝赤（理由つき）で出す。
+// 電撃のぎざぎざの線・毒の雲・範囲の輪・会心の「!」つき数字。
 // 背景（床・壁・マス目）は大きさが変わったときだけオフスクリーンに描いておき、毎コマはそれを貼るだけ。
 
 import { COLS, ROWS } from "../core/types";
 import type { Battle, BattleEvent, BugState, ObjState } from "./engine";
-import { FLOAT_LIFE, GOAL_COL, GOAL_ROW, SIDE_SPAWN_CHAPTER, SPAWN_Y } from "./engine";
+import { FLOAT_LIFE, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, KNOCK_TIME, SIDE_SPAWN_ROWS, SPAWN_Y } from "./engine";
 import { getFlashSprite, getSprite, type SpriteHint } from "./sprites";
 import { fmt } from "../core/num";
 
-/** 上の壁（虫の出てくる所）の高さ（マスに対する割合）。 */
-const TOP_PAD = 0.7;
+/** 上の壁（虫の出てくる所）の、少なくともの高さ（マスに対する割合）。 */
+const TOP_PAD = 0.6;
 /** 下の幅木の高さ。 */
-const BOT_PAD = 0.28;
+const BOT_PAD = 0.2;
 /** 左右の壁の厚さ。 */
-const SIDE_PAD = 0.16;
-/** マスの横幅は高さの何倍まで広げてよいか。 */
-const MAX_ASPECT = 1.12;
+const SIDE_PAD = 0.14;
 
-const OL = "#4a2c1d";
+const OL = "#2a170d";
 
 interface Fx {
-  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris";
+  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris" | "cloud";
   x: number;      // 盤面の座標（マス）
   y: number;
   vx: number;
@@ -36,28 +36,47 @@ interface Fx {
   text?: string;
 }
 
-const MAX_FX = 320;
+interface Bolt { x0: number; y0: number; x1: number; y1: number; t: number; life: number; k: number }
+
+const MAX_FX = 360;
+const MAX_BOLTS = 80;
 
 export interface Layout {
   w: number;      // canvas の CSS 幅
   h: number;
   cw: number;     // マスの幅（CSS px）
   ch: number;
-  u: number;      // 絵の基準の大きさ
+  u: number;      // 絵の基準の大きさ（= マスの大きさ）
   ox: number;     // 列 0 の左端
   oy: number;     // 行 0 の上端
+}
+
+/** 置こうとしているカードの影。 */
+export interface Ghost {
+  slot: number;
+  col: number;    // 左上のマス
+  row: number;
+  ok: boolean;
+  reason?: string;
 }
 
 export class BattleView {
   readonly canvas: HTMLCanvasElement;
   /** 虫の通り道を出すか。 */
   showPath = true;
+  /** 置こうとしているカードの影（null なら無し）。 */
+  ghost: Ghost | null = null;
+  /** 情報を出しているオブジェクト（強調して射程を出す）。 */
+  selectedUid = -1;
   private readonly g: CanvasRenderingContext2D;
   private dpr = 1;
   private bg: HTMLCanvasElement | null = null;
   L: Layout = { w: 1, h: 1, cw: 1, ch: 1, u: 1, ox: 0, oy: 0 };
   private fx: Fx[] = [];
+  private bolts: Bolt[] = [];
   private shake = 0;
+  private shx = 0;
+  private shy = 0;
   private mamaScared = 0;
   private banner = { text: "", sub: "", t: 99 };
   private clock = 0;
@@ -66,7 +85,6 @@ export class BattleView {
   private catId: string;
   private readonly topHoles: number[];
   private readonly sideHoles: boolean;
-  private readonly hasBlocker: boolean;
   /** 通り道（マスからマスへの線）。flowVersion が変わったら作りなおす。 */
   private route: { edges: [number, number, number, number][]; starts: [number, number][]; ver: number } = { edges: [], starts: [], ver: -1 };
   /** 虫の向き（なめらかに回す）。 */
@@ -78,7 +96,6 @@ export class BattleView {
     const ch = battle.loadout.char;
     this.catId = ch.id;
     this.catHint = { role: ch.role };
-    // 出口の穴: lanes 指定の列＋（lanes 無しの虫がいれば）全部の列
     const st = battle.loadout.stage;
     const lanes = new Set<number>();
     let any = false;
@@ -86,9 +103,8 @@ export class BattleView {
       if (e.lanes && e.lanes.length > 0) e.lanes.forEach((l) => lanes.add(Math.max(0, Math.min(COLS - 1, Math.floor(l)))));
       else any = true;
     }
-    this.topHoles = any ? Array.from({ length: COLS }, (_, i) => i) : [...lanes];
-    this.sideHoles = any && st.chapter >= SIDE_SPAWN_CHAPTER;
-    this.hasBlocker = battle.loadout.objects.some((o) => o.block);
+    this.topHoles = any || lanes.size === 0 ? Array.from({ length: COLS }, (_, i) => i) : [...lanes];
+    this.sideHoles = battle.hasSideSpawns && (any || lanes.size === 0);
   }
 
   /** 縮小ずみの絵（大きさごと）。毎コマの drawImage で縮小しないため（遅い端末で効く）。 */
@@ -125,13 +141,11 @@ export class BattleView {
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
     const rows = ROWS + TOP_PAD + BOT_PAD;
-    let ch = h / rows;
-    let cw = w / (COLS + SIDE_PAD * 2);
-    if (cw < ch) ch = cw;
-    else cw = Math.min(cw, ch * MAX_ASPECT);
-    const ox = (w - cw * COLS) / 2;
-    const oy = (h - ch * rows) / 2 + TOP_PAD * ch;
-    this.L = { w, h, cw, ch, u: Math.min(cw, ch), ox, oy };
+    const cell = Math.max(1, Math.min(w / (COLS + SIDE_PAD * 2), h / rows));
+    const ox = (w - cell * COLS) / 2;
+    // 床は下にそろえる（あまった高さは上の壁になる。親指から近く、ママのまわりが見やすい）
+    const oy = h - cell * (ROWS + BOT_PAD);
+    this.L = { w, h, cw: cell, ch: cell, u: cell, ox, oy };
     this.scaled.clear();
     this.bg = this.renderBackground();
   }
@@ -141,6 +155,11 @@ export class BattleView {
     return { x: this.L.ox + x * this.L.cw, y: this.L.oy + y * this.L.ch };
   }
 
+  /** canvas の CSS 座標 → 盤面の座標（マス単位。外もそのまま返す）。 */
+  fromPx(px: number, py: number): { x: number; y: number } {
+    return { x: (px - this.L.ox) / this.L.cw, y: (py - this.L.oy) / this.L.ch };
+  }
+
   /** 波の始まりなどの大きな文字。 */
   showBanner(text: string, sub = ""): void {
     this.banner = { text, sub, t: 0 };
@@ -148,46 +167,76 @@ export class BattleView {
 
   /** エンジンの出来事から、演出を足す。 */
   onEvents(events: readonly BattleEvent[]): void {
+    let kills = 0;
     for (const e of events) {
       switch (e.type) {
         case "kill": {
-          this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.45, life: 0.35, color: "#fff" });
-          const n = this.fx.length > 200 ? 2 : 5;
+          kills++;
+          if (kills > 24) break;
+          this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.4, life: 0.3, color: "#fff" });
+          const n = this.fx.length > 220 ? 1 : 4;
           for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2;
-            this.addFx({ type: "pop", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, r: 0.09, life: 0.45, color: POP_COLORS[i % POP_COLORS.length] });
+            this.addFx({ type: "pop", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, r: 0.08, life: 0.4, color: POP_COLORS[i % POP_COLORS.length] });
           }
           break;
         }
         case "kibble":
-          if (this.fx.length < 260) this.addFx({ type: "text", x: e.x, y: e.y - 0.35, vy: -0.6, r: 0.28, life: 0.7, color: "#ffd84a", text: `+${dmgText(e.value)}` });
+          if (this.fx.length < 200 && kills < 12) this.addFx({ type: "text", x: e.x, y: e.y - 0.35, vy: -0.6, r: 0.42, life: 0.6, color: "#ffd84a", text: `+${dmgText(e.value)}` });
           break;
         case "aoe":
           this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.35, color: "rgba(255,255,255,0.9)" });
+          break;
+        case "splash":
+          if (this.fx.length < 300) this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.3, color: "#ffb04a" });
           break;
         case "slow":
           this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.4, color: "rgba(140,210,255,0.9)" });
           break;
         case "mine":
           this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.5, color: "#ffb84a" });
-          this.addFx({ type: "text", x: e.x, y: e.y - 0.2, r: 0.42, life: 0.7, color: "#ff8a3a", text: "ばちん!" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.2, r: 0.6, life: 0.7, color: "#ff8a3a", text: "ばちん!" });
           this.shake = Math.max(this.shake, 0.18);
           break;
+        case "zap":
+          if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
+          this.bolts.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0, life: 0.3, k: e.value });
+          if (this.fx.length < 300) this.addFx({ type: "spark", x: e.x2, y: e.y2, r: 0.16, life: 0.25, color: "#bfe8ff" });
+          break;
+        case "poisonCloud":
+          for (let i = 0; i < 5; i++) {
+            const a = Math.random() * Math.PI * 2, d = Math.random() * e.value * 0.6;
+            this.addFx({ type: "cloud", x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, r: e.value * (0.45 + Math.random() * 0.3), life: 0.9 + Math.random() * 0.4, color: i % 2 ? "120,200,90" : "160,110,210" });
+          }
+          break;
+        case "poisonSpread":
+          if (this.fx.length < 300) {
+            this.addFx({ type: "cloud", x: e.x, y: e.y, r: e.value * 0.8, life: 0.6, color: "120,210,90" });
+            this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.35, color: "#8fe070" });
+          }
+          break;
         case "dodge":
-          this.addFx({ type: "text", x: e.x, y: e.y - 0.55, r: 0.28, life: 0.6, color: "#bfe8ff", text: "ひらり" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.55, r: 0.4, life: 0.6, color: "#bfe8ff", text: "ひらり" });
           break;
         case "knockback":
-          this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.35, life: 0.25, color: "#fff2b0" });
+          if (this.fx.length < 260) this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.3, life: 0.22, color: "#fff2b0" });
+          break;
+        case "push":
+          this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.35, life: 0.3, color: "#ffffff" });
           break;
         case "place":
-          this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.6, life: 0.3, color: "#fff" });
+          this.addFx({ type: "puff", x: e.x, y: e.y, r: 1, life: 0.35, color: "#fff" });
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            this.addFx({ type: "debris", x: e.x, y: e.y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2 - 1, r: 0.07, life: 0.4, color: "#e8d2b0" });
+          }
           break;
         case "upgrade":
           for (let i = 0; i < 8; i++) {
             const a = (i / 8) * Math.PI * 2;
-            this.addFx({ type: "spark", x: e.x, y: e.y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, r: 0.12, life: 0.5, color: "#ffd84a" });
+            this.addFx({ type: "spark", x: e.x, y: e.y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, r: 0.18, life: 0.5, color: "#ffd84a" });
           }
-          this.addFx({ type: "text", x: e.x, y: e.y - 0.3, r: 0.36, life: 0.8, color: "#ffd84a", text: "UP!" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.4, r: 0.55, life: 0.8, color: "#ffd84a", text: "UP!" });
           break;
         case "objectBroken":
           for (let i = 0; i < 6; i++) {
@@ -196,15 +245,15 @@ export class BattleView {
           }
           break;
         case "catDown":
-          this.addFx({ type: "text", x: e.x, y: e.y - 0.5, r: 0.34, life: 1.2, color: "#9fd8ff", text: "きゅう…" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.6, r: 0.5, life: 1.2, color: "#9fd8ff", text: "きゅう…" });
           break;
         case "catUp":
-          this.addFx({ type: "text", x: e.x, y: e.y - 0.5, r: 0.34, life: 0.9, color: "#ffd84a", text: "ふっかつ!" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.6, r: 0.5, life: 0.9, color: "#ffd84a", text: "ふっかつ!" });
           break;
         case "mamaHit":
           this.shake = Math.max(this.shake, 0.35);
           this.mamaScared = 0.9;
-          this.addFx({ type: "text", x: GOAL_COL + 0.5, y: GOAL_ROW - 0.6, r: 0.42, life: 0.9, color: "#ff5a6a", text: "きゃー!" });
+          this.addFx({ type: "text", x: GOAL_X, y: GOAL_ROW - 0.4, r: 0.65, life: 0.9, color: "#ff5a6a", text: "きゃー!" });
           break;
         default:
           break;
@@ -230,82 +279,108 @@ export class BattleView {
     g.scale(this.dpr, this.dpr);
     const bw = cw * COLS;
     const bh = ch * ROWS;
-    const top = oy - TOP_PAD * ch;
+    const top = 0;
     const floorBottom = oy + bh;
-    const side = Math.max(4, SIDE_PAD * cw);
+    const side = Math.max(3, SIDE_PAD * cw);
+    const rnd = mulberry(7);
 
-    // 外側（となりの部屋の壁）
-    g.fillStyle = "#b99a78";
+    // 外側
+    g.fillStyle = "#1c120c";
     g.fillRect(0, 0, w, h);
 
-    // 床（板の間。横長の板を、ずらして並べる）
-    g.fillStyle = "#e7c391";
+    // 床（焦げ茶のフローリング。横長の板を、ずらして並べる）
+    g.fillStyle = "#4a2d1e";
     g.fillRect(ox, oy, bw, bh);
-    const plankH = ch / 2;
-    g.strokeStyle = "rgba(140,90,45,0.22)";
+    const plankH = ch * 0.5;
+    const tones = ["#4f3020", "#553424", "#47291b", "#5b3926", "#4b2c1d"];
+    for (let i = 0, y = oy; y < floorBottom - 0.5; i++, y += plankH) {
+      const ph = Math.min(plankH, floorBottom - y);
+      let x = ox - rnd() * cw * 3;
+      while (x < ox + bw) {
+        const len = cw * (2.5 + rnd() * 3);
+        const x0 = Math.max(ox, x), x1 = Math.min(ox + bw, x + len);
+        g.fillStyle = tones[Math.floor(rnd() * tones.length)];
+        g.fillRect(x0, y, x1 - x0, ph);
+        // 木目
+        g.strokeStyle = "rgba(255,210,160,0.05)";
+        g.lineWidth = 1;
+        for (let k = 0; k < 2; k++) {
+          const gy = y + ph * (0.25 + rnd() * 0.5);
+          g.beginPath();
+          g.moveTo(x0, gy);
+          g.bezierCurveTo(x0 + (x1 - x0) * 0.3, gy + (rnd() - 0.5) * 3, x0 + (x1 - x0) * 0.7, gy + (rnd() - 0.5) * 3, x1, gy);
+          g.stroke();
+        }
+        // 継ぎ目（たて）
+        if (x1 < ox + bw) {
+          g.fillStyle = "rgba(15,7,3,0.6)";
+          g.fillRect(x1 - 0.5, y, 1.2, ph);
+        }
+        x += len;
+      }
+      // 継ぎ目（よこ）
+      g.fillStyle = "rgba(15,7,3,0.55)";
+      g.fillRect(ox, y, bw, 1.2);
+      g.fillStyle = "rgba(255,220,180,0.05)";
+      g.fillRect(ox, y + 1.2, bw, 1);
+    }
+    // マス目（ごくうすく）
+    g.strokeStyle = "rgba(255,225,190,0.07)";
     g.lineWidth = 1;
-    for (let i = 0, y = oy; y < floorBottom; i++, y += plankH) {
-      g.fillStyle = i % 3 === 0 ? "rgba(255,255,255,0.07)" : i % 3 === 1 ? "rgba(120,70,30,0.05)" : "rgba(0,0,0,0)";
-      g.fillRect(ox, y, bw, plankH);
-      g.beginPath(); g.moveTo(ox, y); g.lineTo(ox + bw, y); g.stroke();
-      const shift = ((i * 37) % 100) / 100;
-      for (let x = ox + shift * cw * 2.2; x < ox + bw; x += cw * 2.2) {
-        g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + plankH); g.stroke();
-      }
-    }
-    // マス目（うすく）
-    g.strokeStyle = "rgba(90,55,30,0.12)";
-    g.lineWidth = 1.2;
-    for (let r = 0; r < ROWS; r++) {
-      for (let col = 0; col < COLS; col++) {
-        g.beginPath();
-        g.roundRect(ox + col * cw + 2.5, oy + r * ch + 2.5, cw - 5, ch - 5, u * 0.14);
-        g.stroke();
-      }
-    }
+    g.beginPath();
+    for (let col = 1; col < COLS; col++) { g.moveTo(ox + col * cw + 0.5, oy); g.lineTo(ox + col * cw + 0.5, floorBottom); }
+    for (let r = 1; r < ROWS; r++) { g.moveTo(ox, oy + r * ch + 0.5); g.lineTo(ox + bw, oy + r * ch + 0.5); }
+    g.stroke();
 
-    // ママのラグ（ゴールのマスのまわり）
-    const mx = ox + (GOAL_COL + 0.5) * cw, my = oy + (GOAL_ROW + 0.45) * ch;
-    g.fillStyle = "#f6a9b4";
-    g.beginPath(); g.ellipse(mx, my, cw * 1.25, ch * 0.75, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = "#e07a88";
-    g.lineWidth = 2.5;
-    g.setLineDash([6, 5]);
-    g.beginPath(); g.ellipse(mx, my, cw * 1.05, ch * 0.6, 0, 0, Math.PI * 2); g.stroke();
-    g.setLineDash([]);
-    // ゴールのマス
-    g.strokeStyle = "rgba(220,70,90,0.55)";
+    // ママのラグ（2×2 のまわり）
+    const mx = ox + (GOAL_COL + GOAL_W / 2) * cw, my = oy + (GOAL_ROW + GOAL_H / 2) * ch;
+    g.fillStyle = "#e88d9c";
+    g.beginPath(); g.ellipse(mx, my, cw * 1.55, ch * 1.15, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = "#ffd0d8";
     g.lineWidth = 2;
-    g.beginPath(); g.roundRect(ox + GOAL_COL * cw + 3, oy + GOAL_ROW * ch + 3, cw - 6, ch - 6, u * 0.14); g.stroke();
+    g.setLineDash([5, 4]);
+    g.beginPath(); g.ellipse(mx, my, cw * 1.3, ch * 0.95, 0, 0, Math.PI * 2); g.stroke();
+    g.setLineDash([]);
+    g.strokeStyle = "rgba(255,120,140,0.6)";
+    g.lineWidth = 1.5;
+    g.beginPath(); g.roundRect(ox + GOAL_COL * cw + 2, oy + GOAL_ROW * ch + 2, cw * GOAL_W - 4, ch * GOAL_H - 4, u * 0.25); g.stroke();
 
     // 上の壁（壁紙）
-    g.fillStyle = "#f4e7d2";
+    g.fillStyle = "#efe0c6";
     g.fillRect(ox - side, top, bw + side * 2, oy - top);
-    g.fillStyle = "rgba(200,170,130,0.25)";
-    for (let x = ox - side; x < ox + bw + side; x += 14) g.fillRect(x, top, 6, oy - top);
-    // 窓（左右の端の上のほう、穴のじゃまにならないように小さく）
-    const wy = top + ch * 0.06, wh = (oy - top) * 0.55;
-    for (const wx of [ox + cw * 1.1, ox + cw * 4.3]) {
-      const ww = cw * 1.6;
-      g.fillStyle = "#fff"; g.strokeStyle = OL; g.lineWidth = 2.5;
-      g.beginPath(); g.roundRect(wx, wy, ww, wh, 5); g.fill(); g.stroke();
-      const glass = g.createLinearGradient(0, wy, 0, wy + wh);
-      glass.addColorStop(0, "#a9dcf7"); glass.addColorStop(1, "#dff3ff");
-      g.fillStyle = glass;
-      g.fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
-      g.fillStyle = OL;
-      g.fillRect(wx + ww / 2 - 1, wy + 2, 2, wh - 4);
+    g.fillStyle = "rgba(190,160,120,0.22)";
+    for (let x = ox - side; x < ox + bw + side; x += 10) g.fillRect(x, top, 4, oy - top);
+    // 窓（壁が高いとき）
+    const wallH = oy - top;
+    if (wallH > ch * 1.8) {
+      const wh = Math.min(wallH - ch * 0.9, ch * 3.2), wy = oy - ch * 0.45 - wh;
+      for (const [wx0, ww0] of [[2, 3.2], [8.8, 3.2]] as const) {
+        const wx = ox + wx0 * cw, ww = ww0 * cw;
+        g.fillStyle = "#fff"; g.strokeStyle = "#6b4228"; g.lineWidth = 3;
+        g.beginPath(); g.roundRect(wx, wy, ww, wh, 5); g.fill(); g.stroke();
+        const glass = g.createLinearGradient(0, wy, 0, wy + wh);
+        glass.addColorStop(0, "#9fd3f2"); glass.addColorStop(1, "#e2f4ff");
+        g.fillStyle = glass;
+        g.fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
+        g.fillStyle = "#6b4228";
+        g.fillRect(wx + ww / 2 - 1.5, wy + 2, 3, wh - 4);
+        g.fillRect(wx + 2, wy + wh / 2 - 1.5, ww - 4, 3);
+        // カーテン
+        g.fillStyle = "rgba(240,150,160,0.85)";
+        g.beginPath(); g.moveTo(wx - 4, wy - 4); g.quadraticCurveTo(wx + ww * 0.2, wy + wh * 0.5, wx + 2, wy + wh + 4); g.lineTo(wx - 6, wy + wh + 4); g.closePath(); g.fill();
+        g.beginPath(); g.moveTo(wx + ww + 4, wy - 4); g.quadraticCurveTo(wx + ww * 0.8, wy + wh * 0.5, wx + ww - 2, wy + wh + 4); g.lineTo(wx + ww + 6, wy + wh + 4); g.closePath(); g.fill();
+      }
     }
     // 幅木
-    const bbH = ch * 0.22;
-    g.fillStyle = "#a8794f";
+    const bbH = ch * 0.2;
+    g.fillStyle = "#6b4228";
     g.fillRect(ox - side, oy - bbH, bw + side * 2, bbH);
-    g.fillStyle = "rgba(0,0,0,0.12)";
-    g.fillRect(ox - side, oy - 3, bw + side * 2, 3);
-    // 虫の出てくる穴（ねずみ穴のようなアーチ）
+    g.fillStyle = "rgba(0,0,0,0.3)";
+    g.fillRect(ox - side, oy - 2, bw + side * 2, 2);
+    // 虫の出てくる穴（すきま）
     for (const col of this.topHoles) {
-      const hx = ox + (col + 0.5) * cw, hw = cw * 0.5, hh = ch * 0.42;
-      g.fillStyle = "#2c1a10";
+      const hx = ox + (col + 0.5) * cw, hw = cw * 0.55, hh = ch * 0.4;
+      g.fillStyle = "#120a05";
       g.beginPath();
       g.moveTo(hx - hw / 2, oy);
       g.lineTo(hx - hw / 2, oy - hh + hw / 2);
@@ -313,35 +388,24 @@ export class BattleView {
       g.lineTo(hx + hw / 2, oy);
       g.closePath();
       g.fill();
-      g.strokeStyle = "#7a5233"; g.lineWidth = 2; g.stroke();
-      // 床にこぼれる影
-      g.fillStyle = "rgba(40,20,10,0.18)";
-      g.beginPath(); g.ellipse(hx, oy + 2, hw * 0.6, ch * 0.08, 0, 0, Math.PI * 2); g.fill();
     }
 
     // 左右の壁
-    g.fillStyle = "#c9a57c";
+    g.fillStyle = "#6b4228";
     g.fillRect(ox - side, oy, side, bh);
     g.fillRect(ox + bw, oy, side, bh);
-    g.fillStyle = "rgba(60,35,20,0.25)";
-    g.fillRect(ox - 3, oy, 3, bh);
-    g.fillRect(ox + bw, oy, 3, bh);
     if (this.sideHoles) {
-      for (let r = 0; r < 3; r++) {
+      for (let r = 0; r < SIDE_SPAWN_ROWS; r++) {
         for (const left of [true, false]) {
-          const hy = oy + (r + 0.5) * ch, hh = ch * 0.5;
-          const x0 = left ? ox - side : ox + bw;
-          g.fillStyle = "#2c1a10";
-          g.beginPath(); g.roundRect(x0, hy - hh / 2, side, hh, 3); g.fill();
+          const hy = oy + (r + 0.5) * ch, hh = ch * 0.55;
+          g.fillStyle = "#120a05";
+          g.beginPath(); g.roundRect(left ? ox - side : ox + bw, hy - hh / 2, side, hh, 2); g.fill();
         }
       }
     }
-
     // 下の幅木
-    g.fillStyle = "#a8794f";
-    g.fillRect(ox - side, floorBottom, bw + side * 2, Math.max(3, BOT_PAD * ch * 0.7));
-    g.fillStyle = "rgba(0,0,0,0.15)";
-    g.fillRect(ox - side, floorBottom, bw + side * 2, 2);
+    g.fillStyle = "#6b4228";
+    g.fillRect(ox - side, floorBottom, bw + side * 2, Math.max(3, BOT_PAD * ch * 0.8));
     return c;
   }
 
@@ -359,9 +423,12 @@ export class BattleView {
 
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     if (this.bg) g.drawImage(this.bg, 0, 0, this.L.w, this.L.h);
+    this.shx = 0; this.shy = 0;
     if (this.shake > 0) {
-      const m = this.shake * u * 0.25;
-      g.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+      const m = this.shake * u * 0.3;
+      this.shx = (Math.random() - 0.5) * m;
+      this.shy = (Math.random() - 0.5) * m;
+      g.setTransform(this.dpr, 0, 0, this.dpr, this.dpr * this.shx, this.dpr * this.shy);
     }
     const X = (x: number) => ox + x * cw;
     const Y = (y: number) => oy + y * ch;
@@ -369,113 +436,177 @@ export class BattleView {
     // 虫の通り道
     if (this.showPath) this.drawRoute(g);
 
-    const cat = b.cat;
-    // 猫のマスの強調（置ける・強化できる・ふさげない・休けい中）
-    const cell = b.catCell();
-    const occupied = b.objectAt(cell.col, cell.row);
-    const isGoal = cell.col === GOAL_COL && cell.row === GOAL_ROW;
-    const sealed = !occupied && !isGoal && this.hasBlocker && b.wouldSeal(cell.col, cell.row);
-    const cx0 = X(cell.col), cy0 = Y(cell.row);
-    let fill: string, stroke: string;
-    if (cat.resting) { fill = "rgba(120,120,140,0.2)"; stroke = "rgba(110,110,130,0.7)"; }
-    else if (occupied) { fill = "rgba(255,210,70,0.28)"; stroke = "#f0b020"; }
-    else if (isGoal || sealed) { fill = "rgba(255,70,70,0.3)"; stroke = "#e0403a"; }
-    else { fill = "rgba(110,220,130,0.25)"; stroke = "#4cbf6a"; }
-    g.fillStyle = fill;
-    g.beginPath(); g.roundRect(cx0 + 2, cy0 + 2, cw - 4, ch - 4, u * 0.16); g.fill();
-    g.strokeStyle = stroke;
-    g.lineWidth = 3;
-    g.setLineDash(occupied || sealed ? [] : [7, 5]);
-    g.lineDashOffset = -this.clock * 20;
-    g.stroke();
-    g.setLineDash([]);
-    if (sealed && !cat.resting) {
-      // ×じるし
-      const k = u * 0.16, mx = cx0 + cw / 2, my = cy0 + ch / 2;
-      g.strokeStyle = "rgba(224,64,58,0.8)";
-      g.lineWidth = Math.max(3, u * 0.07);
-      g.lineCap = "round";
-      g.beginPath(); g.moveTo(mx - k, my - k); g.lineTo(mx + k, my + k); g.moveTo(mx + k, my - k); g.lineTo(mx - k, my + k); g.stroke();
-      g.lineCap = "butt";
-    }
-
     // 猫の攻撃が届く範囲（うすく）
+    const cat = b.cat;
     if (!cat.resting) {
       const rng = b.loadout.char.range;
-      g.strokeStyle = "rgba(255,255,255,0.4)";
-      g.lineWidth = 1.5;
+      g.strokeStyle = "rgba(255,255,255,0.3)";
+      g.lineWidth = 1.2;
       g.beginPath();
-      g.ellipse(X(cat.x), Y(cat.y), rng * cw, rng * ch, 0, 0, Math.PI * 2);
+      g.arc(X(cat.x), Y(cat.y), rng * u, 0, Math.PI * 2);
       g.stroke();
     }
 
-    // オブジェクト: 通れるもの（床）→ 通れないもの（上の行から。下の行が手前）
-    for (const o of b.objects) if (!o.def.block) this.drawFlatObject(g, o, X(o.col + 0.5), Y(o.row + 0.5));
-    const solids = b.objects.filter((o) => o.def.block).sort((p, q) => p.row - q.row);
-    // ステージの障害物（家具）とオブジェクトを、上の行から順に（下の行が手前）
-    const items: { row: number; draw: () => void }[] = solids.map((o) => ({ row: o.row, draw: () => this.drawSolidObject(g, o, X(o.col + 0.5), Y(o.row + 0.5)) }));
-    for (const ob of b.obstacles) items.push({ row: ob.row, draw: () => this.drawObstacle(g, ob.kind, X(ob.col + 0.5), Y(ob.row + 0.5)) });
+    // オブジェクト: 通れるもの（床）→ 通れないもの・家具（上の行から。下の行が手前）
+    for (const o of b.objects) if (!o.def.block) this.drawFlatObject(g, o);
+    const items: { row: number; o?: ObjState; ob?: { col: number; row: number; kind: string; w?: number; h?: number } }[] = [];
+    for (const o of b.objects) if (o.def.block) items.push({ row: o.row + o.h, o });
+    for (const ob of b.obstacles) items.push({ row: ob.row + (ob.h ?? 1), ob });
     items.sort((p, q) => p.row - q.row);
-    for (const it of items) it.draw();
+    for (const it of items) {
+      if (it.o) this.drawSolidObject(g, it.o);
+      else if (it.ob) {
+        const w = it.ob.w ?? 1, h = it.ob.h ?? 1;
+        this.drawObstacle(g, it.ob.kind, X(it.ob.col + w / 2), Y(it.ob.row + h / 2), w * cw, h * ch);
+      }
+    }
+    // 選んでいるオブジェクトの射程
+    if (this.selectedUid >= 0) {
+      const o = b.objectByUid(this.selectedUid);
+      if (o) this.drawRangeHighlight(g, o.col, o.row, o.w, o.h, o.def.range, o.def.kind, "#ffd84a");
+    }
 
     // ママ
-    this.drawMama(g, X(GOAL_COL + 0.5), Y(GOAL_ROW + 1) - ch * 0.04, u * 1.75);
+    this.drawMama(g, X(GOAL_X), Y(GOAL_ROW + GOAL_H) - ch * 0.05, u * 2.3);
 
-    // 虫（地面の虫 → 猫 → 飛ぶ虫）
-    for (const bug of b.bugs) if (!bug.def.fly) this.drawBug(g, bug, dt);
+    // 虫 → 猫
+    const bugs = b.bugs;
+    for (let i = 0; i < bugs.length; i++) this.drawBug(g, bugs[i], dt);
+    this.resetTf();
     this.drawCat(g, dt, X(cat.x), Y(cat.y));
-    for (const bug of b.bugs) if (bug.def.fly) this.drawBug(g, bug, dt);
-    if (this.bugAngle.size > b.bugs.length * 2 + 32) {
-      const alive = new Set(b.bugs.map((x) => x.uid));
+    if (this.bugAngle.size > bugs.length * 2 + 64) {
+      const alive = new Set(bugs.map((x) => x.uid));
       for (const k of this.bugAngle.keys()) if (!alive.has(k)) this.bugAngle.delete(k);
     }
 
     // 弾
-    for (const p of b.projectiles) {
-      const s = p.fromCat ? u * 0.26 : u * 0.3;
-      const img = getSprite("projectile", p.kind);
+    const ps = b.projectiles;
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i];
+      const s = (p.fromCat ? u * 0.4 : u * 0.42) * (p.crit ? 1.3 : 1);
+      const img = this.scaledOf(getSprite("projectile", p.kind), s);
+      const sw = img.width / this.dpr;
       if (p.kind === "shooter") {
-        g.save();
-        g.translate(X(p.x), Y(p.y));
-        g.rotate(this.clock * 14 + p.uid);
-        g.drawImage(img, -s / 2, -s / 2, s, s);
-        g.restore();
+        const a = this.clock * 14 + p.uid;
+        this.tf(X(p.x), Y(p.y), a);
+        g.drawImage(img, -sw / 2, -sw / 2, sw, sw);
       } else {
-        this.blit(img, X(p.x), Y(p.y), p.crit ? s * 1.3 : s);
+        g.drawImage(img, X(p.x) - sw / 2, Y(p.y) - sw / 2, sw, sw);
       }
     }
+    this.resetTf();
 
+    // 電撃
+    this.drawBolts(g, dt);
     // 演出
     this.drawFx(g, dt);
 
     // ダメージの数字
-    const fs = Math.max(11, u * 0.3);
+    const fs = Math.max(10, u * 0.42);
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.lineJoin = "round";
     g.strokeStyle = OL;
+    g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif`;
+    g.lineWidth = Math.max(2.5, fs * 0.22);
     for (const f of b.floats) {
       const k = f.age / FLOAT_LIFE;
       const alpha = k > 0.7 ? (1 - k) / 0.3 : 1;
-      const big = f.kind === "crit" ? 1.35 : f.kind === "poison" ? 0.8 : 1;
+      const crit = f.kind === "crit";
+      const big = crit ? 1.6 : f.kind === "poison" ? 0.8 : 1;
       const sc = (k < 0.15 ? 0.7 + k * 3 : 1.15 - Math.min(0.15, (k - 0.15) * 0.4)) * big;
-      const x = X(f.x), y = Y(f.y) - k * ch * 0.6;
+      const x = X(f.x), y = Y(f.y) - k * ch * 0.8;
       g.globalAlpha = Math.max(0, alpha);
-      const t = (f.kind === "heal" ? "+" : "") + dmgText(f.value) + (f.kind === "crit" ? "!" : "");
-      g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif`;
-      g.lineWidth = Math.max(3, fs * 0.22);
-      g.save();
-      g.translate(x, y);
-      g.scale(sc, sc);
+      const t = (f.kind === "heal" ? "+" : "") + dmgText(f.value) + (crit ? "!" : "");
+      this.tf(x, y, crit ? Math.sin(f.age * 40) * 0.08 : 0, sc);
+      if (crit) { g.strokeStyle = "#c2300a"; g.lineWidth = Math.max(3, fs * 0.3); }
       g.strokeText(t, 0, 0);
       g.fillStyle = FLOAT_COLORS[f.kind];
       g.fillText(t, 0, 0);
-      g.restore();
+      if (crit) { g.strokeStyle = OL; g.lineWidth = Math.max(2.5, fs * 0.22); }
     }
+    this.resetTf();
     g.globalAlpha = 1;
 
+    // 置こうとしているカードの影
+    if (this.ghost) this.drawGhost(g, this.ghost);
+
     // 波の文字
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawBanner(g, dt);
+  }
+
+  /** 回転・拡大つきで描く準備（setTransform で、save/restore を使わない）。 */
+  private tf(x: number, y: number, ang: number, sc = 1): void {
+    const d = this.dpr, c = Math.cos(ang) * sc * d, s = Math.sin(ang) * sc * d;
+    this.g.setTransform(c, s, -s, c, d * (x + this.shx), d * (y + this.shy));
+  }
+
+  private resetTf(): void {
+    this.g.setTransform(this.dpr, 0, 0, this.dpr, this.dpr * this.shx, this.dpr * this.shy);
+  }
+
+  /** 置こうとしているカードの影（足もとのマス・絵・射程・理由）。 */
+  private drawGhost(g: CanvasRenderingContext2D, gh: Ghost): void {
+    const d = this.battle.loadout.objects[gh.slot];
+    if (!d) return;
+    const { cw, ch, u, ox, oy } = this.L;
+    const w = Math.max(1, Math.floor(d.w || 1)), h = Math.max(1, Math.floor(d.h || 1));
+    const x0 = ox + gh.col * cw, y0 = oy + gh.row * ch;
+    const fill = gh.ok ? "rgba(90,220,120,0.35)" : "rgba(255,70,70,0.38)";
+    const stroke = gh.ok ? "#5ee07a" : "#ff4a4a";
+    if (gh.ok && d.range > 0 && d.kind !== "wall" && d.kind !== "producer") this.drawRangeHighlight(g, gh.col, gh.row, w, h, d.range, d.kind, stroke);
+    g.fillStyle = fill;
+    g.strokeStyle = stroke;
+    g.lineWidth = 2;
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+      g.beginPath(); g.roundRect(x0 + c * cw + 1.5, y0 + r * ch + 1.5, cw - 3, ch - 3, u * 0.15); g.fill();
+    }
+    g.lineWidth = 2.5;
+    g.setLineDash([6, 4]);
+    g.lineDashOffset = -this.clock * 20;
+    g.beginPath(); g.roundRect(x0, y0, cw * w, ch * h, u * 0.2); g.stroke();
+    g.setLineDash([]);
+    g.globalAlpha = 0.75;
+    this.blit(getSprite("object", d.id, { kind: d.kind }), x0 + (cw * w) / 2, y0 + (ch * h) / 2 - u * 0.08, u * Math.min(w, h) * 0.95);
+    g.globalAlpha = 1;
+    if (!gh.ok) {
+      // ×じるし
+      const k = u * 0.25, mx = x0 + (cw * w) / 2, my = y0 + (ch * h) / 2;
+      g.strokeStyle = "#ff4a4a";
+      g.lineWidth = Math.max(3, u * 0.12);
+      g.lineCap = "round";
+      g.beginPath(); g.moveTo(mx - k, my - k); g.lineTo(mx + k, my + k); g.moveTo(mx + k, my - k); g.lineTo(mx - k, my + k); g.stroke();
+      g.lineCap = "butt";
+    }
+    if (gh.reason && !gh.ok) {
+      const fs = Math.max(12, u * 0.5);
+      g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", sans-serif`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      const tw = g.measureText(gh.reason).width + fs;
+      let tx = x0 + (cw * w) / 2;
+      tx = Math.max(tw / 2 + 4, Math.min(this.L.w - tw / 2 - 4, tx));
+      let ty = y0 - fs * 0.9;
+      if (ty < fs) ty = y0 + ch * h + fs * 0.9;
+      g.fillStyle = "rgba(40,10,10,0.85)";
+      g.beginPath(); g.roundRect(tx - tw / 2, ty - fs * 0.75, tw, fs * 1.5, fs * 0.75); g.fill();
+      g.fillStyle = "#fff";
+      g.fillText(gh.reason, tx, ty + 1);
+    }
+  }
+
+  /** 射程の円。 */
+  private drawRangeHighlight(g: CanvasRenderingContext2D, col: number, row: number, w: number, h: number, range: number, kind: string, color: string): void {
+    if (!(range > 0) || kind === "wall" || kind === "producer") return;
+    const { u, ox, oy, cw, ch } = this.L;
+    const cx = ox + (col + w / 2) * cw, cy = oy + (row + h / 2) * ch;
+    g.fillStyle = "rgba(255,255,255,0.07)";
+    g.strokeStyle = color;
+    g.lineWidth = 1.5;
+    g.setLineDash([5, 4]);
+    g.beginPath(); g.arc(cx, cy, range * u, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.setLineDash([]);
   }
 
   /** 出口からママまでの道を点線と矢印で。 */
@@ -490,7 +621,7 @@ export class BattleView {
         const r = b.routeFrom(s.col, s.row);
         for (let i = 0; i + 1 < r.length; i++) {
           const k = `${r[i].col},${r[i].row}>${r[i + 1].col},${r[i + 1].row}`;
-          if (seen.has(k)) break; // ここから先は、もう描く道に合流している
+          if (seen.has(k)) break;
           seen.add(k);
           edges.push([r[i].col, r[i].row, r[i + 1].col, r[i + 1].row]);
         }
@@ -500,37 +631,34 @@ export class BattleView {
     const { cw, ch, u, ox, oy } = this.L;
     const X = (c: number) => ox + (c + 0.5) * cw;
     const Y = (r: number) => oy + (r + 0.5) * ch;
-    g.save();
     g.lineCap = "round";
     g.lineJoin = "round";
-    // 下地（太めのうすい帯）
-    g.strokeStyle = "rgba(255,255,255,0.28)";
-    g.lineWidth = Math.max(4, u * 0.16);
+    g.strokeStyle = "rgba(255,230,200,0.13)";
+    g.lineWidth = Math.max(3, u * 0.22);
     g.beginPath();
     for (const [c0, r0, c1, r1] of this.route.edges) { g.moveTo(X(c0), Y(r0)); g.lineTo(X(c1), Y(r1)); }
     for (const [c, r] of this.route.starts) if (r === 0) { g.moveTo(X(c), oy + SPAWN_Y * ch * 0.4); g.lineTo(X(c), Y(r)); }
     g.stroke();
-    // 流れる点線
-    g.strokeStyle = "rgba(214,80,96,0.55)";
-    g.lineWidth = Math.max(2, u * 0.05);
-    g.setLineDash([u * 0.08, u * 0.18]);
+    g.strokeStyle = "rgba(255,120,130,0.5)";
+    g.lineWidth = Math.max(1.5, u * 0.07);
+    g.setLineDash([u * 0.1, u * 0.22]);
     g.lineDashOffset = -this.clock * u * 0.6;
     g.stroke();
     g.setLineDash([]);
-    // 矢印（辺のまんなか）
-    g.fillStyle = "rgba(214,80,96,0.6)";
-    const a = u * 0.1;
+    g.fillStyle = "rgba(255,120,130,0.55)";
+    const a = u * 0.13;
+    g.beginPath();
     for (const [c0, r0, c1, r1] of this.route.edges) {
+      if ((c0 + r0) % 3 !== 0) continue;
       const mx = (X(c0) + X(c1)) / 2, my = (Y(r0) + Y(r1)) / 2;
       const ang = Math.atan2(Y(r1) - Y(r0), X(c1) - X(c0));
-      g.beginPath();
       g.moveTo(mx + Math.cos(ang) * a, my + Math.sin(ang) * a);
       g.lineTo(mx + Math.cos(ang + 2.5) * a, my + Math.sin(ang + 2.5) * a);
       g.lineTo(mx + Math.cos(ang - 2.5) * a, my + Math.sin(ang - 2.5) * a);
       g.closePath();
-      g.fill();
     }
-    g.restore();
+    g.fill();
+    g.lineCap = "butt";
   }
 
   private drawMama(g: CanvasRenderingContext2D, cx: number, bottom: number, size: number): void {
@@ -539,8 +667,8 @@ export class BattleView {
     const b = this.battle;
     const low = b.mamaHp / Math.max(1, b.mamaMaxHp) < 0.4;
     const tremble = scared ? Math.sin(this.clock * 60) * size * 0.03 : low ? Math.sin(this.clock * 30) * size * 0.012 : Math.sin(this.clock * 2) * size * 0.01;
-    g.fillStyle = "rgba(60,35,20,0.22)";
-    g.beginPath(); g.ellipse(cx, bottom - size * 0.04, size * 0.36, size * 0.08, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(20,10,5,0.35)";
+    g.beginPath(); g.ellipse(cx, bottom - size * 0.04, size * 0.34, size * 0.08, 0, 0, Math.PI * 2); g.fill();
     g.drawImage(img, cx - size / 2 + tremble, bottom - size * 0.98, size, size);
   }
 
@@ -549,40 +677,39 @@ export class BattleView {
     const { u } = this.L;
     let s = 1;
     const k = o.def.kind;
-    if ((k === "shooter" || k === "slow" || k === "aoe") && o.timer < 0.12) s = 1.08 - o.timer * 0.6;
+    const since = o.def.interval - o.timer;
+    if (k !== "wall" && k !== "producer" && k !== "mine" && o.timer < 0.12 && since > 0) s = 1.08 - o.timer * 0.6;
     const dx = o.hurt > 0 ? Math.sin(this.clock * 80) * u * 0.03 : 0;
     return { s, dx };
   }
 
-  /** 通れないオブジェクト: 床に影を落として、少し浮かせて立体に。 */
-  private drawSolidObject(g: CanvasRenderingContext2D, o: ObjState, x: number, y: number): void {
-    const { u, cw, ch } = this.L;
+  /** 通れないオブジェクト: 床に影を落として、少し浮かせて立体に。大きさどおりの台の上に絵。 */
+  private drawSolidObject(g: CanvasRenderingContext2D, o: ObjState): void {
+    const { u, cw, ch, ox, oy } = this.L;
     const { s: bounce, dx } = this.objBounce(o);
-    const fw = cw * 0.9, fh = ch * 0.9;
-    // 床の影（右下へずらす）
-    g.fillStyle = "rgba(60,35,20,0.28)";
-    g.beginPath(); g.roundRect(x - fw / 2 + u * 0.06, y - fh / 2 + u * 0.1, fw, fh, u * 0.14); g.fill();
-    // 台（足もと）
-    g.fillStyle = o.def.kind === "wall" ? "#d7a86e" : "#f1dfc2";
+    const x = ox + o.cx * cw, y = oy + o.cy * ch;
+    const fw = cw * o.w - u * 0.1, fh = ch * o.h - u * 0.1;
+    const rad = u * 0.18;
+    g.fillStyle = "rgba(10,5,2,0.45)";
+    g.beginPath(); g.roundRect(x - fw / 2 + u * 0.08, y - fh / 2 + u * 0.12, fw, fh, rad); g.fill();
+    g.fillStyle = PLATE[o.def.kind] ?? "#e9d6b6";
     g.strokeStyle = OL;
-    g.lineWidth = 2;
-    g.beginPath(); g.roundRect(x - fw / 2, y - fh / 2, fw, fh, u * 0.14); g.fill(); g.stroke();
-    g.fillStyle = "rgba(0,0,0,0.12)";
-    g.beginPath(); g.roundRect(x - fw / 2 + 2, y + fh / 2 - u * 0.12, fw - 4, u * 0.1, u * 0.05); g.fill();
+    g.lineWidth = 1.5;
+    g.beginPath(); g.roundRect(x - fw / 2, y - fh / 2, fw, fh, rad); g.fill(); g.stroke();
+    g.fillStyle = "rgba(0,0,0,0.14)";
+    g.fillRect(x - fw / 2 + 2, y + fh / 2 - u * 0.12, fw - 4, u * 0.09);
     if (this.battle.auraActive(o)) {
       g.strokeStyle = `rgba(255,216,74,${0.55 + Math.sin(this.clock * 6) * 0.25})`;
-      g.lineWidth = 3;
-      g.beginPath(); g.roundRect(x - fw / 2 - 2, y - fh / 2 - 2, fw + 4, fh + 4, u * 0.16); g.stroke();
+      g.lineWidth = 2.5;
+      g.beginPath(); g.roundRect(x - fw / 2 - 2, y - fh / 2 - 2, fw + 4, fh + 4, rad); g.stroke();
     }
-    if (o.def.kind === "aoe" && o.timer < 0.25) {
-      g.strokeStyle = "rgba(255,255,255,0.6)";
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(x, y, u * o.def.range * (1 - o.timer * 3), 0, Math.PI * 2);
-      g.stroke();
+    if (o.uid === this.selectedUid) {
+      g.strokeStyle = "#ffd84a";
+      g.lineWidth = 3;
+      g.beginPath(); g.roundRect(x - fw / 2 - 3, y - fh / 2 - 3, fw + 6, fh + 6, rad); g.stroke();
     }
     const hint: SpriteHint = { kind: o.def.kind };
-    const s = u * 0.98 * bounce;
+    const s = u * Math.min(o.w, o.h) * 1.02 * bounce;
     const sy = y - u * 0.1;
     this.blit(getSprite("object", o.def.id, hint), x + dx, sy, s);
     if (o.hurt > 0) {
@@ -590,44 +717,55 @@ export class BattleView {
       this.blit(getFlashSprite("object", o.def.id, hint), x + dx, sy, s);
       g.globalAlpha = 1;
     }
-    this.drawObjExtras(g, o, x, sy);
+    if (o.def.kind === "zap" && o.timer < 0.15) {
+      g.fillStyle = `rgba(180,230,255,${0.5 - o.timer * 3})`;
+      g.beginPath(); g.arc(x, sy, s * 0.45, 0, Math.PI * 2); g.fill();
+    }
+    this.drawObjExtras(g, o, x, y - fh / 2, y + fh / 2);
   }
 
-  /** ステージの障害物（家具）。虫も猫のオブジェクトも置けない。仮の絵（あとで画像に差し替えられる）。 */
-  private drawObstacle(g: CanvasRenderingContext2D, kind: string, x: number, y: number): void {
-    const { u, cw, ch } = this.L;
-    const w = cw * 0.92, h = ch * 0.92, l = x - w / 2, t = y - h / 2;
-    g.lineWidth = 2; g.strokeStyle = OL;
-    g.fillStyle = "rgba(60,35,20,0.3)";
-    g.beginPath(); g.roundRect(l + u * 0.07, t + u * 0.12, w, h, u * 0.12); g.fill();
-    const box = (bx: number, by: number, bw: number, bh: number, c: string, r = u * 0.1) => { g.fillStyle = c; g.beginPath(); g.roundRect(bx, by, bw, bh, r); g.fill(); g.stroke(); };
+  /** ステージの障害物（家具）。大きさ（w×h）どおりの箱に描く。 */
+  private drawObstacle(g: CanvasRenderingContext2D, kind: string, x: number, y: number, bw: number, bh: number): void {
+    const { u } = this.L;
+    const w = bw - u * 0.1, h = bh - u * 0.1, l = x - w / 2, t = y - h / 2;
+    g.lineWidth = 1.5; g.strokeStyle = OL;
+    g.fillStyle = "rgba(10,5,2,0.45)";
+    g.beginPath(); g.roundRect(l + u * 0.1, t + u * 0.15, w, h, u * 0.14); g.fill();
+    const box = (bx: number, by: number, ww: number, hh: number, c: string, r = u * 0.12) => { g.fillStyle = c; g.beginPath(); g.roundRect(bx, by, ww, hh, r); g.fill(); g.stroke(); };
+    const m = Math.min(w, h);
     switch (kind) {
-      case "plant":   // 観葉植物
-        box(x - w * 0.24, y + h * 0.05, w * 0.48, h * 0.4, "#c8794a");
+      case "plant":
+        box(x - m * 0.24, y + m * 0.05, m * 0.48, m * 0.4, "#c8794a");
         g.fillStyle = "#5fa85a";
-        for (const [dx, dy, r] of [[0, -0.18, 0.26], [-0.2, -0.05, 0.2], [0.2, -0.05, 0.2], [0, -0.38, 0.17]]) { g.beginPath(); g.arc(x + dx * w, y + dy * h, r * w, 0, Math.PI * 2); g.fill(); g.stroke(); }
+        for (const [dx, dy, r] of [[0, -0.18, 0.26], [-0.2, -0.05, 0.2], [0.2, -0.05, 0.2], [0, -0.38, 0.17]]) { g.beginPath(); g.arc(x + dx * m, y + dy * m, r * m, 0, Math.PI * 2); g.fill(); g.stroke(); }
         break;
-      case "sofa":    // ソファ
-        box(l, t + h * 0.15, w, h * 0.7, "#6f8fc9");
-        box(l + w * 0.12, t + h * 0.38, w * 0.76, h * 0.38, "#86a6dd");
+      case "sofa":
+        box(l, t + h * 0.1, w, h * 0.8, "#5a74a8");
+        box(l + Math.min(w, h) * 0.18, t + h * 0.32, w - Math.min(w, h) * 0.36, h * 0.48, "#7390c8");
+        for (let k = 1; k < Math.round(w / u); k++) { g.beginPath(); g.moveTo(l + (w * k) / Math.round(w / u), t + h * 0.34); g.lineTo(l + (w * k) / Math.round(w / u), t + h * 0.78); g.stroke(); }
         break;
-      case "table":   // ローテーブル
-        box(l + w * 0.04, t + h * 0.12, w * 0.92, h * 0.62, "#a86b3c");
-        g.fillStyle = "#fff4e0"; g.beginPath(); g.arc(x - w * 0.15, y - h * 0.08, w * 0.1, 0, Math.PI * 2); g.fill(); g.stroke();
+      case "table":
+        box(l + w * 0.04, t + h * 0.06, w * 0.92, h * 0.82, "#a86b3c");
+        g.fillStyle = "#fff4e0"; g.beginPath(); g.arc(x - w * 0.15, y - h * 0.08, m * 0.12, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = "#e86a6a"; g.beginPath(); g.arc(x + w * 0.18, y + h * 0.08, m * 0.08, 0, Math.PI * 2); g.fill(); g.stroke();
         break;
-      case "shelf":   // 本棚
-        box(l + w * 0.06, t, w * 0.88, h * 0.95, "#8a5a34");
-        for (let k = 0; k < 3; k++) { const yy = t + h * (0.1 + k * 0.28); for (let j = 0; j < 4; j++) { g.fillStyle = ["#e86a6a", "#6ab0e8", "#f2c14e", "#7cc576"][(j + k) % 4]; g.fillRect(l + w * (0.14 + j * 0.18), yy, w * 0.13, h * 0.2); } }
+      case "shelf":
+        box(l + w * 0.02, t, w * 0.96, h * 0.95, "#7a4a2a");
+        for (let k = 0; k < 2; k++) {
+          const yy = t + h * (0.12 + k * 0.42);
+          const n = Math.max(3, Math.round(w / (u * 0.25)));
+          for (let j = 0; j < n; j++) { g.fillStyle = ["#e86a6a", "#6ab0e8", "#f2c14e", "#7cc576"][(j + k) % 4]; g.fillRect(l + w * 0.06 + (j * w * 0.88) / n, yy, (w * 0.88) / n - 1.5, h * 0.32); }
+        }
         break;
-      case "chair":   // いす
+      case "chair":
         box(l + w * 0.15, t + h * 0.05, w * 0.7, h * 0.3, "#b07a4a");
         box(l + w * 0.12, t + h * 0.35, w * 0.76, h * 0.42, "#c98e5a");
         break;
-      case "shoes":   // くつ
+      case "shoes":
         box(l + w * 0.08, t + h * 0.3, w * 0.38, h * 0.5, "#5b6b8a", u * 0.18);
         box(l + w * 0.54, t + h * 0.25, w * 0.38, h * 0.5, "#5b6b8a", u * 0.18);
         break;
-      default:        // かご（basket）
+      default:
         box(l + w * 0.08, t + h * 0.2, w * 0.84, h * 0.65, "#d9b06a", u * 0.2);
         g.strokeStyle = "rgba(74,44,29,0.5)"; g.beginPath();
         for (let k = 1; k < 4; k++) { g.moveTo(l + w * (0.08 + k * 0.21), t + h * 0.22); g.lineTo(l + w * (0.08 + k * 0.21), t + h * 0.83); }
@@ -635,48 +773,52 @@ export class BattleView {
     }
   }
 
-  /** 通れるオブジェクト: 床に平たく（影なし・小さめ・下にうすい敷物）。 */
-  private drawFlatObject(g: CanvasRenderingContext2D, o: ObjState, x: number, y: number): void {
-    const { u, cw, ch } = this.L;
+  /** 通れるオブジェクト: 床に平たく（影なし・下にうすい敷物）。 */
+  private drawFlatObject(g: CanvasRenderingContext2D, o: ObjState): void {
+    const { u, cw, ch, ox, oy } = this.L;
     const { s: bounce, dx } = this.objBounce(o);
-    g.fillStyle = FLAT_TINT[o.def.kind] ?? "rgba(255,255,255,0.3)";
-    g.strokeStyle = "rgba(74,44,29,0.35)";
-    g.lineWidth = 1.5;
+    const x = ox + o.cx * cw, y = oy + o.cy * ch;
+    const fw = cw * o.w - u * 0.14, fh = ch * o.h - u * 0.14;
+    g.fillStyle = FLAT_TINT[o.def.kind] ?? "rgba(255,255,255,0.18)";
+    g.strokeStyle = "rgba(255,230,200,0.35)";
+    g.lineWidth = 1.2;
     g.setLineDash([4, 3]);
-    g.beginPath(); g.roundRect(x - cw * 0.42, y - ch * 0.42, cw * 0.84, ch * 0.84, u * 0.2); g.fill(); g.stroke();
+    g.beginPath(); g.roundRect(x - fw / 2, y - fh / 2, fw, fh, u * 0.2); g.fill(); g.stroke();
     g.setLineDash([]);
-    if (this.battle.auraActive(o)) {
-      g.strokeStyle = `rgba(255,216,74,${0.55 + Math.sin(this.clock * 6) * 0.25})`;
+    if (o.uid === this.selectedUid) {
+      g.strokeStyle = "#ffd84a";
       g.lineWidth = 3;
-      g.beginPath(); g.roundRect(x - cw * 0.45, y - ch * 0.45, cw * 0.9, ch * 0.9, u * 0.2); g.stroke();
+      g.beginPath(); g.roundRect(x - fw / 2 - 2, y - fh / 2 - 2, fw + 4, fh + 4, u * 0.2); g.stroke();
     }
     const hint: SpriteHint = { kind: o.def.kind };
-    const s = u * 0.74 * bounce;
-    // 平たく見せるため、縦を少しつぶす
+    const s = u * Math.min(o.w, o.h) * 0.85 * bounce;
     const c = this.scaledOf(getSprite("object", o.def.id, hint), s);
     const sw = c.width / this.dpr;
-    g.drawImage(c, x + dx - sw / 2, y - sw * 0.36, sw, sw * 0.76);
+    g.drawImage(c, x + dx - sw / 2, y - sw * 0.38, sw, sw * 0.76);
     if (o.hurt > 0) {
       g.globalAlpha = Math.min(1, o.hurt / 0.15) * 0.7;
       const f = this.scaledOf(getFlashSprite("object", o.def.id, hint), s);
-      g.drawImage(f, x + dx - sw / 2, y - sw * 0.36, sw, sw * 0.76);
+      g.drawImage(f, x + dx - sw / 2, y - sw * 0.38, sw, sw * 0.76);
       g.globalAlpha = 1;
     }
-    this.drawObjExtras(g, o, x, y);
+    if (o.def.kind === "zap" && o.timer < 0.15) {
+      g.fillStyle = `rgba(180,230,255,${0.45 - o.timer * 3})`;
+      g.beginPath(); g.roundRect(x - fw / 2, y - fh / 2, fw, fh, u * 0.2); g.fill();
+    }
+    this.drawObjExtras(g, o, x, y - fh / 2, y + fh / 2);
   }
 
   /** 強化の星・HP バー。 */
-  private drawObjExtras(g: CanvasRenderingContext2D, o: ObjState, x: number, y: number): void {
+  private drawObjExtras(g: CanvasRenderingContext2D, o: ObjState, x: number, top: number, bottom: number): void {
     const { u } = this.L;
     if (o.level > 0) {
-      const sr = u * 0.085;
-      const n = Math.min(o.level, 5);
-      const sy = y - u * 0.42;
-      if (o.level <= 5) {
-        for (let i = 0; i < n; i++) star(g, x + (i - (n - 1) / 2) * sr * 2.1, sy, sr);
+      const sr = u * 0.13;
+      const sy = top + sr * 0.6;
+      if (o.level <= 3) {
+        for (let i = 0; i < o.level; i++) star(g, x + (i - (o.level - 1) / 2) * sr * 2.1, sy, sr);
       } else {
-        star(g, x - sr * 1.2, sy, sr * 1.2);
-        g.font = `900 ${Math.max(10, u * 0.2)}px system-ui, sans-serif`;
+        star(g, x - sr * 1.1, sy, sr * 1.2);
+        g.font = `900 ${Math.max(9, u * 0.36)}px system-ui, sans-serif`;
         g.textAlign = "left";
         g.textBaseline = "middle";
         g.lineWidth = 3;
@@ -686,41 +828,29 @@ export class BattleView {
         g.fillText(String(o.level), x, sy);
       }
     }
-    if (o.hp < o.maxHp && o.def.kind !== "mine") hpBar(g, x, y + u * 0.42, u * 0.72, Math.max(4, u * 0.08), o.hp / o.maxHp, "#5ad0ff");
+    if (o.hp < o.maxHp && o.def.kind !== "mine") hpBar(g, x, bottom - u * 0.1, u * 0.8 * o.w, Math.max(3, u * 0.1), o.hp / o.maxHp, "#5ad0ff");
   }
 
   private drawBug(g: CanvasRenderingContext2D, bug: BugState, dt: number): void {
     const { u, ox, oy, cw, ch } = this.L;
     const boss = !!bug.def.boss;
-    const s = u * (boss ? 1.3 : 0.8);
+    const s = u * (boss ? 1.35 : 0.72);
     const id = bug.def.id;
-    // 押し戻された直後は、元の位置から飛ばされるように
-    const kk = bug.knock > 0 ? bug.knock / 0.15 : 0;
+    const kk = bug.knock > 0 ? bug.knock / KNOCK_TIME : 0;
     const bx = bug.x + bug.knockX * kk * kk, by = bug.y + bug.knockY * kk * kk;
     const x = ox + bx * cw, y = oy + by * ch;
     // 出てきたばかりの虫は、穴から少しずつ現れる
     const fade = bug.y < 0 ? Math.max(0, Math.min(1, (bug.y - SPAWN_Y) / 0.5 + 0.2))
       : bug.x < 0 ? Math.max(0, Math.min(1, bug.x + 0.7)) : bug.x > COLS ? Math.max(0, Math.min(1, COLS + 0.7 - bug.x)) : 1;
-    if (fade < 1) g.globalAlpha = fade;
-    let yy = y;
-    if (bug.def.fly) {
-      g.fillStyle = "rgba(60,35,20,0.2)";
-      g.beginPath();
-      g.ellipse(x, y + s * 0.3, s * 0.3, s * 0.1, 0, 0, Math.PI * 2);
-      g.fill();
-      yy = y - s * 0.18 + Math.sin(this.clock * 8 + bug.uid) * s * 0.05;
-    }
+    g.globalAlpha = fade;
+    this.resetTf();
     if (bug.slowMul < 1) {
-      g.fillStyle = "rgba(120,200,255,0.45)";
-      g.beginPath();
-      g.ellipse(x, y + s * 0.15, s * 0.42, s * 0.2, 0, 0, Math.PI * 2);
-      g.fill();
+      g.fillStyle = "rgba(120,200,255,0.4)";
+      g.beginPath(); g.ellipse(x, y + s * 0.15, s * 0.45, s * 0.22, 0, 0, Math.PI * 2); g.fill();
     }
     if (bug.poisonTimer > 0) {
-      g.fillStyle = "rgba(150,90,220,0.35)";
-      g.beginPath();
-      g.arc(x, yy, s * 0.42, 0, Math.PI * 2);
-      g.fill();
+      g.fillStyle = "rgba(130,220,90,0.38)";
+      g.beginPath(); g.arc(x, y, s * 0.5, 0, Math.PI * 2); g.fill();
     }
     // 向き（絵は下向き）。なめらかに回す
     const want = Math.atan2(-bug.dirX, bug.dirY);
@@ -736,20 +866,19 @@ export class BattleView {
     const wob = bug.mode === "bite"
       ? Math.sin(this.clock * 30 + bug.uid) * 0.12
       : Math.sin(this.clock * 12 * bug.speed * bug.slowMul + bug.uid) * 0.08;
-    const hop = bug.mode === "bite" ? Math.abs(Math.sin(this.clock * 15 + bug.uid)) * s * 0.06 : 0;
     const img = this.scaledOf(getSprite("bug", id), s);
     const sw = img.width / this.dpr;
-    g.save();
-    g.translate(x, yy - hop);
-    g.rotate(ang + wob);
+    this.tf(x, y, ang + wob);
     g.drawImage(img, -sw / 2, -sw / 2, sw, sw);
     if (bug.hurt > 0) {
       g.globalAlpha = Math.min(1, bug.hurt / 0.12) * 0.85 * fade;
       g.drawImage(this.scaledOf(getFlashSprite("bug", id), s), -sw / 2, -sw / 2, sw, sw);
     }
-    g.restore();
     g.globalAlpha = 1;
-    if (bug.hp < bug.maxHp) hpBar(g, x, yy - s * 0.5, s * 0.7, Math.max(3, u * 0.065), bug.hp / bug.maxHp, boss ? "#ff4a6a" : "#ff8a4a");
+    if (bug.hp < bug.maxHp) {
+      this.resetTf();
+      hpBar(g, x, y - s * 0.55, s * (boss ? 0.8 : 0.9), Math.max(2, u * 0.09), bug.hp / bug.maxHp, boss ? "#ff4a6a" : "#ff8a4a");
+    }
   }
 
   private drawCat(g: CanvasRenderingContext2D, dt: number, x: number, y: number): void {
@@ -760,9 +889,8 @@ export class BattleView {
     this.lastCat.x = cat.x;
     this.lastCat.y = cat.y;
     this.lastCat.moving = moved > 0.002 ? Math.min(1, this.lastCat.moving + dt * 8) : Math.max(0, this.lastCat.moving - dt * 8);
-    const s = u * 1.0;
-    // 影
-    g.fillStyle = "rgba(60,35,20,0.22)";
+    const s = u * 1.3;
+    g.fillStyle = "rgba(10,5,2,0.4)";
     g.beginPath();
     g.ellipse(x, y + s * 0.4, s * 0.34, s * 0.1, 0, 0, Math.PI * 2);
     g.fill();
@@ -771,58 +899,86 @@ export class BattleView {
       g.drawImage(getSprite("catRest", this.catId, this.catHint), x - s / 2, y - s / 2, s, s);
       const total = b.loadout.char.restTime || 1;
       const k = Math.max(0, Math.min(1, cat.restTimer / total));
-      const rx = x + s * 0.36, ry = y - s * 0.4, rr = u * 0.17;
-      g.fillStyle = "rgba(40,30,60,0.6)";
+      const rx = x + s * 0.4, ry = y - s * 0.45, rr = u * 0.28;
+      g.fillStyle = "rgba(40,30,60,0.7)";
       g.beginPath(); g.arc(rx, ry, rr + 3, 0, Math.PI * 2); g.fill();
       g.strokeStyle = "#9fd8ff";
-      g.lineWidth = 4;
+      g.lineWidth = 3;
       g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); g.stroke();
       g.fillStyle = "#fff";
-      g.font = `900 ${Math.max(10, u * 0.17)}px system-ui, sans-serif`;
+      g.font = `900 ${Math.max(9, u * 0.32)}px system-ui, sans-serif`;
       g.textAlign = "center";
       g.textBaseline = "middle";
       g.fillText(String(Math.ceil(cat.restTimer)), rx, ry + 1);
-      g.font = `900 ${Math.max(10, u * 0.2)}px system-ui, sans-serif`;
-      g.lineWidth = 3;
-      g.strokeStyle = OL;
-      for (let i = 0; i < 3; i++) {
-        const t = (this.clock * 0.8 + i / 3) % 1;
-        g.globalAlpha = 1 - t;
-        const zx = x - s * 0.15 + t * s * 0.3 + Math.sin(t * 6) * 3, zy = y - s * 0.35 - t * s * 0.5;
-        g.strokeText("Z", zx, zy);
-        g.fillStyle = "#cfe9ff";
-        g.fillText("Z", zx, zy);
-      }
-      g.globalAlpha = 1;
       return;
     }
 
     const hop = this.lastCat.moving * Math.abs(Math.sin(this.clock * 14)) * s * 0.08;
     const atk = cat.attackAnim > 0 ? 1 + (cat.attackAnim / 0.15) * 0.14 : 1;
     const flip = cat.facingX < -0.1 ? -1 : 1;
-    g.save();
-    g.translate(x, y - hop);
-    g.scale(flip * atk, atk);
+    const d = this.dpr;
+    g.setTransform(d * flip * atk, 0, 0, d * atk, d * (x + this.shx), d * (y - hop + this.shy));
     g.drawImage(getSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
     if (cat.hurt > 0) {
       g.globalAlpha = Math.min(1, cat.hurt / 0.15) * 0.8;
       g.drawImage(getFlashSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
       g.globalAlpha = 1;
     }
-    g.restore();
+    this.resetTf();
     const role = b.loadout.char.role;
     if (cat.attackAnim > 0 && role !== "ranged") {
       const a = Math.atan2(cat.facingY, cat.facingX);
       const k = 1 - cat.attackAnim / 0.15;
-      const R = role === "aoe" ? (b.loadout.char.aoe || 1) * u : u * 0.6;
+      const R = role === "aoe" ? (b.loadout.char.aoe || 1) * u : u * 0.8;
       g.strokeStyle = `rgba(255,255,255,${0.9 - k * 0.7})`;
-      g.lineWidth = Math.max(3, u * 0.08);
+      g.lineWidth = Math.max(2.5, u * 0.1);
       g.beginPath();
       if (role === "aoe") g.arc(x, y, R * (0.5 + k * 0.5), 0, Math.PI * 2);
       else g.arc(x, y, R, a - 0.9 + k * 0.6, a + 0.3 + k * 0.6);
       g.stroke();
     }
-    hpBar(g, x, y + s * 0.52, s * 0.66, Math.max(4, u * 0.08), cat.hp / cat.maxHp, "#5ee07a");
+    hpBar(g, x, y + s * 0.52, s * 0.7, Math.max(3, u * 0.12), cat.hp / cat.maxHp, "#5ee07a");
+  }
+
+  /** 電撃（ぎざぎざの線。毎コマ形が変わってちらつく）。 */
+  private drawBolts(g: CanvasRenderingContext2D, dt: number): void {
+    if (this.bolts.length === 0) return;
+    const { cw, ch, u, ox, oy } = this.L;
+    let w = 0;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    for (let i = 0; i < this.bolts.length; i++) {
+      const bl = this.bolts[i];
+      bl.t += dt;
+      if (bl.t >= bl.life) continue;
+      this.bolts[w++] = bl;
+      const k = bl.t / bl.life;
+      const x0 = ox + bl.x0 * cw, y0 = oy + bl.y0 * ch, x1 = ox + bl.x1 * cw, y1 = oy + bl.y1 * ch;
+      const dx = x1 - x0, dy = y1 - y0;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      const segs = Math.max(3, Math.min(8, Math.round(len / (u * 0.35))));
+      g.beginPath();
+      g.moveTo(x0, y0);
+      for (let s = 1; s < segs; s++) {
+        const t = s / segs;
+        const off = (Math.random() - 0.5) * u * 0.55;
+        g.lineTo(x0 + dx * t + nx * off, y0 + dy * t + ny * off);
+      }
+      g.lineTo(x1, y1);
+      const a = 1 - k;
+      g.strokeStyle = `rgba(110,190,255,${0.45 * a})`;
+      g.lineWidth = Math.max(4, u * 0.28);
+      g.stroke();
+      g.strokeStyle = `rgba(190,235,255,${0.95 * a})`;
+      g.lineWidth = Math.max(2, u * 0.1);
+      g.stroke();
+      g.strokeStyle = `rgba(255,255,255,${a})`;
+      g.lineWidth = Math.max(1, u * 0.04);
+      g.stroke();
+    }
+    this.bolts.length = w;
+    g.lineCap = "butt";
   }
 
   private drawFx(g: CanvasRenderingContext2D, dt: number): void {
@@ -852,7 +1008,7 @@ export class BattleView {
         case "puff": {
           g.globalAlpha = (1 - k) * 0.8;
           g.strokeStyle = f.color;
-          g.lineWidth = Math.max(2, u * 0.08 * (1 - k));
+          g.lineWidth = Math.max(1.5, u * 0.1 * (1 - k));
           g.beginPath();
           g.arc(x, y, f.r * u * (0.4 + k * 0.8), 0, Math.PI * 2);
           g.stroke();
@@ -861,13 +1017,24 @@ export class BattleView {
         case "ring": {
           g.globalAlpha = 1 - k;
           g.strokeStyle = f.color;
-          g.lineWidth = Math.max(2, u * 0.1 * (1 - k));
+          g.lineWidth = Math.max(1.5, u * 0.12 * (1 - k));
           g.beginPath();
-          g.ellipse(x, y, f.r * cw * (0.3 + k * 0.7), f.r * ch * (0.3 + k * 0.7), 0, 0, Math.PI * 2);
+          g.arc(x, y, f.r * u * (0.3 + k * 0.7), 0, Math.PI * 2);
           g.stroke();
           g.fillStyle = f.color;
           g.globalAlpha = (1 - k) * 0.15;
           g.fill();
+          break;
+        }
+        case "cloud": {
+          // 毒の雲（ふくらんで、うすれていく）
+          const a = (k < 0.2 ? k / 0.2 : (1 - k) / 0.8) * 0.32;
+          g.globalAlpha = 1;
+          g.fillStyle = `rgba(${f.color},${a.toFixed(3)})`;
+          const r = f.r * u * (0.6 + k * 0.5);
+          g.beginPath(); g.arc(x, y - k * u * 0.2, r, 0, Math.PI * 2); g.fill();
+          g.fillStyle = `rgba(${f.color},${(a * 0.8).toFixed(3)})`;
+          g.beginPath(); g.arc(x + r * 0.45, y - r * 0.2 - k * u * 0.3, r * 0.55, 0, Math.PI * 2); g.fill();
           break;
         }
         case "text": {
@@ -876,7 +1043,7 @@ export class BattleView {
           g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", sans-serif`;
           g.textAlign = "center";
           g.textBaseline = "middle";
-          g.lineWidth = Math.max(3, fs * 0.2);
+          g.lineWidth = Math.max(2.5, fs * 0.2);
           g.strokeStyle = OL;
           const ty = y - k * ch * 0.4;
           g.strokeText(f.text ?? "", x, ty);
@@ -897,22 +1064,23 @@ export class BattleView {
     const k = bn.t / 1.8;
     const { w, oy, ch, u } = this.L;
     const alpha = k < 0.1 ? k / 0.1 : k > 0.75 ? (1 - k) / 0.25 : 1;
-    const y = oy + ch * 3.2;
+    const y = oy + ch * 5;
+    const bu = Math.max(u * 1.6, 40);
     g.globalAlpha = Math.max(0, alpha) * 0.85;
-    g.fillStyle = "#4a2c1d";
-    g.fillRect(0, y - u * 0.55, w, u * (bn.sub ? 1.3 : 1.1));
+    g.fillStyle = "#2a170d";
+    g.fillRect(0, y - bu * 0.55, w, bu * (bn.sub ? 1.3 : 1.1));
     g.globalAlpha = Math.max(0, alpha);
     const sc = k < 0.1 ? 1.4 - k * 4 : 1;
-    const fs = u * 0.55 * sc;
+    const fs = bu * 0.55 * sc;
     g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", sans-serif`;
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.fillStyle = "#ffd84a";
     g.fillText(bn.text, w / 2, y);
     if (bn.sub) {
-      g.font = `800 ${u * 0.26}px system-ui, sans-serif`;
+      g.font = `800 ${bu * 0.26}px system-ui, sans-serif`;
       g.fillStyle = "#fff";
-      g.fillText(bn.sub, w / 2, y + u * 0.48);
+      g.fillText(bn.sub, w / 2, y + bu * 0.48);
     }
     g.globalAlpha = 1;
   }
@@ -924,24 +1092,45 @@ function dmgText(v: number): string {
   return fmt(v);
 }
 
+function mulberry(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const POP_COLORS = ["#ffd84a", "#ff8fb0", "#8fd0ff", "#ffffff", "#a8e070"];
 const FLOAT_COLORS: Record<string, string> = {
-  bug: "#fff", crit: "#ffd84a", poison: "#d8a8ff", cat: "#ff6b6b", heal: "#7cf09a", object: "#ffb35a",
+  bug: "#fff", crit: "#ffe14a", poison: "#b8f08a", cat: "#ff6b6b", heal: "#7cf09a", object: "#ffb35a",
+};
+const PLATE: Partial<Record<string, string>> = {
+  wall: "#c99a62",
+  shooter: "#efdcbc",
+  aoe: "#f2d0d0",
+  zap: "#d6e8f6",
+  poison: "#d8ecc8",
+  producer: "#f6d8e2",
 };
 const FLAT_TINT: Partial<Record<string, string>> = {
-  slow: "rgba(150,210,255,0.35)",
-  mine: "rgba(255,190,120,0.3)",
-  wall: "rgba(255,255,255,0.25)",
-  shooter: "rgba(255,230,180,0.35)",
-  aoe: "rgba(255,190,190,0.3)",
-  producer: "rgba(255,200,220,0.35)",
+  slow: "rgba(150,210,255,0.22)",
+  mine: "rgba(255,190,120,0.2)",
+  zap: "rgba(170,200,255,0.22)",
+  poison: "rgba(150,230,120,0.2)",
+  wall: "rgba(255,255,255,0.15)",
+  shooter: "rgba(255,230,180,0.2)",
+  aoe: "rgba(255,190,190,0.2)",
+  producer: "rgba(255,200,220,0.22)",
 };
 
 function hpBar(g: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, ratio: number, color: string): void {
   const r = Math.max(0, Math.min(1, ratio));
   const x = cx - w / 2, y = cy - h / 2;
   g.fillStyle = OL;
-  g.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
+  g.fillRect(x - 1, y - 1, w + 2, h + 2);
   g.fillStyle = r < 0.3 ? "#ff5a5a" : color;
   g.fillRect(x, y, w * r, h);
 }
@@ -957,7 +1146,7 @@ function star(g: CanvasRenderingContext2D, x: number, y: number, r: number): voi
   const fill = g.fillStyle;
   g.fillStyle = "#ffd84a";
   g.fill();
-  g.lineWidth = Math.max(1.5, r * 0.3);
+  g.lineWidth = Math.max(1, r * 0.3);
   g.strokeStyle = OL;
   g.stroke();
   g.fillStyle = fill;

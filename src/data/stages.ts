@@ -1,5 +1,6 @@
 // ステージ（10章 × 10ステージ = 100）。数字から自動で作る。
-// 盤面は 7×11 の迷路タワーディフェンス。虫は長い道をくねくね進むので、倒す時間はたっぷり。そのぶん波は大きめ。
+// 盤面は 14×18。ママは下の真ん中（2×2）。虫は上の端（後半は左右の上の方も）から次々にたくさん出てくる。
+// 家具（大きさのある障害物）をよけて、ママへ最短の道で集まる。
 import { COLS, ROWS, type Obstacle, type StageDef, type WaveDef } from "../core/types";
 import { BUGS } from "./bugs";
 import { mulberry32, pick } from "../core/rng";
@@ -49,10 +50,45 @@ const FURNITURE: string[][] = [
   ["sofa", "shelf", "basket"], ["basket", "shelf", "chair"],
 ];
 
-/** 一番上の全部のマスからママ（下の真ん中）へ行けるか。 */
-function connected(blocked: boolean[]): boolean {
-  const goal = (ROWS - 1) * COLS + (COLS >> 1), seen = new Array(COLS * ROWS).fill(false), q = [goal];
-  seen[goal] = true;
+/** 家具の大きさ（w×h マス）。いくつかあるものは抽選。 */
+export const FURNITURE_SIZES: Record<string, [number, number][]> = {
+  sofa: [[3, 1], [2, 2]],
+  table: [[2, 2]],
+  shelf: [[2, 1]],
+  plant: [[1, 1]],
+  chair: [[1, 1]],
+  basket: [[1, 1]],
+  shoes: [[1, 1]],
+};
+
+/** ママのいるマス（下の真ん中の 2×2）。 */
+export const MAMA_COL = (COLS >> 1) - 1;   // 6
+export const MAMA_ROW = ROWS - 2;          // 16
+export const MAMA_W = 2;
+export const MAMA_H = 2;
+
+/** 家具を置いてよい行（上の3行と、ママのまわりはあける）。 */
+export const OBSTACLE_ROW_MIN = 3;
+export const OBSTACLE_ROW_MAX = ROWS - 4;  // 14
+
+/** 左右の端で、虫が出てくることがある行（上の方）。 */
+export const SIDE_SPAWN_ROWS = 6;
+
+/** 障害物がしめるマス（i = row * COLS + col）。 */
+export function obstacleCells(o: Obstacle): number[] {
+  const out: number[] = [];
+  for (let r = o.row; r < o.row + (o.h ?? 1); r++) {
+    for (let c = o.col; c < o.col + (o.w ?? 1); c++) out.push(r * COLS + c);
+  }
+  return out;
+}
+
+/** 通れないマスのとき、空いているマスがすべてママへつながっているか（上の端・左右の上の方からも行ける）。 */
+export function boardConnected(blocked: boolean[]): boolean {
+  const seen = new Array(COLS * ROWS).fill(false), q: number[] = [];
+  for (let r = MAMA_ROW; r < MAMA_ROW + MAMA_H; r++) {
+    for (let c = MAMA_COL; c < MAMA_COL + MAMA_W; c++) { const i = r * COLS + c; seen[i] = true; q.push(i); }
+  }
   while (q.length) {
     const i = q.pop()!, c = i % COLS, r = (i / COLS) | 0;
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -61,25 +97,60 @@ function connected(blocked: boolean[]): boolean {
       seen[n] = true; q.push(n);
     }
   }
-  for (let c = 0; c < COLS; c++) if (!seen[c]) return false;
+  for (let i = 0; i < COLS * ROWS; i++) if (!blocked[i] && !seen[i]) return false;
   return true;
 }
 
-/** 障害物を置く（上の2行・ママのまわりには置かない。道は必ず残す）。進むほど少し増える。 */
+/** ステージの障害物の通れないマス。 */
+export function stageBlocked(obstacles: Obstacle[]): boolean[] {
+  const blocked: boolean[] = new Array(COLS * ROWS).fill(false);
+  for (const o of obstacles) for (const i of obstacleCells(o)) blocked[i] = true;
+  return blocked;
+}
+
+/** 障害物（家具）を置く。行 3〜14 のあいだ。空いたマスはすべてママへつながる。進むほど少し増える。 */
 function makeObstacles(g: number, chapter: number, rng: () => number): Obstacle[] {
-  const want = Math.min(9, 3 + Math.floor(g / 12) + Math.floor(rng() * 3));
+  const want = Math.min(12, 5 + Math.floor(g / 12) + Math.floor(rng() * 3));
   const kinds = FURNITURE[(chapter - 1) % FURNITURE.length];
   const blocked: boolean[] = new Array(COLS * ROWS).fill(false), out: Obstacle[] = [];
-  for (let tries = 0; out.length < want && tries < 200; tries++) {
-    const col = Math.floor(rng() * COLS), row = 2 + Math.floor(rng() * (ROWS - 5));
-    const i = row * COLS + col;
-    if (blocked[i]) continue;
-    blocked[i] = true;
-    if (!connected(blocked)) { blocked[i] = false; continue; }
-    out.push({ col, row, kind: kinds[Math.floor(rng() * kinds.length)] });
+  for (let tries = 0; out.length < want && tries < 400; tries++) {
+    const kind = kinds[Math.floor(rng() * kinds.length)];
+    const sizes = FURNITURE_SIZES[kind] ?? [[1, 1]];
+    const [w, h] = sizes[Math.floor(rng() * sizes.length)];
+    const col = Math.floor(rng() * (COLS - w + 1));
+    const row = OBSTACLE_ROW_MIN + Math.floor(rng() * (OBSTACLE_ROW_MAX - OBSTACLE_ROW_MIN - h + 2));
+    const o: Obstacle = { col, row, kind, w, h };
+    const cells = obstacleCells(o);
+    // 重ならない・となりの家具とくっつきすぎない（まわり1マスに別の家具があれば、ときどきやめる）
+    if (cells.some((i) => blocked[i])) continue;
+    let touching = false;
+    for (const i of cells) {
+      const c = i % COLS, r = (i / COLS) | 0;
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nc = c + dc, nr = r + dr;
+        if (nc >= 0 && nr >= 0 && nc < COLS && nr < ROWS && blocked[nr * COLS + nc]) touching = true;
+      }
+    }
+    if (touching && rng() < 0.7) continue;
+    for (const i of cells) blocked[i] = true;
+    if (!boardConnected(blocked)) { for (const i of cells) blocked[i] = false; continue; }
+    out.push(o);
   }
   return out;
 }
+
+/** 出てくる上の端の列をいくつか選ぶ（同時にいくつもの所から出る）。 */
+function pickLanes(rng: () => number, n: number): number[] {
+  const out: number[] = [];
+  while (out.length < n) {
+    const c = Math.floor(rng() * COLS);
+    if (!out.includes(c)) out.push(c);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** 1つの群れの数の目安（体力の高い虫は少なめ）。 */
+export const SWARM_BASE = 7;
 
 function makeStage(g: number): StageDef {
   const chapter = Math.floor(g / STAGES_PER_CHAPTER) + 1;
@@ -89,26 +160,32 @@ function makeStage(g: number): StageDef {
   const pool = BUGS.filter((b) => !b.boss && b.from <= g);
   const newest = pool[pool.length - 1];
 
-  const nWaves = Math.min(6, 2 + Math.floor(g / 12)) + (boss ? 1 : 0);
+  const nWaves = Math.min(8, 3 + Math.floor(g / 14)) + (boss ? 1 : 0);
   const waves: WaveDef[] = [];
   let t = 3;
   for (let w = 0; w < nWaves; w++) {
     const last = w === nWaves - 1;
-    const groups = g < 3 ? 1 : Math.min(3, 2 + Math.floor(w / 3));
+    const groups = g < 2 ? 1 : Math.min(3, 2 + Math.floor((w + g / 20) / 4));
     const bugs: WaveDef["bugs"] = [];
     for (let k = 0; k < groups; k++) {
       // 最初のステージはアリだけ。新しい虫は少しずつ混ぜる。
       const b = g === 0 ? pool[0] : (k === 0 && w === 1 ? newest : pick(rng, pool));
-      const count = Math.max(3, Math.round(((g === 0 ? 4 : 6) + w * 0.8 + (g % 10) * 0.15 + chapter * 0.5 - b.hp / 15)));
-      bugs.push({ bug: b.id, count, every: Math.max(0.6, 2.6 - g * 0.015 - w * 0.15) });
+      const size = (g === 0 ? 6 : SWARM_BASE) + w * 1.5 + chapter * 1.8 + (g % 10) * 0.4;
+      const count = Math.max(4, Math.round(size * Math.pow(2 / b.hp, 0.3)));
+      const every = Math.round(Math.max(0.25, 1.4 - g * 0.009 - w * 0.06) * 100) / 100;
+      // はじめは1か所から。進むと、いくつもの所から同時に出てくる（lanes なしは、ばらばら）
+      const nLanes = g < 3 ? 1 : Math.min(4, 1 + Math.floor(rng() * (2 + g / 30)));
+      const lanes = rng() < 0.25 && g >= 10 ? undefined : pickLanes(rng, nLanes);
+      bugs.push(lanes ? { bug: b.id, count, every, lanes } : { bug: b.id, count, every });
     }
     if (boss && last) {
       const bossId = chapter % 2 === 1 ? "suzumebachi" : "mukade";
-      bugs.push({ bug: bossId, count: 1 + Math.floor(chapter / 4), every: 6, lanes: [3] });
+      bugs.push({ bug: bossId, count: 1 + Math.floor(chapter / 4), every: 8, lanes: [MAMA_COL, MAMA_COL + 1] });
     }
     waves.push({ at: t, bugs });
+    // 次の波は前の波が出きる前から（とぎれずに次々と）
     const longest = Math.max(...bugs.map((x) => x.count * x.every));
-    t += Math.round(longest + 10);
+    t += Math.max(8, Math.round(longest * 0.7));
   }
 
   return {

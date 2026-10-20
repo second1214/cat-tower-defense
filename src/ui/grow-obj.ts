@@ -1,5 +1,5 @@
 // 成長 > オブジェクト（持っていく5つ・一覧・レベルアップ）。
-import { canLevelUpObject, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
+import { canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
 import { fmt } from "../core/num";
 import { MAX_LOADOUT, type SaveData } from "../core/save";
 import type { ResolvedObject } from "../core/types";
@@ -41,7 +41,7 @@ export function renderObjList(ctx: Ctx): HTMLElement {
       inLo ? h("span", { class: "check-tag" }, svgIcon(ICONS.check)) : null,
       h("span", { class: "kind-tag", title: KIND_NAMES[def.kind] }, svgIcon(kindSvg(def.kind))),
       svgIcon(objectSvg(def.id, def.kind), "card-ico"),
-      blockTag(ro.block),
+      h("span", { class: "card-tags" }, blockTag(ro.block), h("span", { class: "sz-tag" }, `${sizeOf(ro, def.id).w}×${sizeOf(ro, def.id).h}`)),
       h("div", { class: "card-name small" }, def.name),
       h("div", { class: "card-row" }, h("span", { class: "card-lv" }, `Lv${os.level}`), h("span", { class: "kib" }, svgIcon(ICONS.kibble), String(ro.cost))),
       bar(os.shards / cost.shards, `bar-shard ${os.shards >= cost.shards ? "full" : ""}`, `${fmt(os.shards)}/${fmt(cost.shards)}`));
@@ -50,7 +50,8 @@ export function renderObjList(ctx: Ctx): HTMLElement {
   return h("div", { class: "sub sub-obj" },
     h("div", { class: "panel lo-panel" },
       h("div", { class: "panel-title" }, "選択中のオブジェクト", h("span", { class: "muted" }, `  ${save.loadout.length}/${MAX_LOADOUT}`)),
-      h("div", { class: "lo-row" }, slots)),
+      h("div", { class: "lo-row" }, slots),
+      h("div", { class: "lo-hint muted small" }, "戦闘では、下のカードを盤面へドラッグして置くよ。カリカリがあれば待ち時間なしで何こでも！")),
     h("div", { class: "sub-head" }, h("span", null, "持っているオブジェクト"), h("span", { class: "muted" }, `${owned} / ${OBJECTS.length}`)),
     h("div", { class: "scroll", dataset: { sk: "objs" } }, h("div", { class: "grid grid-4" }, cards)));
 }
@@ -72,8 +73,44 @@ function objStats(o: ResolvedObject, next?: ResolvedObject | null): [string, str
     const p = (n: number) => (Math.round(n * 10) / 10).toString();
     rows.push(["生産", next && p(next.produce) !== p(o.produce) ? `${p(o.produce)} → ${p(next.produce)}` : p(o.produce)], ["間隔", s1(o.interval)]);
   }
-  rows.push(["次に置けるまで", s1(o.cooldown)], ["強化のカリカリ", String(o.upgradeCost)], ["強化1回", `×${o.upgradeMul}`]);
+  rows.push(["強化のカリカリ", String(o.upgradeCost)], ["強化1回", `×${o.upgradeMul}`]);
   return rows;
+}
+
+export interface PerkView { level: number; name: string; desc: string; unlocked: boolean }
+
+/** レベルで解放される特殊効果の一覧。 */
+export function perksOf(save: SaveData, id: string): PerkView[] {
+  return [...objectPerks(save, id)].sort((a, b) => a.level - b.level);
+}
+
+/** オブジェクトの大きさ（マス）。 */
+export function sizeOf(ro: ResolvedObject | null, id: string): { w: number; h: number } {
+  const base = OBJECT_MAP[id]?.base;
+  const w = ro?.w ?? base?.w ?? 1;
+  const hh = ro?.h ?? base?.h ?? 1;
+  return { w: Math.max(1, w || 1), h: Math.max(1, hh || 1) };
+}
+
+/** 大きさの小さな図（w×h のマス）。 */
+function sizeGlyph(w: number, hh: number, block: boolean): HTMLElement {
+  const cells: HTMLElement[] = [];
+  for (let i = 0; i < w * hh; i++) cells.push(h("span", { class: "sz-cell" }));
+  return h("span", { class: `sz-glyph ${block ? "blk-on" : "blk-off"}`, style: `grid-template-columns:repeat(${w},1fr);aspect-ratio:${w}/${hh}` }, cells);
+}
+
+function perkList(save: SaveData, id: string): HTMLElement | null {
+  const perks = perksOf(save, id);
+  if (!perks.length) return null;
+  const nextIdx = perks.findIndex((p) => !p.unlocked);
+  return h("div", { class: "perks" },
+    h("div", { class: "panel-title" }, "レベルで解放される力",
+      h("span", { class: "muted small" }, `  ${perks.filter((p) => p.unlocked).length} / ${perks.length}`)),
+    nextIdx >= 0 ? h("div", { class: "pk-next-line" }, h("b", null, `Lv${perks[nextIdx].level}`), "で解放: ", h("b", null, perks[nextIdx].name)) : h("div", { class: "pk-next-line done" }, "ぜんぶ解放した！"),
+    h("div", { class: "pk-list" }, perks.map((p, i) => h("div", { class: `pk ${p.unlocked ? "pk-on" : i === nextIdx ? "pk-next" : "pk-off"}` },
+      h("span", { class: "pk-lv" }, p.unlocked ? svgIcon(ICONS.check) : null, `Lv${p.level}`),
+      h("span", { class: "pk-body" }, h("span", { class: "pk-name" }, p.name), h("span", { class: "pk-desc" }, p.desc)),
+      h("span", { class: "pk-st" }, p.unlocked ? "解放ずみ" : i === nextIdx ? "つぎ" : "")))));
 }
 
 function nextLevelPreview(save: SaveData, id: string): ResolvedObject | null {
@@ -95,6 +132,7 @@ export function openObjDetail(ctx: Ctx, id: string): void {
       const ro = resolveObject(save, id)!;
       const next = nextLevelPreview(save, id);
       const cost = objectUpgradeCost(save, id)!;
+      const size = sizeOf(ro, id);
       return h("div", { class: "obj-detail" },
         h("div", { class: "cd-top" },
           h("div", { class: `od-frame r-${def.rarity}` }, svgIcon(objectSvg(def.id, def.kind), "cd-ico")),
@@ -102,11 +140,15 @@ export function openObjDetail(ctx: Ctx, id: string): void {
             h("div", { class: "cd-row" },
               h("span", { class: `rar-pill r-${def.rarity}` }, def.rarity),
               h("span", { class: "kind-pill" }, svgIcon(kindSvg(def.kind)), KIND_NAMES[def.kind]),
-              blockTag(ro.block, "blk-pill"),
               h("span", { class: "cd-lv" }, `Lv ${os.level}`)),
             h("div", { class: "cd-desc" }, def.desc),
+            h("div", { class: "od-size" },
+              sizeGlyph(size.w, size.h, ro.block),
+              h("span", { class: "od-size-t" }, `${size.w}×${size.h}マス`),
+              blockTag(ro.block, "blk-pill")),
             h("div", { class: `blk-note ${ro.block ? "blk-on" : "blk-off"}` }, ro.block ? "虫はここを通れず、よけて遠回りする（道は完全にはふさげない）" : "虫は上を通っていく（道をふさがない）"),
             bar(os.shards / cost.shards, `bar-shard bar-lg ${os.shards >= cost.shards ? "full" : ""}`, `かけら ${fmt(os.shards)} / ${fmt(cost.shards)}`))),
+        perkList(save, id),
         h("div", { class: "panel-title" }, "ステータス", h("span", { class: "muted small" }, "（→ は次のレベル）")),
         h("div", { class: "stats" }, objStats(ro, next).map(([k, v]) => h("div", { class: "stat" }, h("span", { class: "stat-k" }, k), h("span", { class: "stat-v" }, v)))),
       );

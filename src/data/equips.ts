@@ -52,7 +52,12 @@ export type AffixStat =
   | "produce"      // producer の生産 +%
   | "charAtk"      // 猫の攻撃 +%
   | "charHp"       // 猫の体力 +%
-  | "charMove";    // 猫の移動 +%
+  | "charMove"     // 猫の移動 +%
+  | "objMultishot" // うつ物の弾 +数（拡散）
+  | "objPierce"    // うつ物の貫通 +数
+  | "objChain"     // 電撃の連鎖 +数
+  | "objPoison"    // 毒の強さ +%（毒のあるオブジェクトだけ）
+  | "objCrit";     // オブジェクトの会心 +%
 
 export interface AffixDef {
   id: string;
@@ -64,6 +69,10 @@ export interface AffixDef {
   max: number;
   scale: "big" | "small";
   weight: number;
+  /** このレアリティ以上の装備にだけつく（0..4）。 */
+  minRarity?: number;
+  /** true なら数（+1 など）。レアリティの倍率は掛けず、min〜max の整数。 */
+  flat?: boolean;
 }
 
 export const AFFIXES: AffixDef[] = [
@@ -80,6 +89,14 @@ export const AFFIXES: AffixDef[] = [
   { id: "charAtk", stat: "charAtk", label: "猫の攻撃 +{v}%", min: 0.08, max: 0.15, scale: "big", weight: 10 },
   { id: "charHp", stat: "charHp", label: "猫の体力 +{v}%", min: 0.1, max: 0.2, scale: "big", weight: 8 },
   { id: "charMove", stat: "charMove", label: "猫の移動 +{v}%", min: 0.03, max: 0.06, scale: "small", weight: 5 },
+  { id: "objAtk_zap", stat: "objAtk", kind: "zap", label: "でんき系の攻撃 +{v}%", min: 0.15, max: 0.3, scale: "big", weight: 4 },
+  { id: "objAtk_poison", stat: "objAtk", kind: "poison", label: "どく系の攻撃 +{v}%", min: 0.15, max: 0.3, scale: "big", weight: 4 },
+  // 特殊効果をのばす補正（高いレアリティだけ）
+  { id: "objCrit", stat: "objCrit", label: "オブジェクトの会心 +{v}%", min: 0.03, max: 0.06, scale: "small", weight: 3, minRarity: 2 },
+  { id: "objPoison", stat: "objPoison", label: "毒の強さ +{v}%", min: 0.1, max: 0.2, scale: "big", weight: 3, minRarity: 2 },
+  { id: "objMultishot", stat: "objMultishot", label: "拡散 +{v}（うつ物の弾）", min: 1, max: 1, scale: "small", weight: 2, minRarity: 3, flat: true },
+  { id: "objPierce", stat: "objPierce", label: "貫通 +{v}（うつ物）", min: 1, max: 1, scale: "small", weight: 2, minRarity: 3, flat: true },
+  { id: "objChain", stat: "objChain", label: "連鎖 +{v}（でんき）", min: 1, max: 2, scale: "small", weight: 2, minRarity: 3, flat: true },
 ];
 
 export const AFFIX_MAP: Record<string, AffixDef> = Object.fromEntries(AFFIXES.map((a) => [a.id, a]));
@@ -106,8 +123,10 @@ export function affixCount(rarity: number): number {
 
 /** 補正を1つ抽選する（同じ id は重ならないように）。 */
 export function rollAffix(rng: Rng, rarity: number, exclude: string[] = []): EquipAffix {
-  const pool = AFFIXES.filter((a) => !exclude.includes(a.id));
-  const a = pickWeighted(rng, pool.length ? pool : AFFIXES, (x) => x.weight);
+  const able = AFFIXES.filter((a) => (a.minRarity ?? 0) <= rarity);
+  const pool = able.filter((a) => !exclude.includes(a.id));
+  const a = pickWeighted(rng, pool.length ? pool : able, (x) => x.weight);
+  if (a.flat) return { id: a.id, value: a.min + Math.floor(rng() * (a.max - a.min + 1)) };
   const mul = (a.scale === "big" ? AFFIX_BIG_MUL : AFFIX_SMALL_MUL)[rarity] ?? 1;
   const v = randRange(rng, a.min, a.max) * mul;
   return { id: a.id, value: Math.round(v * 1000) / 1000 };
@@ -128,6 +147,7 @@ export function rollEquip(rng: Rng, uid: string, rarity: EquipRarity, slot?: Equ
 export function affixText(a: EquipAffix): string {
   const def = AFFIX_MAP[a.id];
   if (!def) return "？";
+  if (def.flat) return def.label.replace("{v}", String(a.value));
   const pct = Math.round(a.value * 1000) / 10;
   return def.label.replace("{v}", String(pct));
 }

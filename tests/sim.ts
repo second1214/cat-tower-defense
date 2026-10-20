@@ -4,12 +4,13 @@ import { newSave, type SaveData } from "../src/core/save";
 import { mulberry32, type Rng } from "../src/core/rng";
 import {
   autoEquip, autoFuse, buildLoadout, canLearn, charPower, estimateDps, grantRewards, learnSkill, levelUpObject,
-  nextNodeCost, nextRelic, objectUpgradeCost, powerRatio, resetSkills, resolveObjects, selectChar, setLoadout,
-  skillTreeOf, stageIdList, unlockRelic,
+  nextNodeCost, nextRelic, objectDps, objectUpgradeCost, powerRatio, resetSkills, resolveObjects, selectChar, setLoadout,
+  skillTreeOf, stageIdList, stageLoad, unlockRelic,
 } from "../src/core/progress";
 import { PULL10_COST, pull } from "../src/core/gacha";
 import { CHAR_MAP } from "../src/data/chars";
 import { OBJECTS } from "../src/data/objects";
+import { BUG_MAP } from "../src/data/bugs";
 
 export interface SimState {
   /** お迎え用にとっておくちゅ〜る。 */
@@ -90,7 +91,8 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
   const owned = OBJECTS.filter((o) => save.objects[o.id]).map((o) => o.id);
   const scored = resolveObjects(save, owned)
     .filter((o) => o.kind !== "producer" && o.kind !== "wall")
-    .map((o) => ({ id: o.id, v: estimateDps({ char: { atk: 0, atkInterval: 1, aoe: 0 } as never, objects: [o] }).objects }))
+    // 群れへのだいたいの DPS（拡散・貫通・爆発・連鎖・毒・範囲もふくむ）
+    .map((o) => ({ id: o.id, v: objectDps(o) }))
     .sort((a, b) => b.v - a.v);
   setLoadout(save, ["esara", ...scored.slice(0, 4).map((x) => x.id)]);
   // オブジェクトのレベルアップ: 安いものから
@@ -112,10 +114,12 @@ export interface SimRow {
   skillLv: number;    // 出している猫のスキルのレベルの合計
   charDps: number;
   objDps: number;
-  bugHp: number;      // アリ1匹の体力
+  bugHp: number;      // アリ1匹の体力（ステージ倍率をかけたあと）
   churu: number;      // いま持っているちゅ〜る
   owned: number;      // お迎えした猫の数
   obj: string;        // 持っていくオブジェクトの「id:レベル/かけら」
+  perks: number;      // 持っていくオブジェクトの、解放ずみの特殊効果の数の合計
+  bugs: number;       // そのステージの虫の数
 }
 
 /** need: 戦力の余裕がこれ以上なら挑む。maxGrind: 1ステージで回せる上限。 */
@@ -143,9 +147,11 @@ export function simulate(
       stage: id, ratio: first, grinds, level: cs.level,
       char: `${save.selectedChar}(${CHAR_MAP[save.selectedChar].rarity})♥${cs.bond}`,
       skillLv: Object.values(cs.skills).reduce((s, v) => s + v, 0),
-      charDps: d.char, objDps: d.objects, bugHp: 5 * lo.stage.hpMul, churu: save.churu,
+      charDps: d.char, objDps: d.objects, bugHp: BUG_MAP.ari.hp * lo.stage.hpMul, churu: save.churu,
       owned: Object.keys(save.chars).length,
       obj: save.loadout.map((i) => i + ":" + save.objects[i].level + "/" + save.objects[i].shards).join(" "),
+      perks: lo.objects.reduce((s, o) => s + o.perks.length, 0),
+      bugs: stageLoad(lo.stage).count,
     });
     grantRewards(save, id, rng);
   }

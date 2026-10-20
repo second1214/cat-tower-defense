@@ -1,18 +1,22 @@
-// 戦闘の画面（盤面の canvas ＋ 上のバー ＋ 下のカード）。入力（スティック・キーボード）をまとめて、毎コマ battle.step() を呼ぶ。
+// 戦闘の画面（盤面の canvas ＋ 上のバー ＋ 下のカード）。入力（スティック・カードのドラッグ・キーボード）をまとめて、毎コマ battle.step() を呼ぶ。
 //
 // 使い方:
 //   const h = startBattle(root, loadout, { onEnd(result) { ... }, onQuit() { ... } });
 //   h.destroy(); // 画面を消すとき（onEnd / onQuit のあとに呼び出し側で）
 // root は画面いっぱいの要素を渡す（中に position:absolute で全面に広がる）。
 //
-// 操作:
-//   スマホ: 盤面のどこかに指を置くと、そこにスティックが出る（ドラッグで移動）。カードを押すと置く。複数の指で同時に操作できる。
-//   PC: WASD / 矢印キーで移動、1〜5 で置く、E かスペースで強化、Esc か P で一時停止、F で速さ（x1/x2）、R で通り道の表示。
-// 右上の「x1 / x2」で速さを切りかえる。盤面の左上の「みち」で虫の通り道の表示を切りかえる（はじめは表示）。
+// 操作（v3）:
+//   置く: 下のカードを盤面へドラッグ → 指の少し上に「影」が出る（マスにそろう。緑＝置ける、赤＝置けない＋理由）→ 指をはなすと置く。
+//         カードの上・盤面の外ではなすとやめる。カードをタップ → 盤面のマスをタップ、でも置ける（もう一度カードをタップでやめる）。
+//   強化: 置いたオブジェクトをタップ → となりに小さな窓（レベル・特殊効果・強化ボタン）。
+//   猫: カードを持っていない・選んでいないときに盤面を指でなぞるとスティック（オブジェクトの上から始めてもよい。動かせばスティック）。
+//   PC: WASD / 矢印キーで移動、1〜5 でカードを選んでマスをクリック、Esc でやめる（何も選んでいなければ一時停止）、
+//       P で一時停止、F で速さ（x1/x2/x3）、R で通り道の表示。
+// 右上の「x1 / x2 / x3」で速さを切りかえる。盤面の左上の「みち」で虫の通り道の表示を切りかえる（はじめは表示）。
 
 import "./battle.css";
 import type { BattleInput, BattleResult, Loadout } from "../core/types";
-import { Battle, type BattleEvent } from "./engine";
+import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
 import { getSprite, loadSpriteOverrides, spriteVersion, SPRITE_SIZE } from "./sprites";
 import { fmt } from "../core/num";
@@ -32,6 +36,8 @@ export interface BattleScreenHandle {
 const STICK_R = 46;       // スティックの半径（CSS px）
 const STICK_DEAD = 0.12;  // これより小さい傾きは無視
 const MAX_DT = 0.1;
+const DRAG_START = 8;     // これだけ動いたらドラッグ（CSS px）
+const TAP_SLOP = 10;      // オブジェクトのタップとスティックの境目
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, parent?: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -62,6 +68,10 @@ function timeText(t: number): string {
 }
 
 const HEART_SVG = `<svg viewBox="0 0 24 22" aria-hidden="true"><path d="M12 21 C 5 15, 1 11.5, 1 7 A 5.6 5.6 0 0 1 12 4.6 A 5.6 5.6 0 0 1 23 7 C 23 11.5, 19 15, 12 21 Z"/></svg>`;
+
+const KIND_LABEL: Record<string, string> = {
+  shooter: "うつ", wall: "かべ", aoe: "まとめて", slow: "おそく", producer: "カリカリ", mine: "わな", zap: "でんげき", poison: "どく",
+};
 
 export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScreenOptions): BattleScreenHandle {
   loadSpriteOverrides();
@@ -111,43 +121,40 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const stick = el("div", "bt-stick", board);
   const knob = el("div", "bt-knob", stick);
   const toast = el("div", "bt-toast", board);
-  const hint = el("div", "bt-hint", board, "指でなぞって猫を動かそう");
+  const hint = el("div", "bt-hint", board);
+  el("span", "", hint, "カードを盤面へドラッグして置こう");
+  el("span", "bt-hint-sub", hint, "盤面をなぞると猫が動くよ");
   const pathBtn = el("button", "bt-pathbtn on", board, "みち");
   pathBtn.type = "button";
   pathBtn.setAttribute("aria-pressed", "true");
   pathBtn.title = "虫の通り道を表示（R）";
+  const pop = el("div", "bt-pop", board);
+  pop.hidden = true;
 
   // 下のパネル
   const bottom = el("footer", "bt-bottom", col);
   const row1 = el("div", "bt-row1", bottom);
   const kibbleBox = el("div", "bt-kibble", row1);
-  paintIcon(iconCanvas("bt-kibble-icon", kibbleBox, 34), getSprite("pickup", "kibble"));
+  paintIcon(iconCanvas("bt-kibble-icon", kibbleBox, 26), getSprite("pickup", "kibble"));
   const kibbleNum = el("span", "bt-kibble-num", kibbleBox, "0");
-  const upBtn = el("button", "bt-upg", row1);
-  upBtn.type = "button";
-  const upTitle = el("span", "bt-upg-title", upBtn, "強化");
-  const upSub = el("span", "bt-upg-sub", upBtn, "");
+  const modeText = el("div", "bt-mode", row1, "");
 
   const cardsBox = el("div", "bt-cards", bottom);
-  interface CardUI {
-    btn: HTMLButtonElement; icon: HTMLCanvasElement; cost: HTMLElement; cd: HTMLElement; cdText: HTMLElement;
-    last: { dis: boolean; poor: boolean; cd: number; cdt: string };
-  }
+  interface CardUI { btn: HTMLButtonElement; icon: HTMLCanvasElement; cost: HTMLElement; last: { dis: boolean } }
   const cards: CardUI[] = loadout.objects.slice(0, 5).map((o, i) => {
     const btn = el("button", "bt-card", cardsBox);
     btn.type = "button";
     btn.dataset.kind = o.kind;
     el("span", "bt-key", btn, String(i + 1));
-    el("span", `bt-card-tag ${o.block ? "block" : "flat"}`, btn, o.block ? "かべ" : "ゆか");
-    const icon = iconCanvas("bt-card-icon", btn, 44);
+    const w = Math.max(1, Math.floor(o.w || 1)), h = Math.max(1, Math.floor(o.h || 1));
+    el("span", `bt-card-tag ${o.block ? "block" : "flat"}`, btn, `${o.block ? "かべ" : "ゆか"}${w > 1 || h > 1 ? ` ${w}×${h}` : ""}`);
+    const icon = iconCanvas("bt-card-icon", btn, 40);
     paintIcon(icon, getSprite("object", o.id, { kind: o.kind }));
     el("span", "bt-card-name", btn, o.name);
     const costRow = el("span", "bt-card-cost", btn);
     paintIcon(iconCanvas("bt-mini-kibble", costRow, 14), getSprite("pickup", "kibble"));
     const cost = el("span", "", costRow, fmt(o.cost));
-    const cd = el("span", "bt-card-cd", btn);
-    const cdText = el("span", "bt-card-cdtext", btn);
-    return { btn, icon, cost, cd, cdText, last: { dis: false, poor: false, cd: -1, cdt: "" } };
+    return { btn, icon, cost, last: { dis: false } };
   });
   let iconVersion = spriteVersion();
 
@@ -161,10 +168,12 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
 
   // ---- 状態 ----
   const view = new BattleView(canvas, battle);
+  let speed = 1;
   function setSpeed(v: number): void {
     speed = v;
     speedBtn.textContent = `x${v}`;
     speedBtn.classList.toggle("fast", v > 1);
+    speedBtn.classList.toggle("faster", v > 2);
     savePref("bt-speed", String(v));
   }
   function setPath(on: boolean): void {
@@ -179,16 +188,28 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   let endShown = false;
   let endCalled = false;
   let endTimer = 0;
-  let pendingPlace: number | null = null;
-  let pendingUpgrade = false;
   const keys = new Set<string>();
   const stickState = { id: -1, bx: 0, by: 0, x: 0, y: 0 };
   let hintShown = true;
   let toastTimer = 0;
   let fxDirty = false;
-  let speed = 1;
+  /** タップで選んだカード（-1 なら無し）。 */
+  let sel = -1;
+  /** カードのドラッグ。 */
+  let drag: { id: number; slot: number; sx: number; sy: number; active: boolean; touch: boolean } | null = null;
+  /** 選んだカードを置くために、盤面を押している指。 */
+  let aimId = -1;
+  let aimTouch = false;
+  /** オブジェクトの上で押した指（動かなければタップ、動けばスティック）。 */
+  let tapCand: { id: number; x: number; y: number; obj: ObjState } | null = null;
+  /** 情報の窓を出しているオブジェクト。 */
+  let popObj: ObjState | null = null;
+  /** 影の位置（盤面の点。毎コマ置けるかを確かめなおす）。 */
+  let ghostAt: { slot: number; x: number; y: number } | null = null;
+
   function loadPref(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } }
   function savePref(k: string, v: string): void { try { localStorage.setItem(k, v); } catch { /* 保存できなくてもよい */ } }
+  function hideHint(): void { if (hintShown) { hintShown = false; hint.classList.add("gone"); } }
 
   interface Fly { x0: number; y0: number; x1: number; y1: number; t: number; life: number }
   const flies: Fly[] = [];
@@ -209,36 +230,157 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   ro.observe(wrap);
   window.addEventListener("resize", resize);
 
-  // ---- 入力: スティック ----
-  function boardPoint(e: PointerEvent): { x: number; y: number } {
+  // ---- 影（置く場所の予告） ----
+  function boardPointXY(clientX: number, clientY: number): { x: number; y: number } {
     const r = board.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { x: clientX - r.left, y: clientY - r.top };
   }
-  function onBoardDown(e: PointerEvent): void {
-    if (paused || endShown) return;
-    if (stickState.id !== -1) return;
-    e.preventDefault();
-    const p = boardPoint(e);
-    stickState.id = e.pointerId;
-    stickState.bx = p.x; stickState.by = p.y;
+  function insideBoard(clientX: number, clientY: number): boolean {
+    const r = board.getBoundingClientRect();
+    return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  }
+  /** 指の位置から、影の中心（盤面の点）を決める。指でかくれないよう、タッチのときは少し上にずらす。 */
+  function aimPoint(slot: number, clientX: number, clientY: number, touch: boolean): { x: number; y: number } {
+    const p = boardPointXY(clientX, clientY);
+    const fp = battle.footprint(slot);
+    const lift = touch ? view.L.u * (fp.h / 2 + 1.1) : 0;
+    return view.fromPx(p.x, p.y - lift);
+  }
+  function setGhost(slot: number, x: number, y: number): void {
+    ghostAt = { slot, x, y };
+    refreshGhost();
+  }
+  function refreshGhost(): void {
+    if (!ghostAt) { view.ghost = null; return; }
+    const a = battle.anchorAt(ghostAt.slot, ghostAt.x, ghostAt.y);
+    const chk = battle.placeCheck(ghostAt.slot, a.col, a.row);
+    view.ghost = { slot: ghostAt.slot, col: a.col, row: a.row, ok: chk.ok, reason: chk.reason };
+  }
+  function clearGhost(): void { ghostAt = null; view.ghost = null; }
+  /** 影の所に置く。置けたら true。 */
+  function placeAtGhost(): boolean {
+    if (!ghostAt || paused || endShown) return false;
+    const a = battle.anchorAt(ghostAt.slot, ghostAt.x, ghostAt.y);
+    const slot = ghostAt.slot;
+    const r = battle.place(slot, a.col, a.row);
+    if (!r.ok) {
+      showToast(r.reason ?? "置けません");
+      if (cards[slot]) bump(cards[slot].btn, "shake");
+      return false;
+    }
+    if (cards[slot]) bump(cards[slot].btn, "press");
+    if (navigator.vibrate) try { navigator.vibrate(12); } catch { /* 無視 */ }
+    return true;
+  }
+  function setSel(i: number): void {
+    sel = i;
+    cards.forEach((c, k) => c.btn.classList.toggle("sel", k === i));
+    board.classList.toggle("aiming", i >= 0);
+    if (i < 0 && aimId === -1 && !(drag && drag.active)) clearGhost();
+    updateMode();
+  }
+  function updateMode(): void {
+    const t = drag && drag.active ? "はなすと置くよ（カードの上でやめる）"
+      : sel >= 0 ? `「${loadout.objects[sel]?.name ?? ""}」を置くマスをタップ`
+      : "カードを盤面へドラッグ／置いた物をタップで強化";
+    if (modeText.textContent !== t) modeText.textContent = t;
+    modeText.classList.toggle("on", sel >= 0 || !!(drag && drag.active));
+  }
+
+  // ---- 情報の窓（強化） ----
+  const popTitle = el("div", "bt-pop-title", pop);
+  const popClose = el("button", "bt-pop-close", pop, "×");
+  popClose.type = "button";
+  popClose.setAttribute("aria-label", "とじる");
+  const popInfo = el("div", "bt-pop-info", pop);
+  const popPerks = el("div", "bt-pop-perks", pop);
+  const popBtn = el("button", "bt-pop-up", pop);
+  popBtn.type = "button";
+  const popLast = { key: "" };
+  function openPop(o: ObjState): void {
+    popObj = o;
+    view.selectedUid = o.uid;
+    pop.hidden = false;
+    popLast.key = "";
+    updatePop();
+    // 位置: オブジェクトの右（入らなければ左）。縦は中心にそろえる
+    const L = view.L;
+    const pw = pop.offsetWidth, ph = pop.offsetHeight;
+    const right = L.ox + (o.col + o.w) * L.cw + 6;
+    const left = L.ox + o.col * L.cw - 6 - pw;
+    let x: number, y: number;
+    if (right + pw <= L.w - 4) { x = right; y = L.oy + o.cy * L.ch - ph / 2; }
+    else if (left >= 4) { x = left; y = L.oy + o.cy * L.ch - ph / 2; }
+    else {
+      x = L.ox + o.cx * L.cw - pw / 2;
+      y = L.oy + (o.row + o.h) * L.ch + 6;
+      if (y + ph > L.h - 4) y = L.oy + o.row * L.ch - ph - 6;
+    }
+    y = Math.max(4, Math.min(L.h - ph - 4, y));
+    x = Math.max(4, Math.min(L.w - pw - 4, x));
+    pop.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
+  function closePop(): void {
+    popObj = null;
+    view.selectedUid = -1;
+    pop.hidden = true;
+  }
+  function updatePop(): void {
+    const o = popObj;
+    if (!o) return;
+    if (o.hp <= 0) { closePop(); return; }
+    const chk = battle.upgradeCheck(o);
+    const d = o.def;
+    const key = `${o.level}|${chk.ok}|${fmt(o.upgradeCost)}|${fmt(o.atk)}`;
+    if (key === popLast.key) return;
+    popLast.key = key;
+    popTitle.textContent = `${d.name}  Lv${o.level + 1}`;
+    const info: string[] = [];
+    info.push(KIND_LABEL[d.kind] ?? d.kind);
+    if (d.kind === "producer") info.push(`カリカリ +${fmt(d.produce)} / ${d.interval}秒`);
+    else if (d.kind !== "wall" && o.atk > 0) info.push(`こうげき ${fmt(o.atk)}`);
+    if (d.range > 0 && d.kind !== "wall" && d.kind !== "producer") info.push(`しゃてい ${Math.round(d.range * 10) / 10}`);
+    popInfo.textContent = info.join("・");
+    popPerks.replaceChildren();
+    const perks = d.perks && d.perks.length > 0 ? d.perks : [];
+    for (const p of perks) el("span", "bt-perk", popPerks, p);
+    popPerks.hidden = perks.length === 0;
+    popBtn.replaceChildren();
+    el("span", "bt-pop-up-t", popBtn, "強化");
+    const c = el("span", "bt-pop-up-c", popBtn);
+    paintIcon(iconCanvas("bt-mini-kibble", c, 14), getSprite("pickup", "kibble"));
+    el("span", "", c, fmt(o.upgradeCost));
+    popBtn.classList.toggle("disabled", !chk.ok);
+    popBtn.setAttribute("aria-disabled", String(!chk.ok));
+  }
+  pop.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+  popClose.addEventListener("click", () => closePop());
+  popBtn.addEventListener("click", () => {
+    if (!popObj || paused || endShown) return;
+    const r = battle.upgrade(popObj);
+    if (!r.ok) { showToast(r.reason ?? "強化できません"); bump(popBtn, "shake"); return; }
+    bump(popBtn, "press");
+    updatePop();
+  });
+
+  // ---- 入力: 盤面（スティック・置く・タップ） ----
+  function startStick(id: number, x: number, y: number): void {
+    stickState.id = id;
+    stickState.bx = x; stickState.by = y;
     stickState.x = 0; stickState.y = 0;
-    try { board.setPointerCapture(e.pointerId); } catch { /* 古いブラウザ */ }
-    stick.style.transform = `translate(${p.x - STICK_R}px, ${p.y - STICK_R}px)`;
+    stick.style.transform = `translate(${x - STICK_R}px, ${y - STICK_R}px)`;
     knob.style.transform = "translate(0px, 0px)";
     stick.classList.add("on");
-    if (hintShown) { hintShown = false; hint.classList.add("gone"); }
+    hideHint();
   }
-  function onBoardMove(e: PointerEvent): void {
-    if (e.pointerId !== stickState.id) return;
-    e.preventDefault();
-    const p = boardPoint(e);
-    let dx = p.x - stickState.bx, dy = p.y - stickState.by;
+  function moveStick(x: number, y: number): void {
+    let dx = x - stickState.bx, dy = y - stickState.by;
     const d = Math.hypot(dx, dy);
     if (d > STICK_R) {
       // 指が遠くへ行ったら、スティックの根元もついていく
       const k = (d - STICK_R) / d;
       stickState.bx += dx * k; stickState.by += dy * k;
-      dx = p.x - stickState.bx; dy = p.y - stickState.by;
+      dx = x - stickState.bx; dy = y - stickState.by;
       stick.style.transform = `translate(${stickState.bx - STICK_R}px, ${stickState.by - STICK_R}px)`;
     }
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -248,19 +390,95 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     else { const k = Math.min(1, (len - STICK_DEAD) / (1 - STICK_DEAD)) / len; mx *= k; my *= k; }
     stickState.x = mx; stickState.y = my;
   }
-  function onBoardUp(e: PointerEvent): void {
-    if (e.pointerId !== stickState.id) return;
+  function endStick(): void {
     stickState.id = -1;
     stickState.x = 0; stickState.y = 0;
     stick.classList.remove("on");
+  }
+  function onBoardDown(e: PointerEvent): void {
+    if (paused || endShown) return;
+    e.preventDefault();
+    const p = boardPointXY(e.clientX, e.clientY);
+    if (popObj) {
+      // 窓の外を押したら閉じる（同じオブジェクトをもう一度押したときも）
+      const bp = view.fromPx(p.x, p.y);
+      const o = battle.objectAt(Math.floor(bp.x), Math.floor(bp.y));
+      closePop();
+      if (o && sel < 0) return;
+    }
+    if (sel >= 0) {
+      if (aimId !== -1) return;
+      aimId = e.pointerId;
+      aimTouch = e.pointerType !== "mouse";
+      try { board.setPointerCapture(e.pointerId); } catch { /* 古いブラウザ */ }
+      const a = aimPoint(sel, e.clientX, e.clientY, aimTouch);
+      setGhost(sel, a.x, a.y);
+      return;
+    }
+    if (drag && drag.active) return;
+    if (stickState.id !== -1 || tapCand) return;
+    try { board.setPointerCapture(e.pointerId); } catch { /* 古いブラウザ */ }
+    const bp = view.fromPx(p.x, p.y);
+    const o = battle.objectAt(Math.floor(bp.x), Math.floor(bp.y));
+    if (o) { tapCand = { id: e.pointerId, x: p.x, y: p.y, obj: o }; return; }
+    startStick(e.pointerId, p.x, p.y);
+  }
+  function onBoardMove(e: PointerEvent): void {
+    if (e.pointerId === aimId) {
+      e.preventDefault();
+      const a = aimPoint(sel, e.clientX, e.clientY, aimTouch);
+      if (sel >= 0) setGhost(sel, a.x, a.y);
+      return;
+    }
+    // マウスで選んでいるときは、押さなくても影がついてくる
+    if (e.pointerType === "mouse" && sel >= 0 && aimId === -1 && !(drag && drag.active)) {
+      const a = aimPoint(sel, e.clientX, e.clientY, false);
+      setGhost(sel, a.x, a.y);
+      return;
+    }
+    const p = boardPointXY(e.clientX, e.clientY);
+    if (tapCand && e.pointerId === tapCand.id) {
+      if (Math.hypot(p.x - tapCand.x, p.y - tapCand.y) > TAP_SLOP) {
+        const t = tapCand;
+        tapCand = null;
+        startStick(t.id, t.x, t.y);
+        moveStick(p.x, p.y);
+      }
+      return;
+    }
+    if (e.pointerId !== stickState.id) return;
+    e.preventDefault();
+    moveStick(p.x, p.y);
+  }
+  function onBoardUp(e: PointerEvent): void {
+    if (e.pointerId === aimId) {
+      aimId = -1;
+      if (e.type === "pointerup" && sel >= 0) {
+        if (placeAtGhost()) setSel(-1);
+        else if (e.pointerType !== "mouse") clearGhost();
+      } else if (e.type !== "lostpointercapture") clearGhost();
+      return;
+    }
+    if (tapCand && e.pointerId === tapCand.id) {
+      const o = tapCand.obj;
+      tapCand = null;
+      if (e.type === "pointerup" && o.hp > 0) { openPop(o); hideHint(); }
+      return;
+    }
+    if (e.pointerId !== stickState.id) return;
+    endStick();
+  }
+  function onBoardLeave(e: PointerEvent): void {
+    if (e.pointerType === "mouse" && aimId === -1 && !(drag && drag.active)) clearGhost();
   }
   board.addEventListener("pointerdown", onBoardDown);
   board.addEventListener("pointermove", onBoardMove);
   board.addEventListener("pointerup", onBoardUp);
   board.addEventListener("pointercancel", onBoardUp);
   board.addEventListener("lostpointercapture", onBoardUp);
+  board.addEventListener("pointerleave", onBoardLeave);
 
-  // ---- 入力: カード・強化 ----
+  // ---- 入力: カード（ドラッグ・タップ） ----
   function showToast(text: string): void {
     toast.textContent = text;
     toast.classList.remove("show");
@@ -273,40 +491,69 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     void elm.offsetWidth;
     elm.classList.add(cls);
   }
-  function tryPlace(i: number): void {
-    if (paused || endShown || i >= loadout.objects.length) return;
-    const chk = battle.canPlace(i);
-    if (!chk.ok) {
-      showToast(chk.reason ?? "置けません");
-      if (cards[i]) bump(cards[i].btn, "shake");
-      return;
+  function toggleSel(i: number): void {
+    if (paused || endShown || i >= cards.length) return;
+    closePop();
+    if (sel === i) { setSel(-1); return; }
+    if (!battle.canAfford(i)) {
+      showToast("カリカリが足りません");
+      bump(cards[i].btn, "shake");
     }
-    pendingPlace = i;
-    if (cards[i]) bump(cards[i].btn, "press");
-  }
-  function tryUpgrade(): void {
-    if (paused || endShown) return;
-    const chk = battle.canUpgrade();
-    if (!chk.ok) {
-      showToast(chk.reason ?? "強化できません");
-      bump(upBtn, "shake");
-      return;
-    }
-    pendingUpgrade = true;
-    bump(upBtn, "press");
+    setSel(i);
+    hideHint();
   }
   cards.forEach((c, i) => {
-    c.btn.addEventListener("pointerdown", (e) => { e.preventDefault(); tryPlace(i); });
-    c.btn.addEventListener("click", (e) => { if (e.detail === 0) tryPlace(i); }); // キーボードの Enter
+    c.btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (paused || endShown || drag) return;
+      try { c.btn.setPointerCapture(e.pointerId); } catch { /* 古いブラウザ */ }
+      drag = { id: e.pointerId, slot: i, sx: e.clientX, sy: e.clientY, active: false, touch: e.pointerType !== "mouse" };
+    });
+    c.btn.addEventListener("pointermove", (e) => {
+      if (!drag || drag.id !== e.pointerId) return;
+      e.preventDefault();
+      if (!drag.active) {
+        if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < DRAG_START) return;
+        drag.active = true;
+        closePop();
+        if (sel >= 0) setSel(-1);
+        c.btn.classList.add("dragging");
+        wrap.classList.add("dragging");
+        hideHint();
+        updateMode();
+      }
+      if (insideBoard(e.clientX, e.clientY)) {
+        const a = aimPoint(i, e.clientX, e.clientY, drag.touch);
+        setGhost(i, a.x, a.y);
+      } else {
+        clearGhost();
+      }
+    });
+    const end = (e: PointerEvent) => {
+      if (!drag || drag.id !== e.pointerId) return;
+      const d = drag;
+      drag = null;
+      c.btn.classList.remove("dragging");
+      wrap.classList.remove("dragging");
+      if (d.active) {
+        if (e.type === "pointerup" && ghostAt && insideBoard(e.clientX, e.clientY)) placeAtGhost();
+        clearGhost();
+      } else if (e.type === "pointerup") {
+        toggleSel(i);
+      }
+      updateMode();
+    };
+    c.btn.addEventListener("pointerup", end);
+    c.btn.addEventListener("pointercancel", end);
+    c.btn.addEventListener("lostpointercapture", end);
+    c.btn.addEventListener("click", (e) => { if (e.detail === 0) toggleSel(i); }); // キーボードの Enter
   });
-  upBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); tryUpgrade(); });
-  upBtn.addEventListener("click", (e) => { if (e.detail === 0) tryUpgrade(); });
   pauseBtn.addEventListener("click", () => setPaused(true));
-  speedBtn.addEventListener("click", () => setSpeed(speed > 1 ? 1 : 2));
+  speedBtn.addEventListener("click", () => setSpeed(speed >= 3 ? 1 : speed + 1));
   pathBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); setPath(!view.showPath); });
   pathBtn.addEventListener("click", (e) => { if (e.detail === 0) setPath(!view.showPath); });
 
-  // 長押しメニュー・ダブルタップ拡大を止める
+  // 長押しメニューを止める
   const stopCtx = (e: Event) => e.preventDefault();
   wrap.addEventListener("contextmenu", stopCtx);
 
@@ -317,20 +564,26 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (MOVE_KEYS.has(e.code)) {
       keys.add(e.code);
       e.preventDefault();
-      if (hintShown) { hintShown = false; hint.classList.add("gone"); }
+      hideHint();
       return;
     }
     if (e.repeat) return;
-    if (e.code === "Escape" || e.code === "KeyP") {
+    if (e.code === "Escape") {
       e.preventDefault();
       if (endShown) return;
+      if (!paused && (sel >= 0 || popObj || (drag && drag.active))) {
+        closePop();
+        setSel(-1);
+        clearGhost();
+        return;
+      }
       setPaused(!paused);
       return;
     }
+    if (e.code === "KeyP") { e.preventDefault(); if (!endShown) setPaused(!paused); return; }
     const m = /^(?:Digit|Numpad)([1-5])$/.exec(e.code);
-    if (m) { e.preventDefault(); tryPlace(Number(m[1]) - 1); return; }
-    if (e.code === "KeyE" || e.code === "Space") { e.preventDefault(); tryUpgrade(); return; }
-    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed > 1 ? 1 : 2); return; }
+    if (m) { e.preventDefault(); toggleSel(Number(m[1]) - 1); return; }
+    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed >= 3 ? 1 : speed + 1); return; }
     if (e.code === "KeyR") { e.preventDefault(); setPath(!view.showPath); }
   }
   function onKeyUp(e: KeyboardEvent): void { keys.delete(e.code); }
@@ -341,15 +594,18 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   function onVis(): void { if (document.hidden && !endShown) setPaused(true); }
   document.addEventListener("visibilitychange", onVis);
 
+  const moveVec = { x: 0, y: 0 };
   function readMove(): { x: number; y: number } {
-    if (stickState.id !== -1) return { x: stickState.x, y: stickState.y };
+    if (stickState.id !== -1) { moveVec.x = stickState.x; moveVec.y = stickState.y; return moveVec; }
     let x = 0, y = 0;
     if (keys.has("KeyA") || keys.has("ArrowLeft")) x -= 1;
     if (keys.has("KeyD") || keys.has("ArrowRight")) x += 1;
     if (keys.has("KeyW") || keys.has("ArrowUp")) y -= 1;
     if (keys.has("KeyS") || keys.has("ArrowDown")) y += 1;
     const l = Math.hypot(x, y);
-    return l > 0 ? { x: x / l, y: y / l } : { x: 0, y: 0 };
+    moveVec.x = l > 0 ? x / l : 0;
+    moveVec.y = l > 0 ? y / l : 0;
+    return moveVec;
   }
 
   // ---- 一時停止・結果 ----
@@ -357,7 +613,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (endShown || destroyed) return;
     paused = p;
     keys.clear();
-    if (stickState.id !== -1) { stickState.id = -1; stickState.x = 0; stickState.y = 0; stick.classList.remove("on"); }
+    if (stickState.id !== -1) endStick();
+    tapCand = null;
+    aimId = -1;
+    if (p) { closePop(); setSel(-1); clearGhost(); }
     if (!p) { overlay.hidden = true; overlay.replaceChildren(); return; }
     overlay.replaceChildren();
     overlay.hidden = false;
@@ -378,6 +637,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
 
   function showResult(res: BattleResult): void {
     endShown = true;
+    closePop();
+    setSel(-1);
+    clearGhost();
     overlay.replaceChildren();
     overlay.hidden = false;
     overlay.classList.add("result");
@@ -408,6 +670,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   // ---- 出来事 ----
   function onEvents(evs: readonly BattleEvent[]): void {
     view.onEvents(evs);
+    let flyN = 0;
     for (const e of evs) {
       switch (e.type) {
         case "wave": {
@@ -421,7 +684,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
           if (navigator.vibrate) try { navigator.vibrate(40); } catch { /* 無視 */ }
           break;
         case "kibble":
-          addFly(e.x, e.y);
+          if (flyN++ < 4) addFly(e.x, e.y);
           break;
         case "win":
         case "lose":
@@ -439,7 +702,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     const p = view.toPx(bx, by);
     flies.push({
       x0: br.left - wr.left + p.x, y0: br.top - wr.top + p.y,
-      x1: kr.left - wr.left + 20, y1: kr.top - wr.top + kr.height / 2,
+      x1: kr.left - wr.left + 16, y1: kr.top - wr.top + kr.height / 2,
       t: 0, life: 0.5 + Math.random() * 0.15,
     });
   }
@@ -450,7 +713,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     fxG.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
     fxDirty = flies.length > 0;
     const img = getSprite("pickup", "kibble");
-    const s = 22;
+    const s = 18;
     let w = 0;
     let arrived = false;
     for (let i = 0; i < flies.length; i++) {
@@ -461,7 +724,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
       const k = f.t / f.life;
       const e = k * k * (3 - 2 * k);
       const x = f.x0 + (f.x1 - f.x0) * e;
-      const y = f.y0 + (f.y1 - f.y0) * e - Math.sin(k * Math.PI) * 60;
+      const y = f.y0 + (f.y1 - f.y0) * e - Math.sin(k * Math.PI) * 50;
       const sc = 1 - k * 0.3;
       fxG.drawImage(img, x - (s * sc) / 2, y - (s * sc) / 2, s * sc, s * sc);
     }
@@ -470,7 +733,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   }
 
   // ---- 上下のバーの更新（変わったときだけ DOM をさわる） ----
-  const last = { mama: -1, wave: "", time: "", kib: "", up: "", upDis: null as boolean | null, upSub: "" };
+  const last = { mama: -1, wave: "", time: "", kib: "" };
   function updateHud(): void {
     const s = battle.state;
     if (s.mamaHp !== last.mama) {
@@ -488,37 +751,21 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     const kb = fmt(s.kibble);
     if (kb !== last.kib) { last.kib = kb; kibbleNum.textContent = kb; }
 
-    // カード
     const v = spriteVersion();
     const repaint = v !== iconVersion;
     iconVersion = v;
     cards.forEach((c, i) => {
       const o = loadout.objects[i];
       if (repaint) paintIcon(c.icon, getSprite("object", o.id, { kind: o.kind }));
-      const ok = battle.canPlace(i).ok;
-      const poor = s.kibble < o.cost;
-      const ratio = battle.cooldownRatio(i);
-      const cdq = Math.round(ratio * 100);
-      const cdt = s.cooldowns[i] > 0 ? s.cooldowns[i].toFixed(s.cooldowns[i] < 10 ? 1 : 0) : "";
-      if (c.last.dis !== !ok) { c.last.dis = !ok; c.btn.classList.toggle("disabled", !ok); c.btn.setAttribute("aria-disabled", String(!ok)); }
-      if (c.last.poor !== poor) { c.last.poor = poor; c.cost.parentElement!.classList.toggle("poor", poor); }
-      if (c.last.cd !== cdq) { c.last.cd = cdq; c.cd.style.transform = `scaleY(${ratio})`; }
-      if (c.last.cdt !== cdt) { c.last.cdt = cdt; c.cdText.textContent = cdt; }
+      const dis = !battle.canAfford(i);
+      if (c.last.dis !== dis) {
+        c.last.dis = dis;
+        c.btn.classList.toggle("disabled", dis);
+        c.btn.setAttribute("aria-disabled", String(dis));
+        c.cost.parentElement!.classList.toggle("poor", dis);
+      }
     });
-
-    // 強化ボタン
-    const up = battle.canUpgrade();
-    let title: string, sub: string;
-    if (up.obj) {
-      title = `強化 ${fmt(up.cost ?? 0)}`;
-      sub = up.ok ? `${up.obj.def.name} Lv${up.obj.level + 1}→${up.obj.level + 2}` : (up.reason ?? "");
-    } else {
-      title = "強化";
-      sub = "オブジェクトの上で押す";
-    }
-    if (title !== last.up) { last.up = title; upTitle.textContent = title; }
-    if (sub !== last.upSub) { last.upSub = sub; upSub.textContent = sub; }
-    if (last.upDis !== !up.ok) { last.upDis = !up.ok; upBtn.classList.toggle("disabled", !up.ok); upBtn.classList.toggle("ready", up.ok); }
+    updatePop();
   }
 
   // ---- ループ ----
@@ -532,12 +779,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     prev = now;
     if (!paused) {
       input.move = readMove();
-      input.place = pendingPlace;
-      input.upgrade = pendingUpgrade;
-      pendingPlace = null;
-      pendingUpgrade = false;
       battle.step(dt * speed, input);
       onEvents(battle.events);
+      if (ghostAt) refreshGhost();
       if (battle.result && !endShown) {
         endTimer -= dt;
         if (endTimer <= 0) showResult(battle.result);
@@ -548,8 +792,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     }
     updateHud();
   }
-  if (loadPref("bt-speed") === "2") setSpeed(2);
+  const sp = Number(loadPref("bt-speed"));
+  if (sp === 2 || sp === 3) setSpeed(sp);
   if (loadPref("bt-path") === "0") setPath(false);
+  updateMode();
   resize();
   updateHud();
   raf = requestAnimationFrame(frame);

@@ -4,7 +4,7 @@ import type { SaveData } from "../core/save";
 import { type Child, append, h, svgIcon } from "./dom";
 import { ICONS } from "./icons";
 
-export type Tab = "grow" | "main" | "relic";
+export type Tab = "gacha" | "grow" | "main" | "relic";
 export type GrowSub = "char" | "obj" | "equip";
 export type EquipFilter = "all" | "head" | "neck" | "body";
 

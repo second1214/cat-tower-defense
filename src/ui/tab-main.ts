@@ -1,18 +1,18 @@
 // メイン（ステージを選ぶ）。
 import {
-  FIRST_CLEAR_CHURU_MUL, buildLoadout, estimateDps, isStageUnlocked, nextStageId, relicBonus, stageById, stageIndexOf, stageLoad, STAGES,
+  FIRST_CLEAR_CHURU_MUL, buildLoadout, selectChar, estimateDps, isStageUnlocked, nextStageId, relicBonus, stageById, stageIndexOf, stageLoad, STAGES,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import { CHAR_MAP, ROLE_NAMES } from "../data/chars";
 import { OBJECT_MAP } from "../data/objects";
-import { BUG_MAP } from "../data/bugs";
 import { CHAPTER_NAMES, stageIdOf } from "../data/stages";
 import { MAX_LOADOUT, writeSave } from "../core/save";
 import type { Ctx } from "./ctx";
-import { badge, h, svgIcon } from "./dom";
+import { h, svgIcon } from "./dom";
 import { ICONS, catSvg, objectSvg } from "./icons";
-import { gachaBadge } from "./badges";
-import { openGacha } from "./gacha";
+import { rarityPill } from "./gacha";
+import { openCharDetail } from "./grow-char";
+import { renderCafe } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
 const POWER_SCALE = 10;
@@ -58,85 +58,101 @@ export function renderMain(ctx: Ctx): HTMLElement {
   const boss = stage.index === 10;
   const clears = save.clearCounts[id] ?? 0;
 
-  // 出てくる虫
-  const bugIds: string[] = [];
-  for (const w of stage.waves) for (const b of w.bugs) if (!bugIds.includes(b.bug)) bugIds.push(b.bug);
-
   const charDef = CHAR_MAP[save.selectedChar];
   const cs = save.chars[save.selectedChar];
+  const ch = ((stage.chapter - 1) % 5) + 1;
 
-  const header = h("div", { class: `panel stage-head ch${((stage.chapter - 1) % 5) + 1}` },
-    h("div", { class: "stage-chapter" }, `第${stage.chapter}章　${CHAPTER_NAMES[stage.chapter - 1]}`),
-    h("div", { class: "stage-nav" },
-      h("button", { class: "arrow-btn", "aria-label": "前のステージ", disabled: g <= 0, onclick: () => go(-1) }, svgIcon(ICONS.left)),
-      h("div", { class: "stage-id-wrap" },
-        h("div", { class: "stage-id" }, id),
-        h("div", { class: "stage-name" }, boss ? h("span", { class: "boss-tag" }, "ボス") : null, stage.name)),
-      h("button", { class: "arrow-btn", "aria-label": "次のステージ", disabled: g >= maxG, onclick: () => go(1) }, svgIcon(ICONS.right))),
-    h("div", { class: "stage-status" },
-      !unlocked ? h("span", { class: "chip chip-lock" }, svgIcon(ICONS.lock), `${stageIdOf(g - 1)} をクリアすると遊べます`)
+  // ---- 上: ステージ ----
+  const chip = (icon: string, value: string, cls = "", title = "") =>
+    h("span", { class: `mn-rw ${cls}`, title }, svgIcon(icon, "mn-rw-ico"), h("span", null, value));
+  const drop = (n: number) => (n * (1 + rel.drop)).toFixed(rel.drop ? 1 : 0);
+  const stagePanel = h("div", { class: `mn-stage ch${ch}` },
+    h("div", { class: "mn-row" },
+      h("button", { class: "arrow-btn mn-arrow", "aria-label": "前のステージ", disabled: g <= 0, onclick: () => go(-1) }, svgIcon(ICONS.left)),
+      h("div", { class: "mn-mid" },
+        h("div", { class: "mn-ch" }, `第${stage.chapter}章　${CHAPTER_NAMES[stage.chapter - 1] ?? ""}`),
+        h("div", { class: "mn-idrow" },
+          h("span", { class: "mn-id" }, id),
+          h("span", { class: "mn-name" }, boss ? h("span", { class: "boss-tag" }, "ボス") : null, stage.name))),
+      h("button", { class: "arrow-btn mn-arrow", "aria-label": "次のステージ", disabled: g >= maxG, onclick: () => go(1) }, svgIcon(ICONS.right))),
+    h("div", { class: "mn-rws" },
+      chip(ICONS.exp, fmt(Math.round(rw.exp * (1 + rel.exp))), "", "経験値"),
+      chip(ICONS.coin, fmt(Math.round(rw.coins * (1 + rel.coins))), "", "お金"),
+      chip(ICONS.churu, fmt(Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu))), firstClear ? "mn-rw-x2" : "", firstClear ? "ちゅ〜る（はじめては2倍）" : "ちゅ〜る"),
+      firstClear ? chip(ICONS.relic, fmt(rw.relicPoints), "mn-rw-first", "レリックポイント（はじめてだけ）") : null,
+      chip(ICONS.equipBox, `×${drop(rw.equipDrops)}`, "", "装備"),
+      chip(ICONS.shard, `×${drop(rw.objectDrops)}`, "", "かけら")),
+    h("div", { class: "mn-pow" },
+      h("span", { class: "mn-pow-k" }, "おすすめ戦力"),
+      h("b", { class: "mn-pow-v" }, fmt(need)),
+      h("span", { class: `diff diff-${diff.cls}` }, diff.label),
+      h("span", { class: "mn-pow-sp" }),
+      !unlocked ? h("span", { class: "chip chip-lock" }, svgIcon(ICONS.lock), `${stageIdOf(g - 1)} をクリア`)
         : clears > 0 ? h("span", { class: "chip chip-ok" }, `クリア ${clears}回`)
           : h("span", { class: "chip chip-new" }, "はじめて")),
-    h("div", { class: "bug-row" }, h("span", { class: "bug-row-label" }, "出てくる虫"),
-      bugIds.map((b) => h("span", { class: `bug-chip ${BUG_MAP[b]?.boss ? "boss" : ""}` }, BUG_MAP[b]?.name ?? b))),
   );
 
-  const power = h("div", { class: "panel power" },
-    h("div", { class: "power-row" },
-      h("div", { class: "power-col" }, h("div", { class: "power-k" }, "おすすめ戦力"), h("div", { class: "power-v" }, fmt(need))),
-      h("div", { class: `diff diff-${diff.cls}` }, diff.label),
-      h("div", { class: "power-col" }, h("div", { class: "power-k" }, "あなたの戦力"), h("div", { class: `power-v pv-${diff.cls}` }, fmt(mine)))),
-    h("div", { class: `power-meter pm-${diff.cls}` }, h("div", { class: "pm-fill", style: `width:${Math.min(100, (ratio / 2.5) * 100).toFixed(1)}%` }),
-      h("div", { class: "pm-mark", style: `left:${(100 / 2.5).toFixed(1)}%` })),
-  );
-
-  const rwRow = (icon: string, label: string, value: string, cls = "") =>
-    h("div", { class: `rw ${cls}` }, svgIcon(icon, "rw-ico"), h("div", { class: "rw-k" }, label), h("div", { class: "rw-v" }, value));
-  const rewards = h("div", { class: "panel rewards" },
-    h("div", { class: "panel-title" }, "もらえるもの"),
-    h("div", { class: "rw-grid" },
-      rwRow(ICONS.exp, "経験値", fmt(Math.round(rw.exp * (1 + rel.exp)))),
-      rwRow(ICONS.coin, "お金", fmt(Math.round(rw.coins * (1 + rel.coins)))),
-      rwRow(ICONS.relic, "レリック", firstClear ? fmt(rw.relicPoints) : "クリアずみ", firstClear ? "rw-first" : "rw-done"),
-      rwRow(ICONS.churu, "ちゅ〜る", fmt(Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu))), firstClear ? "rw-first-churu" : ""),
-      rwRow(ICONS.equipBox, "装備", `×${(rw.equipDrops * (1 + rel.drop)).toFixed(rel.drop ? 1 : 0)}`),
-      rwRow(ICONS.shard, "かけら", `×${(rw.objectDrops * (1 + rel.drop)).toFixed(rel.drop ? 1 : 0)}`),
-    ),
-    firstClear ? h("div", { class: "rw-note" }, "はじめてのクリアでレリックポイントと、ちゅ〜る2倍！") : null,
-  );
-
+  // ---- 下: もちもの・プレイ ----
   const slots: HTMLElement[] = [];
   for (let i = 0; i < MAX_LOADOUT; i++) {
     const oid = save.loadout[i];
     const def = oid ? OBJECT_MAP[oid] : undefined;
     slots.push(def
-      ? h("div", { class: `lo-obj r-${def.rarity}` }, svgIcon(objectSvg(def.id, def.kind)), h("span", { class: "lo-lv" }, `Lv${save.objects[def.id]?.level ?? 1}`))
-      : h("div", { class: "lo-obj empty" }, "なし"));
+      ? h("span", { class: `mn-obj r-${def.rarity}` }, svgIcon(objectSvg(def.id, def.kind)), h("span", { class: "mn-obj-lv" }, `${save.objects[def.id]?.level ?? 1}`))
+      : h("span", { class: "mn-obj empty" }));
   }
-  const party = h("div", { class: "panel party" },
-    h("div", { class: "panel-title" }, "いっしょに戦う"),
-    h("div", { class: "party-row" },
-      h("button", { class: "party-cat", onclick: () => ctx.goTab("grow", "char") },
-        svgIcon(catSvg(save.selectedChar), "party-cat-ico"),
-        h("div", { class: "party-cat-name" }, charDef?.name ?? "?"),
-        h("div", { class: "party-cat-sub" }, `Lv${cs?.level ?? 1}・${charDef ? ROLE_NAMES[charDef.role] : ""}`)),
-      h("button", { class: "party-objs", "aria-label": "オブジェクトを選ぶ", onclick: () => ctx.goTab("grow", "obj") }, slots)),
-  );
+  const party = h("div", { class: "mn-party" },
+    h("button", { class: "mn-party-cat", "aria-label": "猫を選ぶ", onclick: () => ctx.goTab("grow", "char") }, svgIcon(catSvg(save.selectedChar), "mn-party-cat-ico")),
+    h("button", { class: "mn-party-objs", "aria-label": "オブジェクトを選ぶ", onclick: () => ctx.goTab("grow", "obj") },
+      h("span", { class: "mn-party-k" }, "もちもの"), slots));
 
   const playBtn = h("button", {
     class: `btn btn-play ${unlocked ? "" : "is-off"}`, disabled: !unlocked,
     onclick: () => ctx.play(id),
   }, unlocked ? "プレイ" : "まだ遊べません");
 
+  // ---- まん中: 猫カフェ ----
+  const onCatTap = (cid: string) => {
+    if (cid === ctx.save.selectedChar) { openCharDetail(ctx, cid); return; }
+    openCatBubble(ctx, cid);
+  };
+  const cafe = renderCafe(ctx, onCatTap);
+
+  const plate = h("button", { class: "mn-plate", onclick: () => openCharDetail(ctx, save.selectedChar) },
+    h("span", { class: "mn-plate-name" }, charDef?.name ?? "?"),
+    h("span", { class: "mn-plate-sub" },
+      h("span", { class: "mn-plate-lv" }, `Lv${cs?.level ?? 1}`),
+      charDef ? h("span", { class: `role-tag role-${charDef.role}` }, ROLE_NAMES[charDef.role]) : null,
+      h("span", { class: "mn-plate-pow" }, "戦力 ", h("b", { class: `pv-${diff.cls}` }, fmt(mine)))));
+
   return h("div", { class: "tab tab-main" },
-    h("div", { class: "scroll", dataset: { sk: "main" } }, header, power, rewards, party),
-    h("div", { class: "main-foot" },
-      h("div", { class: "mama-line" }, svgIcon(ICONS.mama, "mama-ico"), h("span", null, firstClear ? "ママを虫から守ってね！" : "もう一度あそんで、強くなろう")),
-      h("div", { class: "main-foot-row" },
-        h("button", { class: "gacha-mini", onclick: () => openGacha(ctx), "aria-label": "譲渡会会場" },
-          badge(gachaBadge(save)),
-          svgIcon(ICONS.tent, "gm-ico"),
-          h("span", { class: "gm-label" }, "譲渡会")),
-        playBtn)),
-  );
+    cafe,
+    stagePanel,
+    plate,
+    h("div", { class: "mn-foot" }, party, playBtn));
 }
+
+/** ほかの猫をタップ: 名前と「この子で出撃」。 */
+function openCatBubble(ctx: Ctx, cid: string): void {
+  const def = CHAR_MAP[cid];
+  const cs = ctx.save.chars[cid];
+  if (!def || !cs) return;
+  const m = ctx.modals.open({
+    cls: "modal-small modal-catpop",
+    closeButton: false,
+    render: () => h("div", { class: "catpop" },
+      svgIcon(catSvg(cid), "catpop-ico"),
+      h("div", { class: "catpop-name" }, def.name),
+      h("div", { class: "catpop-sub" }, rarityPill(def.rarity), h("span", { class: `role-tag role-${def.role}` }, ROLE_NAMES[def.role]), h("b", null, `Lv${cs.level}`)),
+      h("div", { class: "catpop-talk" }, CAT_TALK[Math.floor(Math.random() * CAT_TALK.length)])),
+    footer: () => h("div", { class: "foot-row" },
+      h("button", { class: "btn btn-gray", onclick: () => { m.close(); openCharDetail(ctx, cid); } }, "くわしく"),
+      h("button", {
+        class: "btn btn-green", onclick: () => {
+          selectChar(ctx.save, cid); m.close(); ctx.commit(); ctx.toast(`${def.name}が出撃します`);
+        },
+      }, "出撃させる")),
+  });
+}
+
+const CAT_TALK = ["にゃ〜ん（なでて）", "ごはんまだかにゃ？", "ママはぼくが守るにゃ", "ねむいにゃ…", "窓の外、なにかいたにゃ！", "あそんでくれるの？"];

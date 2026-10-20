@@ -9,17 +9,22 @@ import {
   equip, unequip, unlockRelic, canUnlockRelic, buildLoadout, resolveChar, resolveObjects, grantRewards, stageIdList,
   stageById, isStageUnlocked, estimateDps, stageLoad, toggleLoadout, sellEquip, relicBonus, churuForLevel,
   nodeLevel, nextNodeCost, resetSkills, skillSpent, skillTreeOf, isNodeOpen, bondMul, FIRST_CLEAR_CHURU_MUL,
+  objectPerks, resolveObject, objectDps, equipBonus,
 } from "../src/core/progress";
 import {
   BOND_REFUND, GACHA_RATES, PITY_PULLS, PULL10_COST, PULL_COST, pull, rollRarity, welcomeChar, pullRates,
 } from "../src/core/gacha";
 import { CHARS, CHAR_MAP, CHAR_RARITIES, MAX_BOND, STARTER_CHARS } from "../src/data/chars";
 import { SKILL_BRANCHES, SKILL_MAP, SKILL_TREES, TIER_MIN_LEVEL, nodeCost } from "../src/data/skills";
-import { OBJECTS } from "../src/data/objects";
-import { BUGS } from "../src/data/bugs";
-import { EQUIPS, affixCount } from "../src/data/equips";
+import { OBJECTS, OBJECT_MAP, PERK_LEVELS } from "../src/data/objects";
+import { BUGS, BUG_MAP } from "../src/data/bugs";
+import { AFFIXES, EQUIPS, affixCount, affixText, rollAffix } from "../src/data/equips";
 import { RELICS } from "../src/data/relics";
-import { STAGES } from "../src/data/stages";
+import {
+  FURNITURE_SIZES, MAMA_COL, MAMA_H, MAMA_ROW, MAMA_W, OBSTACLE_ROW_MAX, OBSTACLE_ROW_MIN, STAGES, boardConnected,
+  obstacleCells, stageBlocked,
+} from "../src/data/stages";
+import { COLS, ROWS } from "../src/core/types";
 import { simulate } from "./sim";
 
 describe("fmt", () => {
@@ -118,6 +123,122 @@ describe("データ", () => {
     expect(by.tape).toBe(false);
     expect(by.nezumitori).toBe(false);
     for (const o of OBJECTS) expect(typeof o.base.block).toBe("boolean");
+  });
+  test("オブジェクト: 大きさ・待ち時間なし・新しい種類", () => {
+    for (const o of OBJECTS) {
+      expect(Number.isInteger(o.base.w) && o.base.w >= 1 && o.base.w <= 3).toBe(true);
+      expect(Number.isInteger(o.base.h) && o.base.h >= 1 && o.base.h <= 3).toBe(true);
+      expect(o.base.cooldown).toBe(0);
+      expect(o.base.critMul).toBeGreaterThanOrEqual(1.5);
+    }
+    const size = (id: string) => `${OBJECT_MAP[id].base.w}x${OBJECT_MAP[id].base.h}`;
+    expect(size("danboru")).toBe("1x1");
+    expect(size("wagomu")).toBe("2x2");
+    expect(size("soujiki")).toBe("2x2");
+    expect(size("esara")).toBe("1x1");
+    expect(size("tape")).toBe("1x1");
+    expect(size("nezumitori")).toBe("1x1");
+    expect(size("senpuki")).toBe("2x2");
+    expect(OBJECTS.some((o) => o.kind === "wall" && o.base.w * o.base.h > 1)).toBe(true); // 長い壁もある
+    // 電撃と毒
+    const zaps = OBJECTS.filter((o) => o.kind === "zap"), poisons = OBJECTS.filter((o) => o.kind === "poison");
+    expect(zaps.length).toBeGreaterThanOrEqual(2);
+    expect(poisons.length).toBeGreaterThanOrEqual(2);
+    for (const z of zaps) expect(z.base.chain > 0 && z.base.chainRange > 0).toBe(true);
+    for (const p of poisons) expect(p.base.poison).toBeGreaterThan(0);
+    expect(OBJECT_MAP.shitajiki.name).toBe("静電気の下敷き");
+    expect(OBJECT_MAP.katorisenko.name).toBe("蚊取り線香");
+    // 大きいものほど高い（同じ種類どうし・だいたい）
+    expect(OBJECT_MAP.danboru.base.cost).toBeLessThan(OBJECT_MAP.wagomu.base.cost);
+  });
+  test("オブジェクト: レベルで特殊効果", () => {
+    for (const o of OBJECTS) {
+      expect(o.perks.length).toBeGreaterThanOrEqual(o.kind === "wall" || o.kind === "producer" ? 4 : 6);
+      const lv = o.perks.map((p) => p.level);
+      expect([...lv].sort((a, b) => a - b)).toEqual(lv);
+      expect(new Set(lv).size).toBe(lv.length);
+      expect(new Set(o.perks.map((p) => p.id)).size).toBe(o.perks.length);
+      for (const p of o.perks) {
+        expect(p.name.length).toBeGreaterThan(0);
+        expect(p.desc.length).toBeGreaterThan(0);
+        expect(p.effects.length).toBeGreaterThan(0);
+        for (const e of p.effects) {
+          expect(e.stat in o.base).toBe(true);
+          expect(e.add !== undefined || e.mul !== undefined).toBe(true);
+        }
+      }
+    }
+    for (const o of OBJECTS.filter((x) => x.kind !== "wall" && x.kind !== "producer")) {
+      for (const l of o.perks.map((p) => p.level)) expect(PERK_LEVELS).toContain(l);
+    }
+    // 種類ごとの「らしい」効果
+    const has = (id: string, stat: string) => OBJECT_MAP[id].perks.some((p) => p.effects.some((e) => e.stat === stat));
+    expect(has("wagomu", "multishot") && has("wagomu", "pierce") && has("wagomu", "splash") && has("wagomu", "crit")).toBe(true);
+    expect(has("soujiki", "range") && has("soujiki", "knockback") && has("soujiki", "slow")).toBe(true);
+    expect(has("shitajiki", "chain") && has("shitajiki", "range")).toBe(true);
+    expect(has("katorisenko", "poison") && has("katorisenko", "poisonSpread") && has("katorisenko", "range")).toBe(true);
+    expect(has("danboru", "maxHp")).toBe(true);
+    expect(has("tape", "slow") && has("tape", "poison")).toBe(true);
+    expect(has("nezumitori", "splash")).toBe(true);
+  });
+  test("虫: 飛ぶ虫はいない・ゆっくり", () => {
+    for (const b of BUGS) {
+      expect(b.fly).toBeFalsy();
+      expect(b.speed).toBeGreaterThanOrEqual(0.2);
+      expect(b.speed).toBeLessThanOrEqual(0.55);
+    }
+    expect(BUG_MAP.kamemushi.speed).toBe(0.35);
+    expect(BUG_MAP.gokiburi.speed).toBe(Math.max(...BUGS.map((b) => b.speed)));
+    expect(BUG_MAP.imomushi.speed).toBe(Math.min(...BUGS.map((b) => b.speed)));
+    for (const b of BUGS.filter((x) => x.boss)) expect(b.speed).toBeLessThanOrEqual(0.3);
+  });
+  test("ステージの家具: 大きさ・場所・道がつながる", () => {
+    expect([COLS, ROWS]).toEqual([14, 18]);
+    expect([MAMA_COL, MAMA_ROW, MAMA_W, MAMA_H]).toEqual([6, 16, 2, 2]);
+    for (const s of STAGES) {
+      const obs = s.obstacles ?? [];
+      expect(obs.length).toBeGreaterThanOrEqual(4);
+      const used = new Set<number>();
+      for (const o of obs) {
+        const w = o.w ?? 1, h = o.h ?? 1;
+        expect(FURNITURE_SIZES[o.kind]).toBeDefined();
+        expect(FURNITURE_SIZES[o.kind].some(([a, b]) => a === w && b === h)).toBe(true);
+        expect(o.col).toBeGreaterThanOrEqual(0);
+        expect(o.col + w).toBeLessThanOrEqual(COLS);
+        expect(o.row).toBeGreaterThanOrEqual(OBSTACLE_ROW_MIN);
+        expect(o.row + h - 1).toBeLessThanOrEqual(OBSTACLE_ROW_MAX);
+        for (const i of obstacleCells(o)) {
+          expect(used.has(i)).toBe(false); // 重ならない
+          used.add(i);
+        }
+      }
+      const blocked = stageBlocked(obs);
+      expect(boardConnected(blocked)).toBe(true);
+      // ママのマス・上の端・左右の上の方は空いている
+      for (let c = 0; c < COLS; c++) expect(blocked[c]).toBe(false);
+      for (let r = 0; r < 3; r++) expect(blocked[r * COLS] || blocked[r * COLS + COLS - 1]).toBe(false);
+    }
+    expect(STAGES.some((s) => s.obstacles!.some((o) => (o.w ?? 1) * (o.h ?? 1) >= 3))).toBe(true);
+  });
+  test("ステージの虫: 次々にたくさん・いくつもの所から", () => {
+    const counts = STAGES.map((s) => stageLoad(s).count);
+    expect(counts[0]).toBeGreaterThanOrEqual(20);
+    expect(counts[99]).toBeGreaterThanOrEqual(300);
+    expect(Math.min(...counts.slice(50))).toBeGreaterThanOrEqual(150);
+    for (const s of STAGES) {
+      for (const w of s.waves) {
+        for (const g of w.bugs) {
+          expect(g.every).toBeGreaterThanOrEqual(0.25);
+          expect(g.every).toBeLessThanOrEqual(8);
+          for (const l of g.lanes ?? []) expect(l >= 0 && l < COLS).toBe(true);
+        }
+      }
+    }
+    // 後半は同時にいくつもの所から出てくる
+    const multi = STAGES.slice(30).filter((s) => s.waves.some((w) => w.bugs.length >= 2 && w.bugs.some((g) => !g.lanes || g.lanes.length >= 2)));
+    expect(multi.length).toBeGreaterThan(60);
+    // 体力はステージごとに約1.3倍
+    for (let g = 1; g < 100; g++) expect(STAGES[g].hpMul / STAGES[g - 1].hpMul).toBeCloseTo(1.3);
   });
   test("ステージの虫はすべて定義ずみ・10番目はボス", () => {
     const bugIds = new Set(BUGS.map((b) => b.id));
@@ -433,6 +554,97 @@ describe("オブジェクト", () => {
     expect(objectUpgradeCost(s, "wagomu")!.shards).toBe(15);
     expect(objectUpgradeCost(s, "surippa")).toBeNull();
   });
+  test("計算ずみのオブジェクト: 新しい項目がすべてうまる", () => {
+    const s = newSave();
+    for (const o of OBJECTS) {
+      s.objects[o.id] = { level: 1, shards: 0 };
+      const r = resolveObject(s, o.id)!;
+      for (const k of ["w", "h", "multishot", "spread", "pierce", "splash", "chain", "chainRange", "poison", "poisonSpread",
+        "knockback", "crit", "critMul", "cost", "maxHp", "atk", "interval", "range", "slow", "produce", "cooldown"] as const) {
+        expect(typeof r[k]).toBe("number");
+        expect(Number.isFinite(r[k])).toBe(true);
+      }
+      expect(r.cooldown).toBe(0);
+      expect(r.critMul).toBeGreaterThanOrEqual(1.5);
+      expect(r.perks).toEqual([]);
+      expect(r.w).toBe(o.base.w);
+      expect(r.interval).toBeGreaterThan(0);
+    }
+    const w1 = resolveObject(s, "wagomu")!;
+    expect(w1.multishot).toBe(0);
+    expect(w1.pierce).toBe(0);
+    expect(w1.crit).toBe(0);
+    expect(w1.critMul).toBe(1.5);
+    expect(resolveObject(s, "shitajiki")!.chain).toBe(2);
+  });
+  test("特殊効果はレベルで解放される", () => {
+    const s = newSave();
+    expect(objectPerks(s, "wagomu").every((p) => !p.unlocked)).toBe(true);
+    expect(objectPerks(s, "nope")).toEqual([]);
+    s.objects.wagomu.level = 6;
+    const ps = objectPerks(s, "wagomu");
+    expect(ps.filter((p) => p.unlocked).map((p) => p.level)).toEqual([3, 6]);
+    expect(ps[0]).toMatchObject({ level: 3, name: "連射", unlocked: true });
+    const r6 = resolveObject(s, "wagomu")!;
+    expect(r6.perks).toEqual(["連射", "拡散"]);
+    expect(r6.multishot).toBe(2);
+    expect(r6.spread).toBeGreaterThan(0);
+    expect(r6.interval).toBeCloseTo(OBJECT_MAP.wagomu.base.interval * 0.85);
+    s.objects.wagomu.level = 2;
+    expect(resolveObject(s, "wagomu")!.perks).toEqual([]);
+    s.objects.wagomu.level = 50;
+    const r50 = resolveObject(s, "wagomu")!;
+    expect(r50.perks.length).toBe(8);
+    expect(r50.multishot).toBe(4);
+    expect(r50.pierce).toBe(1);
+    expect(r50.splash).toBeGreaterThan(0);
+    expect(r50.crit).toBeCloseTo(0.3);
+    expect(r50.critMul).toBeCloseTo(2.5);
+    // 電撃の連鎖・毒の伝染
+    s.objects.shitajiki = { level: 50, shards: 0 };
+    expect(resolveObject(s, "shitajiki")!.chain).toBe(2 + 1 + 1 + 2 + 2);
+    s.objects.katorisenko = { level: 10, shards: 0 };
+    const k = resolveObject(s, "katorisenko")!;
+    expect(k.poisonSpread).toBe(1);
+    expect(k.poison).toBeCloseTo(1.3);
+    // 掃除機の吸い込み（遅くする）・ノックバック
+    s.objects.soujiki = { level: 15, shards: 0 };
+    const v = resolveObject(s, "soujiki")!;
+    expect(v.slow).toBeCloseTo(0.7);
+    expect(v.knockback).toBe(0.5);
+    // 壁は体力
+    s.objects.danboru.level = 10;
+    expect(resolveObject(s, "danboru")!.maxHp).toBeGreaterThan(40 * Math.pow(1.22, 9) * 2.9);
+    // 特殊効果で群れへの DPS が上がる
+    s.objects.wagomu.level = 5;
+    const d5 = objectDps(resolveObject(s, "wagomu")!) / resolveObject(s, "wagomu")!.atk;
+    s.objects.wagomu.level = 6;
+    const d6 = objectDps(resolveObject(s, "wagomu")!) / resolveObject(s, "wagomu")!.atk;
+    expect(d6).toBeGreaterThan(d5 * 1.5);
+  });
+  test("装備の特殊効果の補正", () => {
+    const rng = mulberry32(11);
+    // 低いレアリティにはつかない
+    for (let i = 0; i < 300; i++) {
+      const a = rollAffix(rng, 1);
+      expect(["objMultishot", "objPierce", "objChain"]).not.toContain(a.id);
+    }
+    for (const a of AFFIXES.filter((x) => x.flat)) expect(a.minRarity).toBeGreaterThanOrEqual(3);
+    expect(affixText({ id: "objChain", value: 2 })).toBe("連鎖 +2（でんき）");
+    const s = newSave();
+    s.objects.shitajiki = { level: 1, shards: 0 };
+    s.equips.push({ uid: "x", defId: "suzu", slot: "neck", rarity: 4, affixes: [
+      { id: "objChain", value: 2 }, { id: "objMultishot", value: 1 }, { id: "objCrit", value: 0.1 },
+    ] });
+    s.equipped.neck = "x";
+    expect(equipBonus(s).objChain).toBe(2);
+    expect(resolveObject(s, "shitajiki")!.chain).toBe(4);
+    const w = resolveObject(s, "wagomu")!;
+    expect(w.multishot).toBe(1);
+    expect(w.spread).toBeGreaterThan(0);
+    expect(w.crit).toBeCloseTo(0.1);
+    expect(resolveObject(s, "danboru")!.crit).toBe(0); // 攻撃しないものには会心はつかない
+  });
   test("持っていくのは最大5つ", () => {
     const s = newSave();
     for (const o of OBJECTS) s.objects[o.id] = { level: 1, shards: 0 };
@@ -508,7 +720,7 @@ describe("戦闘の準備・報酬", () => {
     expect(lo.objects.length).toBe(3);
     expect(lo.objects.find((o) => o.id === "danboru")!.block).toBe(true);
     expect(lo.stage.hpMul).toBe(1);
-    expect(lo.bugs.ari.hp).toBe(5);
+    expect(lo.bugs.ari.hp).toBe(2);
     expect(lo.global.mamaHp).toBeGreaterThan(0);
     for (const o of lo.objects) {
       expect(o.cost).toBeGreaterThan(0);
@@ -577,6 +789,11 @@ describe("インフレの曲線", () => {
       expect(r.ratio).toBeGreaterThan(0.3);
       expect(r.ratio).toBeLessThan(20);
     }
+    // オブジェクトの特殊効果も解放されていく（後半は持っていく5つで合わせて20以上）
+    expect(rows[0].perks).toBe(0);
+    expect(rows[99].perks).toBeGreaterThanOrEqual(20);
+    // 虫は次々にたくさん
+    expect(rows[99].bugs).toBeGreaterThan(rows[0].bugs * 10);
     // 数字はちゃんとインフレしている
     expect(rows[99].charDps).toBeGreaterThan(1e10);
     // オブジェクトも最後まで役に立つ（猫の 5% 以上）
