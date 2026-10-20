@@ -1,13 +1,13 @@
 // ゲーム全体で共有する型（成長・データ・戦闘・画面の約束ごと）。ここを変えるときは全体に影響する。
 //
 // 舞台: 虫嫌いのママを、猫が虫から守る。縦画面。下の真ん中にママ。虫は上の端（ときどき左右の上の方）から出て、
-// ママに向かって集まるように進む（マスの上を最短の道で。通れないオブジェクトはよけて回り込む。飛ぶ虫はまっすぐ）。
-// 盤面は COLS 列 × ROWS 行のマス。猫はスティックで自由に動き、自分のいるマスにオブジェクトを置く・強化する。
+// ママに向かって集まるように進む（マスの上を最短の道で。通れないオブジェクトはよけて回り込む）。ボスがママに着いたら即負け。
+// 盤面は COLS 列 × ROWS 行のマス。猫はスティックで自由に動いて戦う。オブジェクトはカードを盤面へドラッグして置き、置いたものをタップして強化する。
 // 通れないオブジェクト（block）で道をふさいで遠回りさせ、そのあいだに倒す。ただし虫の道を完全にふさぐ置き方はできない。
 // 数値はインフレ系（最初はダメージ1、最終的には 1e30 以上）。数値は number（double）のまま扱い、表示だけ fmt() で 10A・100J のようにする。
 
-export const COLS = 7;
-export const ROWS = 11;
+export const COLS = 14;
+export const ROWS = 18;
 
 /** 猫の戦い方の個性。 */
 export type CharRole = "melee" | "ranged" | "aoe" | "fast";
@@ -49,7 +49,9 @@ export type ObjectKind =
   | "aoe"       // まわりのマスにまとめてダメージ
   | "slow"      // 当てた虫を遅くする
   | "producer"  // カリカリを生む
-  | "mine";     // 踏んだ虫に大ダメージ（1回きり）
+  | "mine"      // 踏んだ虫に大ダメージ（1回きり）
+  | "zap"       // 電撃: 当たった虫から近くの虫へ次々に飛び移る（chain）
+  | "poison";   // 毒: 範囲の虫に毒。倒れた虫の毒がまわりにうつる（poisonSpread）
 
 /** 戦闘で使う、計算ずみのオブジェクトの強さ（レベル・装備の補正・レリックを掛けたあと）。 */
 export interface ResolvedObject {
@@ -63,10 +65,25 @@ export interface ResolvedObject {
   range: number;        // 届く距離（マス）。shooter は前方の行数、aoe は半径
   slow: number;         // slow: 速さに掛ける倍率（0.5 で半分）。それ以外は 1
   produce: number;      // producer: 1回に生むカリカリ
-  cooldown: number;     // 置いたあと、同じものを次に置けるまでの秒数
+  cooldown: number;     // 使わない（置いたあとの待ち時間は廃止。常に 0）
   upgradeCost: number;  // 戦闘中の強化1回のカリカリ（強化するたびに増える）
   upgradeMul: number;   // 戦闘中の強化1回で atk・maxHp に掛ける倍率
   block: boolean;       // true: 虫は上を通れず、よけて回り込む（壁・砲台など）。false: 上を通れる（罠・テープなど）
+  w: number;            // 大きさ（マス）。置くときは左上のマスを指定し、w×h マスをしめる（輪ゴム鉄砲は 2×2 など）
+  h: number;
+  /** レベルで解放される特殊効果（0 なら効果なし）。perks は表示用の解放ずみの名前。 */
+  multishot: number;    // 1回に撃つ弾の追加数（拡散。spread の角度に広がる）
+  spread: number;       // 拡散の角度（ラジアン）
+  pierce: number;       // 弾が突き抜ける数
+  splash: number;       // 当たった所のまわりへの範囲ダメージの半径（マス）
+  chain: number;        // 電撃が飛び移る数
+  chainRange: number;   // 電撃が飛び移れる距離（マス）
+  poison: number;       // 当てた虫に、攻撃力のこの割合を毎秒ダメージ（3秒）
+  poisonSpread: number; // 毒で倒れた虫から、まわりこのマス数の虫へ毒がうつる
+  knockback: number;    // 当てた虫を押し戻すマス数
+  crit: number;         // 会心の確率
+  critMul: number;      // 会心の倍率
+  perks: string[];
 }
 
 /** 虫の種類（ステージで使う）。 */
@@ -78,7 +95,7 @@ export interface BugDef {
   speed: number;        // 下りてくる速さ（マス/秒）
   atkInterval: number;
   boss?: boolean;
-  fly?: boolean;        // 飛ぶ虫は通れないオブジェクトも無視して、ママへまっすぐ飛ぶ
+  fly?: boolean;        // 使わない（障害物を無視する虫は無し）
   drop: number;         // 倒したときに落とすカリカリ
 }
 
@@ -93,6 +110,8 @@ export interface Obstacle {
   col: number;
   row: number;
   kind: string;         // 絵の種類（"table" "plant" "shelf" "sofa" "basket" など）
+  w?: number;           // 大きさ（マス。なければ 1）
+  h?: number;
 }
 
 /** ステージ（章-番号）。 */

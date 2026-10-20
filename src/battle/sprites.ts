@@ -551,6 +551,8 @@ function objKindOf(id: string, hint?: ObjectKind): ObjectKind {
     ["tape", "slow"], ["kirifuki", "slow"],
     ["esara", "producer"], ["oyatsu", "producer"], ["bowl", "producer"],
     ["nezumi", "mine"], ["trap", "mine"],
+    ["shitajiki", "zap"], ["moufu", "zap"], ["zap", "zap"],
+    ["katori", "poison"], ["spray", "poison"], ["poison", "poison"],
   ];
   for (const [k, v] of t) if (id.includes(k)) return v;
   return "shooter";
@@ -570,8 +572,77 @@ function drawObject(id: string, hint?: ObjectKind): HTMLCanvasElement {
     case "slow": drawTape(g); break;
     case "producer": drawBowl(g, id); break;
     case "mine": drawTrap(g); break;
+    case "zap": drawZap(g, id); break;
+    case "poison": drawPoison(g, id); break;
   }
   return cv;
+}
+
+/** いなずまの形（中心 x,y・大きさ k）。 */
+function bolt(g: G, x: number, y: number, k: number, color = "#ffe14a"): void {
+  poly(g, [x - 4 * k, y - 14 * k, x + 7 * k, y - 14 * k, x + 2 * k, y - 3 * k, x + 8 * k, y - 3 * k, x - 6 * k, y + 15 * k, x - 1 * k, y + 2 * k, x - 7 * k, y + 2 * k]);
+  fs(g, color, undefined, 4);
+}
+
+function drawZap(g: G, id: string): void {
+  if (id.includes("moufu")) {
+    // フリース毛布（たたんだ毛布から、ぱちぱち）
+    rr(g, 14, 46, 100, 62, 18);
+    fs(g, "#b9a6e8", () => {
+      for (let y = 56; y < 110; y += 12) line(g, [14, y, 114, y], 3, "rgba(255,255,255,0.35)");
+    });
+    rr(g, 20, 34, 88, 26, 12);
+    fs(g, "#cdbcf3", () => { for (let x = 26; x < 108; x += 10) dot(g, x, 47, 2.5, "rgba(255,255,255,0.6)"); });
+    bolt(g, 36, 22, 1.1);
+    bolt(g, 94, 26, 0.9);
+    return;
+  }
+  // 静電気の下敷き（ななめの板＋いなずま）
+  poly(g, [22, 36, 98, 20, 108, 96, 30, 112]);
+  fs(g, "#8fd0ff", () => {
+    poly(g, [22, 36, 60, 28, 40, 112, 30, 112]);
+    g.fillStyle = "rgba(255,255,255,0.35)";
+    g.fill();
+    for (const [x, y] of [[54, 60], [80, 52], [70, 86]]) dot(g, x, y, 4, "rgba(255,255,255,0.7)");
+  });
+  bolt(g, 66, 66, 1.6);
+}
+
+function drawPoison(g: G, id: string): void {
+  if (id.includes("spray")) {
+    // 防虫スプレー
+    rr(g, 40, 34, 46, 80, 12);
+    fs(g, "#7cc576", () => {
+      rr(g, 40, 58, 46, 26, 0);
+      g.fillStyle = "#fff6c8";
+      g.fill();
+      dot(g, 63, 71, 7, "#e86a6a");
+    });
+    rr(g, 48, 18, 30, 18, 6);
+    fs(g, "#f0f0f0");
+    rr(g, 70, 20, 14, 8, 3);
+    fs(g, "#5a5f6a", undefined, 3);
+    for (const [x, y, r] of [[96, 22, 7], [108, 14, 5], [106, 32, 5], [118, 24, 4]]) dot(g, x, y, r, "rgba(170,230,120,0.75)");
+    return;
+  }
+  // 蚊取り線香（うずまき＋けむり）
+  ell(g, 64, 96, 44, 14);
+  fs(g, "#c9ced6");
+  g.beginPath();
+  for (let a = 0; a < Math.PI * 7; a += 0.15) {
+    const r = 6 + a * 3.6;
+    const x = 64 + Math.cos(a) * r, y = 74 + Math.sin(a) * r * 0.62;
+    if (a === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.lineWidth = 15;
+  g.strokeStyle = OL;
+  g.stroke();
+  g.lineWidth = 9;
+  g.strokeStyle = "#5f9a4a";
+  g.stroke();
+  dot(g, 64 + Math.cos(Math.PI * 7) * (6 + Math.PI * 7 * 3.6), 74 + Math.sin(Math.PI * 7) * (6 + Math.PI * 7 * 3.6) * 0.62, 6, "#ff7a3a");
+  curve(g, 20, 66, 6, 40, 22, 18, 5, "rgba(200,200,210,0.85)");
+  curve(g, 22, 18, 34, 4, 26, -4, 4, "rgba(200,200,210,0.6)");
 }
 
 function drawShooter(g: G, id: string): void {
@@ -1102,6 +1173,7 @@ export function debugSpriteSheet(): HTMLCanvasElement {
     ["cat", "omochi"], ["cat", "komugi"], ["catRest", "chatora"], ["catRest", "mike"], ["mama", "normal"], ["mama", "scared"],
     ["object", "wagomu"], ["object", "danboru"], ["object", "soujiki"], ["object", "tape"], ["object", "esara"], ["object", "nezumitori"],
     ["object", "mizudeppo"], ["object", "cushion"], ["object", "senpuki"], ["object", "surippa"], ["object", "oyatsu"], ["object", "kirifuki"],
+    ["object", "shitajiki"], ["object", "moufu"], ["object", "katorisenko"], ["object", "spray"],
     ["bug", "ari"], ["bug", "ka"], ["bug", "gokiburi"], ["bug", "kamemushi"], ["bug", "kumo"], ["bug", "imomushi"],
     ["bug", "kogane"], ["bug", "kabuto"], ["bug", "suzumebachi"], ["bug", "mukade"], ["bug", "unknown"], ["pickup", "kibble"],
     ["projectile", "cat"], ["projectile", "shooter"], ["projectile", "slow"],

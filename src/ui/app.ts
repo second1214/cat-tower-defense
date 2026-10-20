@@ -13,10 +13,11 @@ import { OBJECT_MAP } from "../data/objects";
 import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, catSvg, objectSvg } from "./icons";
-import { growBadge, relicBadge } from "./badges";
+import { gachaBadge, growBadge, relicBadge } from "./badges";
 import { renderMain } from "./tab-main";
 import { renderGrow } from "./tab-grow";
 import { renderRelic } from "./tab-relic";
+import { renderGachaTab } from "./gacha";
 import { equipCard } from "./grow-equip";
 
 // 戦闘画面は別のモジュール。まだないときは、かんたんな代わりを使う。
@@ -79,6 +80,11 @@ export function createApp(root: HTMLElement): AppHandle {
 
   const modals = new Modals(layer);
   const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all" };
+  // 開発用: ?tab=gacha|grow|main|relic で最初のタブ
+  if (typeof location !== "undefined") {
+    const t = new URLSearchParams(location.search).get("tab");
+    if (t === "gacha" || t === "grow" || t === "main" || t === "relic") ui.tab = t;
+  }
   let save: SaveData = loadSave();
   syncUnlocks(save);
   writeSave(save);
@@ -156,7 +162,7 @@ export function createApp(root: HTMLElement): AppHandle {
     if (inBattle) return;
     rememberScroll();
     renderTop();
-    body.replaceChildren(ui.tab === "main" ? renderMain(ctx) : ui.tab === "grow" ? renderGrow(ctx) : renderRelic(ctx));
+    body.replaceChildren(ui.tab === "main" ? renderMain(ctx) : ui.tab === "grow" ? renderGrow(ctx) : ui.tab === "gacha" ? renderGachaTab(ctx) : renderRelic(ctx));
     restoreScroll();
     renderNav();
     modals.rerenderAll();
@@ -173,6 +179,7 @@ export function createApp(root: HTMLElement): AppHandle {
 
   function renderNav(): void {
     const items: [Tab, string, string, boolean][] = [
+      ["gacha", "譲渡会", ICONS.tent, gachaBadge(save)],
       ["grow", "成長", ICONS.tabGrow, growBadge(save)],
       ["main", "メイン", ICONS.tabMain, false],
       ["relic", "レリック", ICONS.tabRelic, relicBadge(save)],

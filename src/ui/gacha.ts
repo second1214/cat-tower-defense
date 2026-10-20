@@ -20,40 +20,40 @@ export function rarityPill(r: CharRarity, cls = ""): HTMLElement {
   return h("span", { class: `rar-pill rp-${r} ${cls}` }, r);
 }
 
-/** 譲渡会会場を開く。 */
+/** 譲渡会会場へ行く（下のタブ）。 */
 export function openGacha(ctx: Ctx): void {
-  ctx.modals.open({
-    title: "譲渡会会場",
-    cls: "modal-tall modal-gacha",
-    render: () => {
-      const save = ctx.save;
-      const owned = CHARS.filter((c) => save.chars[c.id]).length;
-      const toPity = pullsToPity(save);
-      return h("div", { class: "gacha" },
-        h("div", { class: "gc-scene" },
-          h("div", { class: "gc-bunting" }, Array.from({ length: 11 }, (_, i) => h("span", { class: `gb gb${i % 4}` }))),
-          h("div", { class: "gc-sign" }, "ねこの譲渡会"),
-          svgIcon(tentSvg(), "gc-tent"),
-          h("div", { class: "gc-boxes" },
-            svgIcon(carrierSvg(false), "gc-box b1"),
-            h("div", { class: "gc-peek" }, svgIcon(carrierSvg(true), "gc-box-open"), svgIcon(catSvg("mike"), "gc-peek-cat")),
-            svgIcon(carrierSvg(false), "gc-box b2"))),
-        h("div", { class: "gc-talk" }, "あたらしい家族をさがしている猫たちが、キャリーの中で待っているよ。ちゅ〜るを持って会いに行こう！"),
-        h("div", { class: "gc-info" },
-          h("div", { class: "gc-churu" }, svgIcon(ICONS.churu, "gc-churu-ico"),
-            h("div", null, h("div", { class: "gc-k" }, "持っているちゅ〜る"), h("div", { class: "gc-v" }, fmt(save.churu)))),
-          h("div", { class: "gc-pity" },
-            h("div", { class: "gc-pity-t" }, toPity <= 1 ? "次は SSR 以上が必ず来る！" : h("span", null, "あと ", h("b", null, String(toPity)), " 回で SSR 以上が必ず来る")),
-            bar(save.gachaPity / PITY_PULLS, "bar-pity"),
-            h("div", { class: "gc-note" }, "10回まとめてなら、SR 以上が1匹は必ず来るよ"))),
-        h("div", { class: "gc-btns" },
-          pullButton(ctx, 1),
-          pullButton(ctx, 10)),
-        h("div", { class: "gc-foot" },
-          h("button", { class: "btn btn-small btn-gray", onclick: () => openRates(ctx) }, "出会える確率"),
-          h("div", { class: "gc-stat" }, `会えた猫 ${owned} / ${CHARS.length}・これまで ${save.totalPulls} 回`)));
-    },
-  });
+  ctx.goTab("gacha");
+}
+
+/** 下のタブ「譲渡会」。 */
+export function renderGachaTab(ctx: Ctx): HTMLElement {
+  const save = ctx.save;
+  const owned = CHARS.filter((c) => save.chars[c.id]).length;
+  const toPity = pullsToPity(save);
+  return h("div", { class: "tab tab-gacha" },
+    h("div", { class: "scroll gacha", dataset: { sk: "gacha" } },
+      h("div", { class: "gc-scene" },
+        h("div", { class: "gc-bunting" }, Array.from({ length: 11 }, (_, i) => h("span", { class: `gb gb${i % 4}` }))),
+        h("div", { class: "gc-sign" }, "ねこの譲渡会"),
+        svgIcon(tentSvg(), "gc-tent"),
+        h("div", { class: "gc-boxes" },
+          svgIcon(carrierSvg(false), "gc-box b1"),
+          h("div", { class: "gc-peek" }, svgIcon(carrierSvg(true), "gc-box-open"), svgIcon(catSvg("mike"), "gc-peek-cat")),
+          svgIcon(carrierSvg(false), "gc-box b2"))),
+      h("div", { class: "gc-talk" }, "あたらしい家族をさがしている猫たちが、キャリーの中で待っているよ。ちゅ〜るを持って会いに行こう！"),
+      h("div", { class: "gc-info" },
+        h("div", { class: "gc-churu" }, svgIcon(ICONS.churu, "gc-churu-ico"),
+          h("div", null, h("div", { class: "gc-k" }, "持っているちゅ〜る"), h("div", { class: "gc-v" }, fmt(save.churu)))),
+        h("div", { class: "gc-pity" },
+          h("div", { class: "gc-pity-t" }, toPity <= 1 ? "次は SSR 以上が必ず来る！" : h("span", null, "あと ", h("b", null, String(toPity)), " 回で SSR 以上が必ず来る")),
+          bar(save.gachaPity / PITY_PULLS, "bar-pity"),
+          h("div", { class: "gc-note" }, "10回まとめてなら、SR 以上が1匹は必ず来るよ"))),
+      h("div", { class: "gc-btns" },
+        pullButton(ctx, 1),
+        pullButton(ctx, 10)),
+      h("div", { class: "gc-foot" },
+        h("button", { class: "btn btn-small btn-gray", onclick: () => openRates(ctx) }, "出会える確率"),
+        h("div", { class: "gc-stat" }, `会えた猫 ${owned} / ${CHARS.length}・これまで ${save.totalPulls} 回`))));
 }
 
 function pullButton(ctx: Ctx, count: 1 | 10): HTMLElement {

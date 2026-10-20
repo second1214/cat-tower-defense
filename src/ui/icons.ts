@@ -86,8 +86,14 @@ const CAT_LOOKS: Record<string, CatLook> = {
   },
 };
 
-/** 猫の顔。silhouette なら黒いかげだけ。 */
-export function catSvg(id: string, silhouette = false): string {
+/** 猫の毛の色（体を描くとき用）。 */
+export function catFur(id: string): { fur: string; ear: string } {
+  const l = CAT_LOOKS[id] ?? CAT_LOOKS.chatora;
+  return { fur: l.fur, ear: l.ear };
+}
+
+/** 猫の顔。silhouette なら黒いかげだけ。closed なら目をつむる（ねむっている）。 */
+export function catSvg(id: string, silhouette = false, closed = false): string {
   const l = CAT_LOOKS[id] ?? CAT_LOOKS.chatora;
   if (silhouette) {
     return S(`<path d="M10 30 L12 6 L26 16 Q32 14 38 16 L52 6 L54 30 Q56 52 32 54 Q8 52 10 30 Z" fill="#120c26" stroke="#3b2f74" stroke-width="2.5"/>
@@ -98,8 +104,10 @@ export function catSvg(id: string, silhouette = false): string {
     <path d="M15 13 L16 23 L23 18 Z M49 13 L48 23 L41 18 Z" fill="${l.ear}"/>
     ${l.extra ?? ""}
     <path d="M10 30 L12 6 L26 16 Q32 14 38 16 L52 6 L54 30 Q56 52 32 54 Q8 52 10 30 Z" stroke="${OUT}" stroke-width="2.5"/>
-    <ellipse cx="23" cy="33" rx="3.6" ry="4.4" fill="${l.eye}"/><ellipse cx="41" cy="33" rx="3.6" ry="4.4" fill="${l.eye}"/>
-    <circle cx="24.2" cy="31.4" r="1.3" fill="#fff"/><circle cx="42.2" cy="31.4" r="1.3" fill="#fff"/>
+    ${closed
+    ? `<path d="M19 33 q4 3.4 8 0 M37 33 q4 3.4 8 0" stroke="${OUT}" stroke-width="2.2"/>`
+    : `<g class="eyes"><ellipse cx="23" cy="33" rx="3.6" ry="4.4" fill="${l.eye}"/><ellipse cx="41" cy="33" rx="3.6" ry="4.4" fill="${l.eye}"/>
+    <circle cx="24.2" cy="31.4" r="1.3" fill="#fff"/><circle cx="42.2" cy="31.4" r="1.3" fill="#fff"/></g>`}
     <path d="M30 40 h4 l-2 2.4 Z" fill="#ff8aa0" stroke="#ff8aa0" stroke-width="1.5"/>
     <path d="M32 42.4 q-2 3 -5 2 M32 42.4 q2 3 5 2" stroke="${OUT}" stroke-width="1.8"/>
     <path d="M6 38 l11 1.5 M6 44 l11 -1 M58 38 l-11 1.5 M58 44 l-11 -1" stroke="${OUT}" stroke-width="1.4" opacity=".6"/>
@@ -136,12 +144,22 @@ const OBJ_SVG: Record<string, string> = {
   senpuki: `<circle cx="32" cy="26" r="18" fill="#dff3ff" stroke="${OUT}" stroke-width="2.5"/>
     <path d="M32 26 Q30 12 38 12 Q40 22 32 26 Q46 26 44 34 Q36 34 32 26 Q22 36 18 30 Q24 22 32 26" fill="#4aa3ff" stroke="${OUT}" stroke-width="1.8"/>
     <path d="M32 44 V54 M22 56 H42" stroke="${OUT}" stroke-width="4"/>`,
+  shitajiki: `<rect x="10" y="12" width="40" height="44" rx="5" fill="#9fd8ff" stroke="${OUT}" stroke-width="2.5" transform="rotate(-8 30 34)"/>
+    <path d="M18 20 L40 16" stroke="#fff" stroke-width="3" opacity=".8"/><path d="M50 10 L44 22 H52 L46 34" stroke="#ffd23f" stroke-width="3.5"/>`,
+  katorisenko: `<path d="M32 32 m-4 0 a4 4 0 1 1 8 0 a9 9 0 1 1 -18 0 a14 14 0 1 1 28 0 a19 19 0 1 1 -38 0" stroke="#3f8a3a" stroke-width="5" transform="translate(0 6)"/>
+    <path d="M52 34 q4 -8 0 -14 q-4 -6 2 -12" stroke="#c9d1d9" stroke-width="2.5" opacity=".9"/><circle cx="52" cy="37" r="3" fill="#ff6b3d"/>`,
+  moufu: `<path d="M6 22 Q20 14 32 22 Q44 30 58 22 V48 Q44 56 32 48 Q20 40 6 48 Z" fill="#c9a8ff" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M12 30 Q22 26 32 32 Q42 38 52 32" stroke="#fff" stroke-width="2.5" opacity=".7"/><path d="M44 6 L38 16 H45 L40 26" stroke="#ffd23f" stroke-width="3"/>`,
+  spray: `<rect x="20" y="20" width="22" height="38" rx="6" fill="#7bd94a" stroke="${OUT}" stroke-width="2.5"/>
+    <rect x="25" y="10" width="12" height="10" rx="2" fill="#fff" stroke="${OUT}" stroke-width="2.5"/><path d="M37 13 h6" stroke="${OUT}" stroke-width="3"/>
+    <circle cx="50" cy="10" r="2" fill="#b8f08a"/><circle cx="55" cy="16" r="2.4" fill="#b8f08a"/><circle cx="52" cy="22" r="1.8" fill="#b8f08a"/><path d="M24 34 h14" stroke="#fff" stroke-width="3" opacity=".7"/>`,
   surippa: `<path d="M14 50 Q6 30 18 14 Q30 4 38 16 Q44 30 40 50 Q28 60 14 50 Z" fill="#ff7eb6" stroke="${OUT}" stroke-width="2.5"/>
     <path d="M14 26 Q28 18 40 26 L42 36 Q28 30 12 36 Z" fill="#fff" stroke="${OUT}" stroke-width="2.2"/><path d="M52 14 l6 -4 M54 24 l7 0 M50 6 l2 -5" stroke="#ffd23f" stroke-width="3"/>`,
 };
 
 const KIND_COLOR: Record<ObjectKind, string> = {
   shooter: "#ff6b6b", wall: "#c98b4e", aoe: "#b46bff", slow: "#4aa3ff", producer: "#ffd23f", mine: "#ff9f43",
+  zap: "#ffe14a", poison: "#7bd94a",
 };
 
 export function objectSvg(id: string, kind: ObjectKind = "shooter"): string {
@@ -159,6 +177,8 @@ export function kindSvg(kind: ObjectKind): string {
     slow: `<path d="M10 40 Q20 18 36 26 Q50 32 54 22" stroke="${c}" stroke-width="7"/><circle cx="16" cy="48" r="5" fill="${c}"/>`,
     producer: `<circle cx="22" cy="36" r="10" fill="${c}"/><circle cx="40" cy="28" r="10" fill="${c}"/><circle cx="38" cy="48" r="8" fill="${c}"/>`,
     mine: `<path d="M32 6 L38 24 L58 26 L42 38 L48 58 L32 46 L16 58 L22 38 L6 26 L26 24 Z" fill="${c}"/>`,
+    zap: `<path d="M36 4 L14 36 H30 L24 60 L50 26 H34 Z" fill="${c}" stroke="#2a1d14" stroke-width="3"/>`,
+    poison: `<path d="M32 6 Q50 30 48 42 Q46 58 32 58 Q18 58 16 42 Q14 30 32 6 Z" fill="${c}" stroke="#2a1d14" stroke-width="3"/><circle cx="26" cy="42" r="4" fill="#fff" opacity=".6"/>`,
   };
   return S(body[kind]);
 }
