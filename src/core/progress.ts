@@ -3,7 +3,11 @@
 import type { BugDef, Loadout, ObjectKind, ResolvedChar, ResolvedObject, StageDef } from "./types";
 import { type Rng, pickWeighted, randInt } from "./rng";
 import { type SaveData, MAX_LOADOUT } from "./save";
-import { CHARS, CHAR_MAP, SKILL_MAP, SKILL_TREES, type CharMods, addCharMods, emptyCharMods } from "../data/chars";
+import { BOND_STAT_PER, CHARS, CHAR_MAP, CHAR_RARITY_MUL, RARITY_RANK } from "../data/chars";
+import {
+  SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, addNodeTotals, emptyTotals, modsFromTotals, nodeCost,
+  nodeTotalCost,
+} from "../data/skills";
 import { OBJECTS, OBJECT_MAP, OBJ_LEVEL_GROWTH, OBJ_PRODUCE_PER_LEVEL, OBJ_RARITY_COST, OBJ_RARITY_DROP, shardsToNext } from "../data/objects";
 import {
   AFFIX_MAP, EQUIPS, EQUIP_SLOTS, MAX_EQUIP_RARITY, type EquipItem, type EquipRarity, type EquipSlot,
@@ -46,14 +50,19 @@ export function nextStageId(save: SaveData): string {
   return STAGES[Math.min(STAGES.length - 1, save.cleared + 1)].id;
 }
 
-// ================= 猫・経験値・スキル =================
+// ================= 猫・経験値・ちゅ〜る =================
 
 /** 次のレベルまでの経験値。 */
 export function expToNext(level: number): number {
   return Math.round(8 * Math.pow(1.2, level - 1));
 }
 
-/** 経験値を足す。上がったレベル数を返す。持っていない猫なら 0。 */
+/** そのレベルに上がったときにもらえるちゅ〜る（ふだん 3、10 レベルごとに +10、50 レベルごとにさらに +30）。 */
+export function churuForLevel(level: number): number {
+  return 3 + (level % 10 === 0 ? 10 : 0) + (level % 50 === 0 ? 30 : 0);
+}
+
+/** 経験値を足す。上がったレベル数を返す。レベルが上がるとちゅ〜るも入る。持っていない猫なら 0。 */
 export function addExp(save: SaveData, charId: string, exp: number): number {
   const c = save.chars[charId];
   if (!c || !(exp > 0)) return 0;
@@ -62,47 +71,17 @@ export function addExp(save: SaveData, charId: string, exp: number): number {
   while (c.level < MAX_CHAR_LEVEL && c.exp >= expToNext(c.level)) {
     c.exp -= expToNext(c.level);
     c.level++;
+    save.churu += churuForLevel(c.level);
     ups++;
   }
   return ups;
 }
 
-/** 使えるスキルポイント（レベル1につき1。使ったぶんを引く）。 */
-export function skillPoints(save: SaveData, charId: string): number {
-  const c = save.chars[charId];
-  if (!c) return 0;
-  const spent = c.skills.reduce((s, id) => s + (SKILL_MAP[id]?.cost ?? 0), 0);
-  return c.level - spent;
-}
-
-export function skillTreeOf(charId: string) {
-  const def = CHAR_MAP[charId];
-  return def ? SKILL_TREES[def.role] : [];
-}
-
-export function canLearn(save: SaveData, charId: string, nodeId: string): Result {
-  const c = save.chars[charId];
-  const def = CHAR_MAP[charId];
-  const node = SKILL_MAP[nodeId];
-  if (!c || !def) return ng("まだ仲間になっていない猫です");
-  if (!node || !SKILL_TREES[def.role].includes(node)) return ng("この猫のスキルではありません");
-  if (c.skills.includes(nodeId)) return ng("もう覚えています");
-  const miss = node.req.filter((r) => !c.skills.includes(r));
-  if (miss.length) return ng(`先に「${miss.map((r) => SKILL_MAP[r]?.name ?? r).join("・")}」を覚えてね`);
-  if (skillPoints(save, charId) < node.cost) return ng("スキルポイントが足りません");
-  return ok(undefined);
-}
-
-export function learnSkill(save: SaveData, charId: string, nodeId: string): Result {
-  const r = canLearn(save, charId, nodeId);
-  if (r.ok) save.chars[charId].skills.push(nodeId);
-  return r;
-}
-
-/** スキルをぜんぶ忘れて、ポイントを戻す（無料）。 */
-export function resetSkills(save: SaveData, charId: string): void {
-  const c = save.chars[charId];
-  if (c) c.skills = [];
+/** from から to へ上がったときにもらえるちゅ〜るの合計（表示用）。 */
+export function churuForLevels(from: number, to: number): number {
+  let s = 0;
+  for (let lv = from + 1; lv <= to; lv++) s += churuForLevel(lv);
+  return s;
 }
 
 export function selectChar(save: SaveData, charId: string): boolean {
@@ -111,14 +90,100 @@ export function selectChar(save: SaveData, charId: string): boolean {
   return true;
 }
 
+/** なかよし度による、基本の体力・攻撃の倍率（1 + 0.2 × なかよし度）。 */
+export function bondMul(bond: number): number {
+  return 1 + BOND_STAT_PER * Math.max(0, bond);
+}
+
+// ================= スキルツリー =================
+
+export { nodeCost, nodeTotalCost };
+
+/** その猫のスキルツリー（役割で決まる）。 */
+export function skillTreeOf(charId: string): SkillNode[] {
+  const def = CHAR_MAP[charId];
+  return def ? SKILL_TREES[def.role] : [];
+}
+
+/** 取ったレベル（取っていなければ 0）。 */
+export function nodeLevel(save: SaveData, charId: string, nodeId: string): number {
+  return save.chars[charId]?.skills[nodeId] ?? 0;
+}
+
+/** 次のレベルに上げるちゅ〜る。最大レベルなら null。 */
+export function nextNodeCost(save: SaveData, charId: string, nodeId: string): number | null {
+  const node = SKILL_MAP[nodeId];
+  if (!node) return null;
+  const lv = nodeLevel(save, charId, nodeId);
+  return lv >= node.maxLevel ? null : nodeCost(node, lv);
+}
+
+/** 前提・レベル・レアリティだけを見る（ちゅ〜るは見ない）。ツリーで「開いている」ノードを光らせる用。 */
+export function isNodeOpen(save: SaveData, charId: string, nodeId: string): Result {
+  const c = save.chars[charId];
+  const def = CHAR_MAP[charId];
+  const node = SKILL_MAP[nodeId];
+  if (!c || !def) return ng("まだお迎えしていない猫です");
+  if (!node || node.role !== def.role) return ng("この猫のスキルではありません");
+  if ((c.skills[nodeId] ?? 0) >= node.maxLevel) return ng("もう最大レベルです");
+  if (node.minRarity && RARITY_RANK[def.rarity] < RARITY_RANK[node.minRarity]) {
+    return ng(`${node.minRarity} 以上の猫だけが覚えられます`);
+  }
+  const miss = node.req.filter((r) => (c.skills[r.id] ?? 0) < r.lv);
+  if (miss.length) {
+    return ng(`先に${miss.map((r) => `「${SKILL_MAP[r.id]?.name ?? r.id}」を Lv${r.lv}`).join("・")}まで上げてね`);
+  }
+  if (c.level < node.minCharLevel) return ng(`猫のレベルが ${node.minCharLevel} になったら覚えられます`);
+  return ok(undefined);
+}
+
+export function canLearn(save: SaveData, charId: string, nodeId: string): Result {
+  const r = isNodeOpen(save, charId, nodeId);
+  if (!r.ok) return r;
+  const cost = nextNodeCost(save, charId, nodeId)!;
+  if (save.churu < cost) return ng(`ちゅ〜るが足りません（あと ${cost - Math.floor(save.churu)}）`);
+  return ok(undefined);
+}
+
+/** 1レベル上げる。成功したら新しいレベルを返す。 */
+export function learnSkill(save: SaveData, charId: string, nodeId: string): Result<number> {
+  const r = canLearn(save, charId, nodeId);
+  if (!r.ok) return r;
+  const c = save.chars[charId];
+  save.churu -= nextNodeCost(save, charId, nodeId)!;
+  const lv = (c.skills[nodeId] ?? 0) + 1;
+  c.skills[nodeId] = lv;
+  return ok(lv);
+}
+
+/** その猫のスキルに使ったちゅ〜るの合計。 */
+export function skillSpent(save: SaveData, charId: string): number {
+  let s = 0;
+  for (const [id, lv] of Object.entries(save.chars[charId]?.skills ?? {})) {
+    const n = SKILL_MAP[id];
+    if (n) s += nodeTotalCost(n, lv);
+  }
+  return s;
+}
+
+/** スキルをぜんぶ忘れて、使ったちゅ〜るを全部もどす。もどった量を返す。 */
+export function resetSkills(save: SaveData, charId: string): number {
+  const c = save.chars[charId];
+  if (!c) return 0;
+  const refund = skillSpent(save, charId);
+  c.skills = {};
+  save.churu += refund;
+  return refund;
+}
+
 /** スキルの補正をまとめる。 */
 export function skillMods(save: SaveData, charId: string): CharMods {
-  let m = emptyCharMods();
-  for (const id of save.chars[charId]?.skills ?? []) {
+  const t = emptyTotals();
+  for (const [id, lv] of Object.entries(save.chars[charId]?.skills ?? {})) {
     const n = SKILL_MAP[id];
-    if (n) m = addCharMods(m, n.effect);
+    if (n) addNodeTotals(t, n, lv);
   }
-  return m;
+  return modsFromTotals(t);
 }
 
 // ================= オブジェクト =================
@@ -332,7 +397,9 @@ export type RelicBonus = Record<RelicStat, number>;
 
 /** 解放ずみレリックの合計。dmg・charHp は掛け算（1 から）、ほかは足し算（0 から）。 */
 export function relicBonus(save: SaveData): RelicBonus {
-  const r: RelicBonus = { dmg: 1, charHp: 1, kibble: 0, startKibble: 0, mamaHp: 0, objCost: 0, drop: 0, exp: 0, coins: 0 };
+  const r: RelicBonus = {
+    dmg: 1, charHp: 1, kibble: 0, startKibble: 0, mamaHp: 0, objCost: 0, drop: 0, exp: 0, coins: 0, churu: 0,
+  };
   for (const id of save.relics) {
     const n = RELIC_MAP[id];
     if (!n) continue;
@@ -369,25 +436,47 @@ export function nextRelic(save: SaveData) {
 
 export function resolveChar(save: SaveData, charId: string = save.selectedChar): ResolvedChar {
   const def = CHAR_MAP[charId] ?? CHARS[0];
-  const lv = save.chars[def.id]?.level ?? 1;
+  const cs = save.chars[def.id];
+  const lv = cs?.level ?? 1;
   const m = skillMods(save, def.id);
   const eq = equipBonus(save);
   const rel = relicBonus(save);
   const b = def.base;
+  const baseMul = CHAR_RARITY_MUL[def.rarity] * bondMul(cs?.bond ?? 0);
+  const crit = Math.min(1, b.crit + m.crit);
   return {
     id: def.id,
     name: def.name,
     role: def.role,
-    maxHp: b.maxHp * Math.pow(def.growth.hp, lv - 1) * m.hpMul * eq.charHpMul * rel.charHp,
-    atk: b.atk * Math.pow(def.growth.atk, lv - 1) * m.atkMul * eq.charAtkMul * rel.dmg,
+    maxHp: b.maxHp * baseMul * Math.pow(def.growth.hp, lv - 1) * m.hpMul * eq.charHpMul * rel.charHp,
+    atk: b.atk * baseMul * Math.pow(def.growth.atk, lv - 1) * m.atkMul * eq.charAtkMul * rel.dmg,
     atkInterval: Math.max(0.15, b.atkInterval * m.intervalMul),
-    range: b.range + m.rangeAdd,
-    aoe: b.aoe + (b.aoe > 0 ? m.aoeAdd : 0),
+    range: b.range + m.range,
+    aoe: b.aoe > 0 ? b.aoe + m.aoe : 0,
     moveSpeed: b.moveSpeed * m.moveMul * eq.charMoveMul,
     restTime: Math.max(1, b.restTime * m.restMul),
     armor: Math.max(0.3, b.armor * m.armorMul),
-    pickupRange: b.pickupRange + m.pickupAdd,
+    crit,
+    critMul: Math.max(1.5, b.critMul) + m.critMul,
+    multiHit: Math.floor(b.multiHit + m.multiHit),
+    lifesteal: Math.min(0.5, b.lifesteal + m.lifesteal),
+    regen: Math.min(0.05, b.regen + m.regen),
+    knockback: b.knockback + m.knockback,
+    poison: b.poison + m.poison,
+    slowHit: Math.max(0.3, b.slowHit - m.slow),
+    pierce: def.role === "ranged" || b.pierce > 0 ? Math.floor(b.pierce + m.pierce) : 0,
+    kibbleBonus: b.kibbleBonus + m.kibbleBonus,
+    objectAura: b.objectAura + m.objectAura,
+    repair: Math.min(0.2, b.repair + m.repair),
+    reviveHp: Math.min(1, Math.max(0.5, b.reviveHp + m.reviveHp)),
+    dodge: Math.min(0.6, b.dodge + m.dodge),
   };
+}
+
+/** 猫のだいたいの強さ（一覧の並べかえ・おすすめ用）。DPS × 体力の平方根。 */
+export function charPower(save: SaveData, charId: string): number {
+  const c = resolveChar(save, charId);
+  return charDps(c) * Math.sqrt(c.maxHp);
 }
 
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
@@ -408,7 +497,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
     name: def.name,
     kind: def.kind,
     cost: Math.max(1, Math.round(b.cost * costMul)),
-    maxHp: b.maxHp * g * eq.baseHpMul * (1 + eq.objHp),
+    maxHp: b.maxHp * g * eq.baseHpMul * (1 + eq.objHp) * sk.objHpMul,
     atk: b.atk * g * atkMul,
     interval: b.interval * intMul,
     range: b.range,
@@ -417,6 +506,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
     cooldown: b.cooldown,
     upgradeCost: Math.max(1, Math.round(b.upgradeCost * costMul)),
     upgradeMul: b.upgradeMul,
+    block: b.block,
   };
 }
 
@@ -445,32 +535,48 @@ export function buildLoadout(save: SaveData, stageId: string): Loadout | null {
 /** 置くオブジェクトの数の目安（同じものを何こ置くか）。 */
 const OBJ_COPIES = 2;
 
+/** 猫のだいたいの DPS（会心・連続攻撃・範囲・貫通・毒をならしたもの）。 */
+export function charDps(c: ResolvedChar): number {
+  const critF = 1 + (c.crit ?? 0) * Math.max(0, (c.critMul ?? 1.5) - 1);
+  const multiF = 1 + (c.multiHit ?? 0);
+  const areaF = c.aoe > 0 ? 1 + c.aoe : 1;
+  const pierceF = 1 + 0.5 * (c.pierce ?? 0);
+  const poisonF = 1 + Math.min(1, (c.poison ?? 0) * 1.5);
+  return (c.atk / c.atkInterval) * critF * multiF * areaF * pierceF * poisonF;
+}
+
 /** だいたいの DPS（1秒あたりのダメージ）。 */
 export function estimateDps(lo: Pick<Loadout, "char" | "objects">): { char: number; objects: number; total: number } {
   const c = lo.char;
-  const char = (c.atk / c.atkInterval) * (c.aoe > 0 ? 1 + c.aoe : 1);
+  const char = charDps(c);
   let objects = 0;
   for (const o of lo.objects) {
     if (o.kind === "shooter" || o.kind === "slow") objects += o.atk / o.interval;
     else if (o.kind === "aoe") objects += (o.atk / o.interval) * 1.5;
     else if (o.kind === "mine") objects += o.atk / Math.max(o.cooldown, 1);
   }
-  objects *= OBJ_COPIES;
+  objects *= OBJ_COPIES * (1 + (c.objectAura ?? 0) * 0.5);
   return { char, objects, total: char + objects };
 }
 
-/** ステージの虫の体力の合計と、だいたいの長さ（秒）。 */
+/** 虫がママまで歩く道のりの目安（マス）。7×11 の盤面で、迷路にすると遠回りする。 */
+export const PATH_TILES = 22;
+
+/** ステージの虫の体力の合計と、だいたいの長さ（秒。最後の虫がママに着くまで）。 */
 export function stageLoad(stage: StageDef): { totalHp: number; duration: number; count: number } {
   const bugs = bugDefs();
   let totalHp = 0, count = 0, end = 0;
   for (const w of stage.waves) {
     for (const g of w.bugs) {
-      totalHp += (bugs[g.bug]?.hp ?? 0) * stage.hpMul * g.count;
+      const b = bugs[g.bug];
+      totalHp += (b?.hp ?? 0) * stage.hpMul * g.count;
       count += g.count;
-      end = Math.max(end, w.at + g.count * g.every);
+      // 飛ぶ虫はまっすぐ（だいたい盤面の縦の長さ）
+      const walk = (b?.fly ? 10 : PATH_TILES) / Math.max(0.1, b?.speed ?? 0.5);
+      end = Math.max(end, w.at + g.count * g.every + walk * 0.5);
     }
   }
-  return { totalHp, duration: end + 10, count };
+  return { totalHp, duration: end, count };
 }
 
 /** 戦力の余裕（1 をこえると、計算上は時間内に全部たおせる）。 */
@@ -489,9 +595,12 @@ export interface RewardResult {
   exp: number;
   coins: number;
   relicPoints: number;
+  /** ステージクリアのちゅ〜る（はじめてのクリアは多め）。 */
+  churu: number;
+  /** レベルアップでもらったちゅ〜る。 */
+  churuFromLevels: number;
   equips: EquipItem[];
   shards: { id: string; count: number }[];
-  newChars: string[];
   newObjects: string[];
   levelUps: Record<string, number>;   // 猫 id → 上がったレベル数
 }
@@ -504,24 +613,17 @@ function rollCount(n: number, rng: Rng): number {
 
 /** ステージ（通し番号 g）で落ちる装備のレアリティ。 */
 export function rollDropRarity(g: number, rng: Rng): EquipRarity {
-  const step = Math.min(0.5, 0.1 + g * 0.004);
-  const cap = Math.min(MAX_EQUIP_RARITY, 1 + Math.floor(g / 25));
+  const step = Math.min(0.35, 0.05 + g * 0.003);
+  const cap = Math.min(MAX_EQUIP_RARITY, Math.floor(g / 30));
   let r = 0;
   while (r < cap && rng() < step) r++;
   return r as EquipRarity;
 }
 
-/** クリアした数に合わせて、猫とオブジェクトを仲間にする。新しく増えた id を返す。 */
-export function syncUnlocks(save: SaveData): { newChars: string[]; newObjects: string[] } {
+/** クリアした数に合わせて、オブジェクトを手に入れる（猫は譲渡会会場でお迎えする）。新しく増えた id を返す。 */
+export function syncUnlocks(save: SaveData): { newObjects: string[] } {
   const n = save.cleared + 1; // クリアしたステージの数（通し番号＝この数まで）
-  const newChars: string[] = [];
   const newObjects: string[] = [];
-  for (const c of CHARS) {
-    if (c.unlockStage <= n && !save.chars[c.id]) {
-      save.chars[c.id] = { level: 1, exp: 0, skills: [] };
-      newChars.push(c.id);
-    }
-  }
   for (const o of OBJECTS) {
     if (o.unlockStage <= n && !save.objects[o.id]) {
       save.objects[o.id] = { level: 1, shards: 0 };
@@ -529,8 +631,11 @@ export function syncUnlocks(save: SaveData): { newChars: string[]; newObjects: s
       if (save.loadout.length < MAX_LOADOUT) save.loadout.push(o.id);
     }
   }
-  return { newChars, newObjects };
+  return { newObjects };
 }
+
+/** はじめてクリアしたときのちゅ〜るの倍率。 */
+export const FIRST_CLEAR_CHURU_MUL = 2;
 
 /** ステージに勝ったときに呼ぶ。報酬を抽選して save に入れ、クリアを記録する。 */
 export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: Rng): RewardResult {
@@ -544,15 +649,19 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   const exp = Math.round(rw.exp * (1 + rel.exp));
   const coins = Math.round(rw.coins * (1 + rel.coins));
   const relicPoints = firstClear ? rw.relicPoints : 0;
+  const churu = Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu));
 
   save.coins += coins;
   save.relicPoints += relicPoints;
+  save.churu += churu;
+  const churuBefore = save.churu;
   const levelUps: Record<string, number> = {};
   for (const id of Object.keys(save.chars)) {
     const e = id === save.selectedChar ? exp : Math.round(exp * IDLE_EXP_RATE);
     const ups = addExp(save, id, e);
     if (ups) levelUps[id] = ups;
   }
+  const churuFromLevels = save.churu - churuBefore;
 
   // 装備
   const equips: EquipItem[] = [];
@@ -573,12 +682,12 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   // クリアの記録
   save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + 1;
   if (firstClear) save.cleared = g;
-  const { newChars, newObjects } = syncUnlocks(save);
+  const { newObjects } = syncUnlocks(save);
 
   return {
-    stageId: stage.id, firstClear, exp, coins, relicPoints, equips,
+    stageId: stage.id, firstClear, exp, coins, relicPoints, churu, churuFromLevels, equips,
     shards: [...shardMap].map(([id, count]) => ({ id, count })),
-    newChars, newObjects, levelUps,
+    newObjects, levelUps,
   };
 }
 

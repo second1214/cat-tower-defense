@@ -58,7 +58,11 @@ export interface AppHandle {
 }
 
 export function startApp(root: HTMLElement): void {
-  createApp(root);
+  const handle = createApp(root);
+  // 画面の確認用（?uitest のときだけ）: window.__catApp から勝ち・報酬を呼べる
+  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("uitest")) {
+    (globalThis as { __catApp?: AppHandle }).__catApp = handle;
+  }
 }
 
 export function createApp(root: HTMLElement): AppHandle {
@@ -162,6 +166,7 @@ export function createApp(root: HTMLElement): AppHandle {
     top.replaceChildren(
       h("div", { class: "res res-coin", title: "お金" }, svgIcon(ICONS.coin), h("span", null, fmt(save.coins))),
       h("div", { class: "res res-relic", title: "レリックポイント" }, svgIcon(ICONS.relic), h("span", null, fmt(save.relicPoints))),
+      h("div", { class: "res res-churu", title: "ちゅ〜る（スキル・譲渡会会場に使う）" }, svgIcon(ICONS.churu), h("span", null, fmt(save.churu))),
       h("div", { class: "top-space" }),
       h("button", { class: "gear-btn", "aria-label": "設定", onclick: openSettings }, svgIcon(ICONS.gear)));
   }
@@ -302,7 +307,11 @@ export function createApp(root: HTMLElement): AppHandle {
           h("div", { class: "rwp-grid" },
             h("div", { class: "rwp-item" }, svgIcon(ICONS.exp), h("span", null, `+${fmt(res.exp)}`)),
             h("div", { class: "rwp-item" }, svgIcon(ICONS.coin), h("span", null, `+${fmt(res.coins)}`)),
-            res.relicPoints > 0 ? h("div", { class: "rwp-item" }, svgIcon(ICONS.relic), h("span", null, `+${fmt(res.relicPoints)}`)) : null),
+            res.relicPoints > 0 ? h("div", { class: "rwp-item" }, svgIcon(ICONS.relic), h("span", null, `+${fmt(res.relicPoints)}`)) : null,
+            h("div", { class: "rwp-item rwp-churu" }, svgIcon(ICONS.churu), h("span", null, `+${fmt(res.churu + res.churuFromLevels)}`))),
+          h("div", { class: "rwp-churu-note" },
+            h("span", null, res.firstClear ? "クリア（はじめて ×2）" : "クリア", h("b", null, ` +${fmt(res.churu)}`)),
+            res.churuFromLevels > 0 ? h("span", null, "レベルアップ", h("b", null, ` +${fmt(res.churuFromLevels)}`)) : null),
           ups.length ? h("div", { class: "rwp-sec" },
             h("div", { class: "panel-title" }, "レベルアップ"),
             h("div", { class: "rwp-ups" }, ups.map(([id, n]) => h("div", { class: "rwp-up" },
@@ -316,10 +325,9 @@ export function createApp(root: HTMLElement): AppHandle {
               const def = OBJECT_MAP[s.id];
               return h("div", { class: `card shard-card r-${def?.rarity ?? "N"}` }, svgIcon(objectSvg(s.id, def?.kind), "card-ico"), h("span", { class: "shard-n" }, `×${s.count}`));
             }))) : null,
-          res.newChars.length || res.newObjects.length ? h("div", { class: "rwp-sec rwp-new" },
-            h("div", { class: "panel-title" }, "なかまになった！"),
+          res.newObjects.length ? h("div", { class: "rwp-sec rwp-new" },
+            h("div", { class: "panel-title" }, "あたらしいオブジェクト！"),
             h("div", { class: "rwp-cards" },
-              res.newChars.map((id) => h("div", { class: "card new-card" }, svgIcon(catSvg(id), "card-ico"), h("span", { class: "card-name small" }, CHAR_MAP[id]?.name ?? id))),
               res.newObjects.map((id) => h("div", { class: `card new-card r-${OBJECT_MAP[id]?.rarity ?? "N"}` }, svgIcon(objectSvg(id, OBJECT_MAP[id]?.kind), "card-ico"), h("span", { class: "card-name small" }, OBJECT_MAP[id]?.name ?? id))))) : null);
       },
       footer: () => h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "やったね！"),

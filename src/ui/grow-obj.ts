@@ -41,6 +41,7 @@ export function renderObjList(ctx: Ctx): HTMLElement {
       inLo ? h("span", { class: "check-tag" }, svgIcon(ICONS.check)) : null,
       h("span", { class: "kind-tag", title: KIND_NAMES[def.kind] }, svgIcon(kindSvg(def.kind))),
       svgIcon(objectSvg(def.id, def.kind), "card-ico"),
+      blockTag(ro.block),
       h("div", { class: "card-name small" }, def.name),
       h("div", { class: "card-row" }, h("span", { class: "card-lv" }, `Lv${os.level}`), h("span", { class: "kib" }, svgIcon(ICONS.kibble), String(ro.cost))),
       bar(os.shards / cost.shards, `bar-shard ${os.shards >= cost.shards ? "full" : ""}`, `${fmt(os.shards)}/${fmt(cost.shards)}`));
@@ -52,6 +53,11 @@ export function renderObjList(ctx: Ctx): HTMLElement {
       h("div", { class: "lo-row" }, slots)),
     h("div", { class: "sub-head" }, h("span", null, "持っているオブジェクト"), h("span", { class: "muted" }, `${owned} / ${OBJECTS.length}`)),
     h("div", { class: "scroll", dataset: { sk: "objs" } }, h("div", { class: "grid grid-4" }, cards)));
+}
+
+/** 通れない（虫がよける）・通れる（上を通る）のしるし。 */
+export function blockTag(block: boolean, cls = "blk-tag"): HTMLElement {
+  return h("span", { class: `${cls} ${block ? "blk-on" : "blk-off"}`, title: block ? "虫は通れず、よけて回り込む" : "虫は上を通る" }, block ? "通れない" : "通れる");
 }
 
 function objStats(o: ResolvedObject, next?: ResolvedObject | null): [string, string][] {
@@ -96,8 +102,10 @@ export function openObjDetail(ctx: Ctx, id: string): void {
             h("div", { class: "cd-row" },
               h("span", { class: `rar-pill r-${def.rarity}` }, def.rarity),
               h("span", { class: "kind-pill" }, svgIcon(kindSvg(def.kind)), KIND_NAMES[def.kind]),
+              blockTag(ro.block, "blk-pill"),
               h("span", { class: "cd-lv" }, `Lv ${os.level}`)),
             h("div", { class: "cd-desc" }, def.desc),
+            h("div", { class: `blk-note ${ro.block ? "blk-on" : "blk-off"}` }, ro.block ? "虫はここを通れず、よけて遠回りする（道は完全にはふさげない）" : "虫は上を通っていく（道をふさがない）"),
             bar(os.shards / cost.shards, `bar-shard bar-lg ${os.shards >= cost.shards ? "full" : ""}`, `かけら ${fmt(os.shards)} / ${fmt(cost.shards)}`))),
         h("div", { class: "panel-title" }, "ステータス", h("span", { class: "muted small" }, "（→ は次のレベル）")),
         h("div", { class: "stats" }, objStats(ro, next).map(([k, v]) => h("div", { class: "stat" }, h("span", { class: "stat-k" }, k), h("span", { class: "stat-v" }, v)))),

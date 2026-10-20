@@ -9,7 +9,8 @@ export type RelicStat =
   | "objCost"      // 置くカリカリ -%
   | "drop"         // 装備・かけらのドロップ数 +%
   | "exp"          // 経験値 +%
-  | "coins";       // お金 +%
+  | "coins"        // お金 +%
+  | "churu";       // ステージクリアのちゅ〜る +%
 
 export interface RelicNode {
   id: string;
@@ -34,6 +35,7 @@ const PATH: Row[] = [
   ["ごほうびのおやつ", "exp", 0.15],
   ["ママの手づくりおもちゃ", "dmg", 1.3],
   ["おさいふのへそくり", "coins", 0.2],
+  ["ちゅ〜るのストック", "churu", 0.2],
   ["カリカリ大袋", "kibble", 0.1],
   ["ていねいな片づけ", "objCost", 0.05],
   ["お気に入りの毛布", "dmg", 1.4],
@@ -49,6 +51,7 @@ const PATH: Row[] = [
   ["宝さがし", "drop", 0.3],
   ["ママのだっこ", "charHp", 1.8],
   ["ちょきん箱", "coins", 0.3],
+  ["ちゅ〜るの定期便", "churu", 0.3],
   ["かつおぶし", "dmg", 1.8],
   ["高級カリカリ", "kibble", 0.2],
   ["みんなのおうち", "dmg", 2.0],
@@ -66,6 +69,7 @@ function descOf(stat: RelicStat, v: number): string {
     case "drop": return `ドロップ +${pct}%`;
     case "exp": return `経験値 +${pct}%`;
     case "coins": return `お金 +${pct}%`;
+    case "churu": return `ステージクリアのちゅ〜る +${pct}%`;
   }
 }
 

@@ -98,6 +98,23 @@
   box-shadow: 0 3px 0 var(--bt-ink);
   cursor: pointer;
 }
+.bt-speed {
+  flex: none;
+  min-width: 46px;
+  height: 36px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 3px solid var(--bt-ink);
+  border-radius: 10px;
+  background: #fff6e8;
+  box-shadow: 0 3px 0 var(--bt-ink);
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  cursor: pointer;
+}
+.bt-speed.fast { background: #8fd0ff; }
+.bt-speed:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--bt-ink); }
+.bt-speed + .bt-pause { margin-left: 6px; }
 .bt-pause span { width: 5px; height: 14px; background: var(--bt-ink); border-radius: 2px; }
 .bt-pause:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--bt-ink); }
 
@@ -136,6 +153,35 @@
   border: 3px solid var(--bt-ink);
   box-shadow: 0 3px 0 rgba(74, 44, 29, 0.4);
 }
+.bt-pathbtn {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  height: 26px;
+  padding: 0 9px 0 22px;
+  border: 2.5px solid var(--bt-ink);
+  border-radius: 999px;
+  background: rgba(255, 246, 232, 0.85);
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.bt-pathbtn::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  border: 2px solid var(--bt-ink);
+  background: #d9c6b0;
+  box-sizing: border-box;
+}
+.bt-pathbtn.on { opacity: 1; }
+.bt-pathbtn.on::before { background: #e05060; }
 .bt-toast {
   position: absolute;
   left: 50%;
@@ -254,6 +300,19 @@
 .bt-card[data-kind="slow"] { background: #e5f4ff; }
 .bt-card[data-kind="producer"] { background: #ffe9f0; }
 .bt-card[data-kind="mine"] { background: #f2f0dc; }
+.bt-card-tag {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  padding: 0 3px;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 13px;
+  color: #fff;
+}
+.bt-card-tag.block { background: #a8794f; }
+.bt-card-tag.flat { background: #6aa8d8; }
 .bt-card-icon { width: 44px; height: 44px; flex: none; }
 .bt-card-name {
   max-width: 100%;

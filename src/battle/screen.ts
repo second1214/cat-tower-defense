@@ -7,7 +7,8 @@
 //
 // 操作:
 //   スマホ: 盤面のどこかに指を置くと、そこにスティックが出る（ドラッグで移動）。カードを押すと置く。複数の指で同時に操作できる。
-//   PC: WASD / 矢印キーで移動、1〜5 で置く、E かスペースで強化、Esc か P で一時停止。
+//   PC: WASD / 矢印キーで移動、1〜5 で置く、E かスペースで強化、Esc か P で一時停止、F で速さ（x1/x2）、R で通り道の表示。
+// 右上の「x1 / x2」で速さを切りかえる。盤面の左上の「みち」で虫の通り道の表示を切りかえる（はじめは表示）。
 
 import "./battle.css";
 import type { BattleInput, BattleResult, Loadout } from "../core/types";
@@ -95,6 +96,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const mid = el("div", "bt-mid", top);
   const waveText = el("div", "bt-wave", mid);
   const timeEl = el("div", "bt-time", mid);
+  const speedBtn = el("button", "bt-speed", top, "x1");
+  speedBtn.type = "button";
+  speedBtn.setAttribute("aria-label", "速さ");
   const pauseBtn = el("button", "bt-pause", top);
   pauseBtn.type = "button";
   pauseBtn.setAttribute("aria-label", "一時停止");
@@ -108,6 +112,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const knob = el("div", "bt-knob", stick);
   const toast = el("div", "bt-toast", board);
   const hint = el("div", "bt-hint", board, "指でなぞって猫を動かそう");
+  const pathBtn = el("button", "bt-pathbtn on", board, "みち");
+  pathBtn.type = "button";
+  pathBtn.setAttribute("aria-pressed", "true");
+  pathBtn.title = "虫の通り道を表示（R）";
 
   // 下のパネル
   const bottom = el("footer", "bt-bottom", col);
@@ -130,6 +138,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     btn.type = "button";
     btn.dataset.kind = o.kind;
     el("span", "bt-key", btn, String(i + 1));
+    el("span", `bt-card-tag ${o.block ? "block" : "flat"}`, btn, o.block ? "かべ" : "ゆか");
     const icon = iconCanvas("bt-card-icon", btn, 44);
     paintIcon(icon, getSprite("object", o.id, { kind: o.kind }));
     el("span", "bt-card-name", btn, o.name);
@@ -152,6 +161,19 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
 
   // ---- 状態 ----
   const view = new BattleView(canvas, battle);
+  function setSpeed(v: number): void {
+    speed = v;
+    speedBtn.textContent = `x${v}`;
+    speedBtn.classList.toggle("fast", v > 1);
+    savePref("bt-speed", String(v));
+  }
+  function setPath(on: boolean): void {
+    view.showPath = on;
+    pathBtn.classList.toggle("on", on);
+    pathBtn.setAttribute("aria-pressed", String(on));
+    savePref("bt-path", on ? "1" : "0");
+    if (paused || endShown) view.render(0);
+  }
   let paused = false;
   let destroyed = false;
   let endShown = false;
@@ -164,6 +186,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   let hintShown = true;
   let toastTimer = 0;
   let fxDirty = false;
+  let speed = 1;
+  function loadPref(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } }
+  function savePref(k: string, v: string): void { try { localStorage.setItem(k, v); } catch { /* 保存できなくてもよい */ } }
 
   interface Fly { x0: number; y0: number; x1: number; y1: number; t: number; life: number }
   const flies: Fly[] = [];
@@ -277,6 +302,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   upBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); tryUpgrade(); });
   upBtn.addEventListener("click", (e) => { if (e.detail === 0) tryUpgrade(); });
   pauseBtn.addEventListener("click", () => setPaused(true));
+  speedBtn.addEventListener("click", () => setSpeed(speed > 1 ? 1 : 2));
+  pathBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); setPath(!view.showPath); });
+  pathBtn.addEventListener("click", (e) => { if (e.detail === 0) setPath(!view.showPath); });
 
   // 長押しメニュー・ダブルタップ拡大を止める
   const stopCtx = (e: Event) => e.preventDefault();
@@ -301,7 +329,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     }
     const m = /^(?:Digit|Numpad)([1-5])$/.exec(e.code);
     if (m) { e.preventDefault(); tryPlace(Number(m[1]) - 1); return; }
-    if (e.code === "KeyE" || e.code === "Space") { e.preventDefault(); tryUpgrade(); }
+    if (e.code === "KeyE" || e.code === "Space") { e.preventDefault(); tryUpgrade(); return; }
+    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed > 1 ? 1 : 2); return; }
+    if (e.code === "KeyR") { e.preventDefault(); setPath(!view.showPath); }
   }
   function onKeyUp(e: KeyboardEvent): void { keys.delete(e.code); }
   function onBlur(): void { keys.clear(); }
@@ -390,7 +420,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
           bump(wrap, "hurt");
           if (navigator.vibrate) try { navigator.vibrate(40); } catch { /* 無視 */ }
           break;
-        case "pickup":
+        case "kibble":
           addFly(e.x, e.y);
           break;
         case "win":
@@ -506,7 +536,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
       input.upgrade = pendingUpgrade;
       pendingPlace = null;
       pendingUpgrade = false;
-      battle.step(dt, input);
+      battle.step(dt * speed, input);
       onEvents(battle.events);
       if (battle.result && !endShown) {
         endTimer -= dt;
@@ -518,6 +548,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     }
     updateHud();
   }
+  if (loadPref("bt-speed") === "2") setSpeed(2);
+  if (loadPref("bt-path") === "0") setPath(false);
   resize();
   updateHud();
   raf = requestAnimationFrame(frame);
