@@ -12,9 +12,9 @@ export const MAX_EQUIP_RARITY = 4;
 export const EQUIP_RARITY_NAMES = ["N", "R", "SR", "SSR", "UR"] as const;
 
 /** 基本ステータスに掛けるレアリティの倍率。 */
-export const EQUIP_RARITY_MUL = [1, 3, 10, 30, 100];
+export const EQUIP_RARITY_MUL = [1, 3, 8, 20, 45];
 /** 強くなる系の補正（攻撃%・体力%・生産%）に掛ける倍率。 */
-export const AFFIX_BIG_MUL = [1, 2, 4, 8, 16];
+export const AFFIX_BIG_MUL = [1, 2, 4, 7, 12];
 /** 間隔・コスト・移動など、上限のある補正に掛ける倍率。 */
 export const AFFIX_SMALL_MUL = [1, 1.3, 1.6, 2, 2.5];
 

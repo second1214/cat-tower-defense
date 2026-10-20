@@ -1,7 +1,7 @@
 // メニュー用の、かんたんな手描き風アイコン（SVG 文字列）。絵文字は使わない。
 import type { ObjectKind } from "../core/types";
 import type { EquipSlot } from "../data/equips";
-import type { SkillBranch } from "../data/chars";
+import type { SkillBranch } from "../data/skills";
 
 const S = (body: string, vb = "0 0 64 64") =>
   `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -38,6 +38,51 @@ const CAT_LOOKS: Record<string, CatLook> = {
   komugi: {
     fur: "#d9a96a", ear: "#ffc9b0", eye: "#3c2a12",
     extra: `<path d="M27 18l1 6M32 16v7M37 18l-1 6" stroke="#9c6a2e" stroke-width="2.5"/>`,
+  },
+  kijitora: {
+    fur: "#a8794a", ear: "#e8b090", eye: "#3b6a2a",
+    extra: `<path d="M24 16l3 8M32 14v9M40 16l-3 8M11 30h7M46 30h7M12 36h6M46 36h6" stroke="#5a3a1e" stroke-width="3"/>`,
+  },
+  sabi: {
+    fur: "#3a2a24", ear: "#8a5a4a", eye: "#e8b04a",
+    extra: `<path d="M30 14 Q42 14 46 24 Q40 30 34 26 Z" fill="#c8672a"/><ellipse cx="18" cy="42" rx="6" ry="5" fill="#b05a26"/><ellipse cx="44" cy="46" rx="5" ry="4" fill="#d07a3a"/>`,
+  },
+  leo: {
+    fur: "#c9ccd2", ear: "#ffc9b0", eye: "#3f8a3a",
+    extra: `<path d="M26 16 q6 6 12 0 M24 22 q8 6 16 0 M11 32 q5 -2 8 2 M53 32 q-5 -2 -8 2" stroke="#4a4e58" stroke-width="3"/>`,
+  },
+  luna: {
+    fur: "#f6ead8", ear: "#5a4030", eye: "#3a8cff",
+    extra: `<ellipse cx="32" cy="41" rx="11" ry="9" fill="#6a4c38"/><path d="M15 13 L16 23 L23 18 Z M49 13 L48 23 L41 18 Z" fill="#5a4030"/>`,
+  },
+  chibi: {
+    fur: "#f2c99a", ear: "#ffc9b0", eye: "#3c2a12",
+    extra: `<ellipse cx="32" cy="44" rx="10" ry="7" fill="#fff6ea"/><path d="M29 16l1 5M35 16l-1 5" stroke="#c98a4a" stroke-width="2.5"/>`,
+  },
+  kuma: {
+    fur: "#8a5a3a", ear: "#e8b090", eye: "#e8c04a",
+    extra: `<path d="M12 6 l-2 -5 M52 6 l2 -5" stroke="#8a5a3a" stroke-width="3"/><path d="M10 40 l-5 4 6 1 -3 5 7 -2 M54 40 l5 4 -6 1 3 5 -7 -2" fill="#a8744a" stroke="#5a3a20" stroke-width="1.6"/><ellipse cx="32" cy="45" rx="10" ry="7" fill="#e8d3ad"/>`,
+  },
+  sora: { fur: "#8fa4bf", ear: "#c9b0c8", eye: "#4fd67a" },
+  purin: {
+    fur: "#fbf3e6", ear: "#a88a70", eye: "#3a8cff",
+    extra: `<path d="M20 22 Q32 30 44 22 Q46 34 40 40 Q32 34 24 40 Q18 34 20 22 Z" fill="#c8ad92" opacity=".8"/><path d="M15 13 L16 23 L23 18 Z M49 13 L48 23 L41 18 Z" fill="#a88a70"/>`,
+  },
+  kotetsu: {
+    fur: "#e8a85a", ear: "#ffc9b0", eye: "#3f8a3a",
+    extra: `<circle cx="24" cy="20" r="2.6" fill="#6a3a1a"/><circle cx="40" cy="20" r="2.6" fill="#6a3a1a"/><circle cx="32" cy="17" r="2.2" fill="#6a3a1a"/><circle cx="15" cy="34" r="2.4" fill="#6a3a1a"/><circle cx="49" cy="34" r="2.4" fill="#6a3a1a"/><circle cx="18" cy="46" r="2" fill="#6a3a1a"/><circle cx="46" cy="46" r="2" fill="#6a3a1a"/>`,
+  },
+  hime: {
+    fur: "#fffaf6", ear: "#ffc9d6", eye: "#ff9a3a",
+    extra: `<path d="M8 36 l-4 3 5 1 -3 4 6 -1 M56 36 l4 3 -5 1 3 4 -6 -1" stroke="#e8dcd6" stroke-width="2.5"/><path d="M40 12 l6 -4 0 8 Z M40 12 l-6 -4 0 8 Z" fill="#ff7eb6" stroke="#2a1d14" stroke-width="1.5"/>`,
+  },
+  taisho: {
+    fur: "#6a6a72", ear: "#b09090", eye: "#ffd84a",
+    extra: `<path d="M50 8 l-3 4 3 2" stroke="#2a1d14" stroke-width="2"/><path d="M38 26 l8 10 M41 25 l1 4" stroke="#e8c0b0" stroke-width="2.2"/><path d="M14 22 Q32 26 50 22" stroke="#4a4a52" stroke-width="3"/>`,
+  },
+  tama: {
+    fur: "#efe8dc", ear: "#ffc9b0", eye: "#3c2a12",
+    extra: `<path d="M12 16 L22 30 Q14 36 11 33 Z" fill="#9a8a7a"/><ellipse cx="44" cy="22" rx="7" ry="5" fill="#d8a060"/><path d="M19 28 q4 -3 8 0 M37 28 q4 -3 8 0" stroke="#7a6a5a" stroke-width="1.6"/>`,
   },
 };
 
@@ -177,6 +222,15 @@ export const ICONS = {
   left: S(`<path d="M42 8 L16 32 L42 56 Z" fill="currentColor" stroke="#1a1238" stroke-width="4"/>`),
   right: S(`<path d="M22 8 L48 32 L22 56 Z" fill="currentColor" stroke="#1a1238" stroke-width="4"/>`),
   paw: S(`<ellipse cx="32" cy="42" rx="13" ry="11" fill="currentColor"/><ellipse cx="15" cy="28" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="25" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="39" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="49" cy="28" rx="6" ry="7.5" fill="currentColor"/>`),
+  shield: S(`<path d="M32 6 L54 14 V32 Q54 50 32 58 Q10 50 10 32 V14 Z" fill="currentColor"/><path d="M32 16 V48 M20 28 H44" stroke="#1a1238" stroke-width="4" opacity=".35"/>`),
+  sparkle: S(`<path d="M32 4 L37 26 L60 32 L37 38 L32 60 L27 38 L4 32 L27 26 Z" fill="currentColor"/><circle cx="52" cy="12" r="4" fill="currentColor"/>`),
+  toybox: S(`<rect x="8" y="26" width="48" height="30" rx="5" fill="currentColor"/><path d="M4 18 H60 V28 H4 Z" fill="currentColor"/><circle cx="24" cy="12" r="7" fill="currentColor"/><path d="M38 6 l10 10 M48 6 l-10 10" stroke="currentColor" stroke-width="5"/><path d="M8 34 H56" stroke="#1a1238" stroke-width="3" opacity=".35"/>`),
+  churu: S(`<g transform="rotate(-35 32 32)"><rect x="22" y="2" width="20" height="60" rx="6" fill="#ff9ec4" stroke="#7a2350" stroke-width="3.5"/>
+    <path d="M22 10 h20" stroke="#7a2350" stroke-width="2.5"/><path d="M24 4 l3 3 3 -3 3 3 3 -3 3 3" stroke="#7a2350" stroke-width="1.8"/>
+    <rect x="25" y="22" width="14" height="24" rx="4" fill="#fff6ea"/>
+    <g fill="#ff5c9a"><ellipse cx="32" cy="38" rx="4" ry="3.4"/><circle cx="27.4" cy="32.6" r="1.8"/><circle cx="30.6" cy="30.6" r="1.8"/><circle cx="33.8" cy="30.6" r="1.8"/><circle cx="36.8" cy="32.6" r="1.8"/></g>
+    <path d="M26 52 h12" stroke="#fff" stroke-width="3" opacity=".7"/></g>`),
+  tent: S(`<path d="M4 54 L32 10 L60 54 Z" fill="#fff3dc" stroke="#5a2d00" stroke-width="4"/><path d="M32 10 L18 54 M32 10 L46 54" stroke="#ff6b6b" stroke-width="7"/><path d="M4 54 L32 10 L60 54 Z" stroke="#5a2d00" stroke-width="4"/><path d="M26 54 L32 38 L38 54 Z" fill="#6b3f2a"/><path d="M32 10 V3 L42 6 L32 9" fill="#ffd23f" stroke="#5a2d00" stroke-width="2.5"/>`),
   heart: S(`<path d="M32 56 L10 34 Q2 22 12 12 Q24 4 32 18 Q40 4 52 12 Q62 22 54 34 Z" fill="currentColor"/>`),
   wind: S(`<path d="M6 22 H40 Q52 22 50 12 Q46 4 38 10 M6 34 H52 Q62 34 60 44 Q56 52 48 46 M6 46 H30" stroke="currentColor" stroke-width="7"/>`),
   crown: S(`<path d="M6 50 L10 18 L22 32 L32 10 L42 32 L54 18 L58 50 Z" fill="currentColor"/><rect x="6" y="50" width="52" height="6" rx="2" fill="currentColor"/>`),
@@ -188,6 +242,43 @@ export const ICONS = {
   tabRelic: S(`<path d="M32 4 L54 22 L32 60 L10 22 Z" fill="#c78bff" stroke="#3d1670" stroke-width="4"/><path d="M10 22 H54 M22 22 L32 60 L42 22" stroke="#3d1670" stroke-width="2.5"/>`),
 };
 
+const BRANCH_ICON: Record<SkillBranch, string> = {
+  atk: ICONS.paw,
+  def: ICONS.shield,
+  spd: ICONS.wind,
+  tech: ICONS.sparkle,
+  support: ICONS.toybox,
+};
+
 export function branchSvg(b: SkillBranch): string {
-  return b === "atk" ? ICONS.paw : b === "hp" ? ICONS.heart : b === "spd" ? ICONS.wind : ICONS.crown;
+  return BRANCH_ICON[b] ?? ICONS.crown;
+}
+
+// ---------------- 譲渡会会場 ----------------
+
+/** キャリーケース（段ボールのお迎え箱）。open なら、ふたが開いている。 */
+export function carrierSvg(open: boolean): string {
+  if (open) {
+    return S(`<path d="M6 30 L16 22 L22 36 Z M58 30 L48 22 L42 36 Z" fill="#e2b06c" stroke="${OUT}" stroke-width="2.5"/>
+      <path d="M8 34 H56 L52 60 H12 Z" fill="#c98b4e" stroke="${OUT}" stroke-width="2.5"/>
+      <path d="M8 34 H56" stroke="#8a5a2a" stroke-width="3"/>
+      <ellipse cx="32" cy="48" rx="7" ry="3.5" fill="#8a5a2a" opacity=".7"/>
+      <g fill="#fff3dc" opacity=".85"><ellipse cx="32" cy="50" rx="3" ry="2.4"/><circle cx="27.5" cy="46" r="1.4"/><circle cx="30.5" cy="44.6" r="1.4"/><circle cx="33.5" cy="44.6" r="1.4"/><circle cx="36.5" cy="46" r="1.4"/></g>`);
+  }
+  return S(`<path d="M8 22 L32 14 L56 22 L56 54 L32 60 L8 54 Z" fill="#d6a463" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M8 22 L32 30 L56 22 M32 30 V60" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M20 18 L44 26" stroke="#f3d39a" stroke-width="4"/>
+    <rect x="15" y="34" width="12" height="5" rx="2.5" fill="#5a3a1e"/>
+    <path d="M38 40 q3 -2 6 0 M37 44 h8" stroke="#8a5a2a" stroke-width="2"/>
+    <g fill="#ff7eb6"><ellipse cx="44" cy="49" rx="3.4" ry="2.8"/><circle cx="39.6" cy="45" r="1.5"/><circle cx="42.6" cy="43.4" r="1.5"/><circle cx="45.8" cy="43.4" r="1.5"/><circle cx="48.6" cy="45" r="1.5"/></g>`);
+}
+
+/** 譲渡会のテント。 */
+export function tentSvg(): string {
+  return S(`<path d="M8 120 L100 30 L192 120 Z" fill="#fff3dc" stroke="${OUT}" stroke-width="4"/>
+    <path d="M100 30 L40 120 M100 30 L70 120 M100 30 L130 120 M100 30 L160 120" stroke="#ff8a7a" stroke-width="12"/>
+    <path d="M8 120 L100 30 L192 120 Z" stroke="${OUT}" stroke-width="4"/>
+    <path d="M100 30 V8" stroke="${OUT}" stroke-width="4"/><path d="M100 8 L122 14 L100 20 Z" fill="#ffd23f" stroke="${OUT}" stroke-width="3"/>
+    <path d="M14 120 Q34 136 54 120 Q74 136 94 120 Q114 136 134 120 Q154 136 174 120 Q184 128 192 120" fill="#ff6b6b" stroke="${OUT}" stroke-width="3"/>
+    <path d="M78 140 L100 96 L122 140 Z" fill="#6b3f2a" stroke="${OUT}" stroke-width="3"/>`, "0 0 200 150");
 }

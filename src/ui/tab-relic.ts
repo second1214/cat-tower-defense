@@ -8,7 +8,7 @@ import { ICONS } from "./icons";
 
 const STAT_LABEL: Record<RelicStat, string> = {
   dmg: "ダメージ", charHp: "猫の体力", kibble: "カリカリ増加", startKibble: "最初のカリカリ",
-  mamaHp: "ママの HP", objCost: "置くカリカリ", drop: "ドロップ", exp: "経験値", coins: "お金",
+  mamaHp: "ママの HP", objCost: "置くカリカリ", drop: "ドロップ", exp: "経験値", coins: "お金", churu: "ちゅ〜る",
 };
 
 function statValue(stat: RelicStat, b: RelicBonus): { text: string; on: boolean } {
@@ -22,7 +22,7 @@ function statValue(stat: RelicStat, b: RelicBonus): { text: string; on: boolean 
   }
 }
 
-const STAT_ORDER: RelicStat[] = ["dmg", "charHp", "mamaHp", "kibble", "startKibble", "objCost", "drop", "exp", "coins"];
+const STAT_ORDER: RelicStat[] = ["dmg", "charHp", "mamaHp", "kibble", "startKibble", "objCost", "drop", "exp", "coins", "churu"];
 
 export function renderRelic(ctx: Ctx): HTMLElement {
   const save = ctx.save;

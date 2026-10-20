@@ -1,6 +1,6 @@
 // メイン（ステージを選ぶ）。
 import {
-  buildLoadout, estimateDps, isStageUnlocked, nextStageId, relicBonus, stageById, stageIndexOf, stageLoad, STAGES,
+  FIRST_CLEAR_CHURU_MUL, buildLoadout, estimateDps, isStageUnlocked, nextStageId, relicBonus, stageById, stageIndexOf, stageLoad, STAGES,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import { CHAR_MAP, ROLE_NAMES } from "../data/chars";
@@ -9,8 +9,10 @@ import { BUG_MAP } from "../data/bugs";
 import { CHAPTER_NAMES, stageIdOf } from "../data/stages";
 import { MAX_LOADOUT, writeSave } from "../core/save";
 import type { Ctx } from "./ctx";
-import { h, svgIcon } from "./dom";
+import { badge, h, svgIcon } from "./dom";
 import { ICONS, catSvg, objectSvg } from "./icons";
+import { gachaBadge } from "./badges";
+import { openGacha } from "./gacha";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
 const POWER_SCALE = 10;
@@ -96,10 +98,11 @@ export function renderMain(ctx: Ctx): HTMLElement {
       rwRow(ICONS.exp, "経験値", fmt(Math.round(rw.exp * (1 + rel.exp)))),
       rwRow(ICONS.coin, "お金", fmt(Math.round(rw.coins * (1 + rel.coins)))),
       rwRow(ICONS.relic, "レリック", firstClear ? fmt(rw.relicPoints) : "クリアずみ", firstClear ? "rw-first" : "rw-done"),
+      rwRow(ICONS.churu, "ちゅ〜る", fmt(Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu))), firstClear ? "rw-first-churu" : ""),
       rwRow(ICONS.equipBox, "装備", `×${(rw.equipDrops * (1 + rel.drop)).toFixed(rel.drop ? 1 : 0)}`),
       rwRow(ICONS.shard, "かけら", `×${(rw.objectDrops * (1 + rel.drop)).toFixed(rel.drop ? 1 : 0)}`),
     ),
-    firstClear ? h("div", { class: "rw-note" }, "はじめてのクリアでレリックポイントがもらえます") : null,
+    firstClear ? h("div", { class: "rw-note" }, "はじめてのクリアでレリックポイントと、ちゅ〜る2倍！") : null,
   );
 
   const slots: HTMLElement[] = [];
@@ -129,6 +132,11 @@ export function renderMain(ctx: Ctx): HTMLElement {
     h("div", { class: "scroll", dataset: { sk: "main" } }, header, power, rewards, party),
     h("div", { class: "main-foot" },
       h("div", { class: "mama-line" }, svgIcon(ICONS.mama, "mama-ico"), h("span", null, firstClear ? "ママを虫から守ってね！" : "もう一度あそんで、強くなろう")),
-      playBtn),
+      h("div", { class: "main-foot-row" },
+        h("button", { class: "gacha-mini", onclick: () => openGacha(ctx), "aria-label": "譲渡会会場" },
+          badge(gachaBadge(save)),
+          svgIcon(ICONS.tent, "gm-ico"),
+          h("span", { class: "gm-label" }, "譲渡会")),
+        playBtn)),
   );
 }

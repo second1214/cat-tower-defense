@@ -1,11 +1,12 @@
 // 赤いバッジ（なにかできることがあるとき）の判定。
 import type { SaveData } from "../core/save";
-import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, skillPoints, skillTreeOf } from "../core/progress";
+import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, skillTreeOf } from "../core/progress";
+import { canPull } from "../core/gacha";
 import { EQUIP_SLOTS, MAX_EQUIP_RARITY } from "../data/equips";
 
 /** この猫がいま覚えられるスキルがあるか。 */
 export function charCanLearn(save: SaveData, charId: string): boolean {
-  if (!save.chars[charId] || skillPoints(save, charId) <= 0) return false;
+  if (!save.chars[charId]) return false;
   return skillTreeOf(charId).some((n) => canLearn(save, charId, n.id).ok);
 }
 
@@ -46,4 +47,9 @@ export function growBadge(save: SaveData): boolean {
 export function relicBadge(save: SaveData): boolean {
   const n = nextRelic(save);
   return !!n && canUnlockRelic(save, n.id).ok;
+}
+
+/** 譲渡会会場で1回お迎えできるだけのちゅ〜るがあるか。 */
+export function gachaBadge(save: SaveData): boolean {
+  return canPull(save, 1).ok;
 }
