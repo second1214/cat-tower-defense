@@ -9,10 +9,10 @@ import { CHAPTER_NAMES, stageIdOf } from "../data/stages";
 import { MAX_LOADOUT, writeSave } from "../core/save";
 import type { Ctx } from "./ctx";
 import { h, svgIcon } from "./dom";
-import { ICONS, catSvg, objectSvg } from "./icons";
+import { ICONS, objectSvg } from "./icons";
 import { rarityPill } from "./gacha";
 import { openCharDetail } from "./grow-char";
-import { renderCafe } from "./cafe";
+import { renderCafe, catIcon } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
 const POWER_SCALE = 10;
@@ -102,7 +102,7 @@ export function renderMain(ctx: Ctx): HTMLElement {
       : h("span", { class: "mn-obj empty" }));
   }
   const party = h("div", { class: "mn-party" },
-    h("button", { class: "mn-party-cat", "aria-label": "猫を選ぶ", onclick: () => ctx.goTab("grow", "char") }, svgIcon(catSvg(save.selectedChar), "mn-party-cat-ico")),
+    h("button", { class: "mn-party-cat", "aria-label": "猫を選ぶ", onclick: () => ctx.goTab("grow", "char") }, catIcon(save.selectedChar, "mn-party-cat-ico")),
     h("button", { class: "mn-party-objs", "aria-label": "オブジェクトを選ぶ", onclick: () => ctx.goTab("grow", "obj") },
       h("span", { class: "mn-party-k" }, "もちもの"), slots));
 
@@ -141,7 +141,7 @@ function openCatBubble(ctx: Ctx, cid: string): void {
     cls: "modal-small modal-catpop",
     closeButton: false,
     render: () => h("div", { class: "catpop" },
-      svgIcon(catSvg(cid), "catpop-ico"),
+      catIcon(cid, "catpop-ico"),
       h("div", { class: "catpop-name" }, def.name),
       h("div", { class: "catpop-sub" }, rarityPill(def.rarity), h("span", { class: `role-tag role-${def.role}` }, ROLE_NAMES[def.role]), h("b", null, `Lv${cs.level}`)),
       h("div", { class: "catpop-talk" }, CAT_TALK[Math.floor(Math.random() * CAT_TALK.length)])),

@@ -11,7 +11,7 @@
 import { COLS, ROWS } from "../core/types";
 import type { Battle, BattleEvent, BugState, ObjState } from "./engine";
 import { FLOAT_LIFE, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, KNOCK_TIME, SIDE_SPAWN_ROWS, SPAWN_Y } from "./engine";
-import { getFlashSprite, getSprite, type SpriteHint } from "./sprites";
+import { getCatPose, getFlashSprite, getSprite, type CatPose, type SpriteHint } from "./sprites";
 import { fmt } from "../core/num";
 
 /** 上の壁（虫の出てくる所）の、少なくともの高さ（マスに対する割合）。 */
@@ -80,7 +80,7 @@ export class BattleView {
   private mamaScared = 0;
   private banner = { text: "", sub: "", t: 99 };
   private clock = 0;
-  private lastCat = { x: 0, y: 0, moving: 0 };
+  private lastCat = { x: 0, y: 0, moving: 0, atkHold: 0 };
   private catHint: SpriteHint;
   private catId: string;
   private readonly topHoles: number[];
@@ -918,8 +918,10 @@ export class BattleView {
     const flip = cat.facingX < -0.1 ? -1 : 1;
     const d = this.dpr;
     g.setTransform(d * flip * atk, 0, 0, d * atk, d * (x + this.shx), d * (y - hop + this.shy));
-    g.drawImage(getSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
-    if (cat.hurt > 0) {
+    const pose = this.catPose(dt);
+    const img = pose ? getCatPose(this.catId, pose) : null;
+    g.drawImage(img ?? getSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
+    if (cat.hurt > 0 && !(img && pose === "hurt")) {
       g.globalAlpha = Math.min(1, cat.hurt / 0.15) * 0.8;
       g.drawImage(getFlashSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
       g.globalAlpha = 1;
@@ -938,6 +940,21 @@ export class BattleView {
       g.stroke();
     }
     hpBar(g, x, y + s * 0.52, s * 0.7, Math.max(3, u * 0.12), cat.hp / cat.maxHp, "#5ee07a");
+  }
+
+  /** 今のポーズ（攻撃 > 被弾 > 移動 > 待機）。攻撃の絵は attackAnim より長めに見せる。 */
+  private catPose(dt: number): CatPose | null {
+    const cat = this.battle.cat;
+    const lc = this.lastCat;
+    lc.atkHold = cat.attackAnim > 0 ? 0.3 : Math.max(0, lc.atkHold - dt);
+    const role = this.battle.loadout.char.role;
+    if (lc.atkHold > 0) return role === "ranged" ? "ranged" : role === "aoe" ? "aoe" : "melee";
+    if (cat.hurt > 0) return "hurt";
+    if (lc.moving > 0.3) {
+      if (role === "fast") return "run";
+      return Math.floor(this.clock * 6) % 2 ? "walk2" : "walk1";
+    }
+    return null;
   }
 
   /** 電撃（ぎざぎざの線。毎コマ形が変わってちらつく）。 */

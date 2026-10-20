@@ -13,6 +13,7 @@ import { OBJECT_MAP } from "../data/objects";
 import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, catSvg, objectSvg } from "./icons";
+import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
 import { renderMain } from "./tab-main";
 import { renderGrow } from "./tab-grow";
@@ -291,7 +292,7 @@ export function createApp(root: HTMLElement): AppHandle {
       dismissable: false,
       closeButton: false,
       render: () => h("div", { class: "lose" },
-        svgIcon(catSvg(save.selectedChar), "lose-ico"),
+        catIcon(save.selectedChar, "lose-ico"),
         h("p", { class: "lose-msg" }, "虫たちに押しきられちゃった…"),
         h("p", null, "成長タブで強化してもう一度！"),
         h("p", { class: "muted small" }, `${result.stageId}　たおした虫 ${result.kills}ひき・波 ${result.wavesCleared}`)),
@@ -345,6 +346,7 @@ export function createApp(root: HTMLElement): AppHandle {
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") modals.closeTop(); };
   window.addEventListener("keydown", onKey);
 
+  loadCatSprites(() => render());
   render();
 
   return {

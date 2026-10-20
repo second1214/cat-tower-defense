@@ -8,7 +8,7 @@ const SPECIAL = {
 } satisfies Partial<ResolvedChar>;
 
 const CHARS: Record<CharRole, ResolvedChar> = {
-  melee: { id: "chatora", name: "ちゃとら", role: "melee", maxHp: 30, atk: 2, atkInterval: 0.8, range: 0.9, aoe: 0, moveSpeed: 2.5, restTime: 5, armor: 1, ...SPECIAL, knockback: 0.5 },
+  melee: { id: "chatora", name: "ノルウェージャン", role: "melee", maxHp: 30, atk: 2, atkInterval: 0.8, range: 0.9, aoe: 0, moveSpeed: 2.5, restTime: 5, armor: 1, ...SPECIAL, knockback: 0.5 },
   ranged: { id: "mike", name: "みけ", role: "ranged", maxHp: 18, atk: 1.5, atkInterval: 1.0, range: 3, aoe: 0, moveSpeed: 2.3, restTime: 5, armor: 1, ...SPECIAL, pierce: 1 },
   fast: { id: "kuro", name: "くろ", role: "fast", maxHp: 20, atk: 1.3, atkInterval: 0.6, range: 0.9, aoe: 0, moveSpeed: 3.6, restTime: 4, armor: 1, ...SPECIAL, multiHit: 0.3, dodge: 0.15 },
   aoe: { id: "shiro", name: "しろ", role: "aoe", maxHp: 22, atk: 1.2, atkInterval: 1.3, range: 1.2, aoe: 1.0, moveSpeed: 2.2, restTime: 5, armor: 1, ...SPECIAL, poison: 0.3 },

@@ -6,7 +6,7 @@
 // 絵の差しかえ: sprites/cats/manifest.json に "<id>_<pose>" があれば <img src="sprites/cats/<id>_<pose>.png"> を使う。
 import { CHAR_MAP } from "../data/chars";
 import type { Ctx } from "./ctx";
-import { h } from "./dom";
+import { h, svgIcon } from "./dom";
 import { catFur, catSvg } from "./icons";
 
 export type CatPose = "sit" | "loaf" | "sleep" | "groom" | "eat" | "walk";
@@ -59,7 +59,10 @@ let spriteSet: Set<string> | null = null;
 let spriteTried = false;
 
 /** sprites/cats/manifest.json を一度だけ読む（なければ何もしない）。形: ["chatora_sit", …] か { "chatora": ["sit", …] }。 */
-function loadCatSprites(onReady: () => void): void {
+const spriteWaiters: (() => void)[] = [];
+export function loadCatSprites(onReady: () => void): void {
+  if (spriteSet) return;
+  spriteWaiters.push(onReady);
   if (spriteTried) return;
   spriteTried = true;
   if (typeof fetch !== "function") return;
@@ -74,7 +77,7 @@ function loadCatSprites(onReady: () => void): void {
           if (Array.isArray(poses)) for (const p of poses) if (typeof p === "string") set.add(`${id}_${p}`);
         }
       }
-      if (set.size) { spriteSet = set; onReady(); }
+      if (set.size) { spriteSet = set; for (const f of spriteWaiters.splice(0)) f(); }
     })
     .catch(() => undefined);
 }
@@ -129,6 +132,15 @@ function standBody(fur: string): string {
 function pawSvg(fur: string): string {
   return SV("0 0 40 56", `<path d="M12 54 Q8 24 16 10 Q26 2 32 12 Q35 30 28 54 Z" fill="${fur}" stroke="${OUT}" stroke-width="2.5"/>
     <ellipse cx="24" cy="12" rx="4" ry="3" fill="#ff9ab0"/>`);
+}
+
+/** メニュー用の猫アイコン（座りの絵があれば画像、なければ顔の SVG）。 */
+export function catIcon(id: string, cls = "", silhouette = false): HTMLElement {
+  if (!silhouette && hasCatSprite(id, "sit")) {
+    return h("span", { class: `ico ico-png ${cls}`, "aria-hidden": "true" },
+      h("img", { src: `sprites/cats/${id}_sit.png`, alt: "", draggable: "false" }));
+  }
+  return svgIcon(catSvg(id, silhouette), cls);
 }
 
 /** 猫1匹のポーズ（絵があれば画像、なければ顔＋かんたんな体）。 */
