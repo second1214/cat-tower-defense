@@ -234,7 +234,7 @@ describe("データ", () => {
     const c = SKILL_TREES.aoe.find((n) => n.effects[0].combo === "poisonBurst")!;
     expect(effectText(c, 2)).toContain("爆発");
     for (const t of Object.values(COMBO_TEXT)) expect(t(0.5).length).toBeGreaterThan(0);
-    expect(effectText(SKILL_MAP["melee.root"])).toBe("攻撃 +5%・体力 +5%");
+    expect(effectText(SKILL_MAP["melee.root"])).toBe("猫の攻撃 +5%・猫の体力 +5%");
   });
   test("オブジェクト: 通れる・通れない", () => {
     const by = Object.fromEntries(OBJECTS.map((o) => [o.id, o.base.block]));
