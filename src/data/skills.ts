@@ -221,7 +221,7 @@ interface Cell {
 type ByRole<T> = Record<CharRole, T>;
 
 /** 段が深いほど、1レベルあたりの量を増やす。 */
-const k = (t: number) => 1 + 0.3 * t;
+const k = (t: number) => 1 + 0.2 * t;
 const even = (t: number) => t % 2 === 0;
 
 /** 枝ごとの3列（左・真ん中・右）。段 t の中身を返す。 */
@@ -231,8 +231,8 @@ function laneCell(role: CharRole, b: SkillBranch, lane: number, t: number): Cell
   switch (b) {
     case "atk":
       if (lane === 0) return { fx: [S("atkSpd", 0.015 * k(t))], max: 10 };
-      if (lane === 1) return { fx: [S("atk", 0.1 * k(t))], max: 10 };
-      return even(t) ? { fx: [S("crit", 0.01)], max: 5 } : { fx: [S("critMul", 0.08 * k(t))], max: 5 };
+      if (lane === 1) return { fx: [S("atk", 0.08 * k(t))], max: 10 };
+      return even(t) ? { fx: [S("crit", 0.01)], max: 5 } : { fx: [S("critMul", 0.06 * k(t))], max: 5 };
     case "def":
       if (lane === 0) return even(t) ? { fx: [S("armor", 0.012)], max: 5 } : { fx: [S("dodge", 0.008)], max: 5 };
       if (lane === 1) return { fx: [S("hp", 0.1 * k(t))], max: 10 };
@@ -260,16 +260,16 @@ function laneCell(role: CharRole, b: SkillBranch, lane: number, t: number): Cell
 function techCell(role: CharRole, t: number): Cell {
   switch (role) {
     case "melee":
-      if (t === 3 || t === 7 || t === 11) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
+      if (t === 4 || t === 9) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
       return even(t) ? { fx: [S("knockback", 0.1)], max: 5 } : { fx: [S("atk", 0.06 * k(t)), S("hp", 0.06 * k(t))], max: 5 };
     case "ranged":
       if (t === 2 || t === 6 || t === 10) return { fx: [S("pierce", 1)], max: 1, cost: 20 };
       return even(t) ? { fx: [S("range", 0.15)], max: 3 } : { fx: [S("critMul", 0.06 * k(t)), S("crit", 0.005)], max: 5 };
     case "aoe":
-      if (t === 4 || t === 9) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
+      if (t === 6) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
       return even(t) ? { fx: [S("aoe", 0.05)], max: 5 } : { fx: [S("aoe", 0.03), S("atk", 0.06 * k(t))], max: 5 };
     case "fast":
-      if (t === 3 || t === 7 || t === 11) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
+      if (t === 4 || t === 9) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
       return even(t) ? { fx: [S("move", 0.03), S("dodge", 0.006)], max: 5 } : { fx: [S("atk", 0.06 * k(t)), S("atkSpd", 0.01 * k(t))], max: 5 };
   }
 }
@@ -301,7 +301,7 @@ const COMBO_ROWS: ByRole<ComboRow[]> = {
     [6, "objectSync", 0.1, "support", "おもちゃと息を合わせる"],
     [7, "pierceGrow", 0.2, "tech", "一直線"],
     [8, "bossHunter", 0.3, "atk", "大物ねらい"],
-    [9, "critChain", 1, "atk", "いなずまの爪", 2],
+    [9, "critChain", 1, "atk", "いなずまの爪", 3],
     [10, "overkill", 0.5, "atk", "うちぬき"],
     [11, "zapVenom", 0.5, "tech", "ビリビリ毒"],
     [11, "partyLink", 0.25, "support", "うしろから応援"],

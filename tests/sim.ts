@@ -1,28 +1,32 @@
 // テスト用: ステージを順にクリアしつづけるプレイヤーのまね（欲ばりに全部つかう）。
-// ちゅ〜るは「スキル」と「譲渡会会場」に分けて使う（もらったちゅ〜るの一部を、お迎え用にとっておく）。
+// ちゅ〜るは「スキル」と「ねこ福袋」に分けて使う（もらったちゅ〜るの一部を、福袋用にとっておく）。
+// 近所の猫が来たらお迎えして、いちばん強い3匹をパーティ（主人公・相棒）にする。
 import { newSave, type SaveData } from "../src/core/save";
 import { mulberry32, type Rng } from "../src/core/rng";
 import {
-  autoEquip, autoFuse, buildLoadout, canLearn, charPower, estimateDps, grantRewards, learnSkill, levelUpObject,
-  nextNodeCost, nextRelic, objectDps, objectUpgradeCost, powerRatio, resetSkills, resolveObjects, selectChar, setLoadout,
-  skillTreeOf, stageIdList, stageLoad, unlockRelic,
+  adoptNeighbor, adoptableNeighbors, autoEquip, autoFuse, buildLoadout, canLearn, catPower, equipWaza, estimateDps,
+  grantRewards, heroUid, learnSkill, levelUpObject, mainWazaOf, nextNodeCost, nextRelic, objectDps, objectUpgradeCost,
+  partyRoles, partyUids, powerRatio, resolveObjects, setLoadout, setParty, skillTreeOf, stageIdList, stageLoad,
+  unlockRelic,
 } from "../src/core/progress";
 import { PULL10_COST, pull } from "../src/core/gacha";
-import { CHAR_MAP } from "../src/data/chars";
+import { MAX_SUBS, WAZA_MAP } from "../src/data/waza";
 import { OBJECTS } from "../src/data/objects";
 import { BUG_MAP } from "../src/data/bugs";
+import type { CharRole } from "../src/core/types";
 
 export interface SimState {
-  /** お迎え用にとっておくちゅ〜る。 */
+  /** 福袋用にとっておくちゅ〜る。 */
   pullBudget: number;
   /** 前に見たときのちゅ〜る（ふえたぶんを分ける）。 */
   lastChuru: number;
-  /** もらったちゅ〜るのうち、お迎えにまわす割合。 */
+  /** もらったちゅ〜るのうち、福袋にまわす割合。 */
   pullShare: number;
   churuEarned: number;
   churuOnSkills: number;
   churuOnPulls: number;
   pulls: number;
+  /** 主人公が入れかわった回数。 */
   switches: number;
 }
 
@@ -33,14 +37,30 @@ export function newSimState(save: SaveData, pullShare = 0.35): SimState {
   };
 }
 
-/** スキルを取っていないときの強さ（猫どうしをくらべる用）。 */
-function barePower(save: SaveData, charId: string): number {
-  const c = save.chars[charId];
-  const keep = c.skills;
-  c.skills = {};
-  const p = charPower(save, charId);
-  c.skills = keep;
-  return p;
+/** 猫ごとに、いちばん強くなるメインのわざとサブのわざをつける。 */
+function bestWaza(save: SaveData, uid: string): void {
+  const owned = Object.keys(save.wazas).filter((id) => WAZA_MAP[id]);
+  let best = save.cats[uid].waza.main, bestP = catPower(save, uid);
+  for (const id of owned.filter((x) => WAZA_MAP[x].slot === "main")) {
+    equipWaza(save, uid, "main", id);
+    const p = catPower(save, uid);
+    if (p > bestP) { bestP = p; best = id; }
+  }
+  equipWaza(save, uid, "main", best);
+  const subs = owned.filter((x) => WAZA_MAP[x].slot === "sub");
+  save.cats[uid].waza.subs = [];
+  for (let slot = 0; slot < MAX_SUBS; slot++) {
+    let pickId: string | null = null, pickP = catPower(save, uid);
+    for (const id of subs) {
+      if (save.cats[uid].waza.subs.includes(id)) continue;
+      if (!equipWaza(save, uid, slot as 0 | 1, id).ok) continue;
+      const p = catPower(save, uid);
+      if (p > pickP * 1.0001) { pickP = p; pickId = id; }
+      equipWaza(save, uid, slot as 0 | 1, null);
+    }
+    if (!pickId) break;
+    equipWaza(save, uid, slot as 0 | 1, pickId);
+  }
 }
 
 export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
@@ -52,7 +72,7 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
     st.pullBudget += income * st.pullShare;
     st.churuEarned += income;
   }
-  // 譲渡会会場: 10回ぶんたまったら
+  // ねこ福袋: 10回ぶんたまったら
   while (st.pullBudget >= PULL10_COST && save.churu >= PULL10_COST) {
     const before = save.churu;
     const r = pull(save, rng, 10);
@@ -61,28 +81,35 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
     st.churuOnPulls += before - save.churu;
     st.pulls += 10;
   }
-  // 一番強い猫を出す（乗りかえるときは、前の猫のスキルを全部もどす）
-  const cur = save.selectedChar;
-  let best = cur;
-  for (const id of Object.keys(save.chars)) if (barePower(save, id) > barePower(save, best) * 1.1) best = id;
-  if (best !== cur) {
-    st.churuOnSkills -= resetSkills(save, cur);
-    selectChar(save, best);
-    st.switches++;
-  }
-  // スキル: 覚えられるうち、いちばん安いものから（お迎え用はとっておく）
-  const id = save.selectedChar;
+  // 近所の猫はみんなお迎えする
+  for (const id of adoptableNeighbors(save)) adoptNeighbor(save, id);
+  // わざをつけて、強い3匹をパーティに
+  const prevHero = heroUid(save);
+  for (const uid of Object.keys(save.cats)) bestWaza(save, uid);
+  const rank = Object.keys(save.cats).sort((a, b) => catPower(save, b) - catPower(save, a));
+  const hero = catPower(save, rank[0]) > catPower(save, prevHero) * 1.1 ? rank[0] : prevHero;
+  setParty(save, 0, hero);
+  const comps = rank.filter((u) => u !== hero).slice(0, 2);
+  setParty(save, 1, comps[0] ?? null);
+  setParty(save, 2, comps[1] ?? null);
+  if (hero !== prevHero) st.switches++;
+  // スキル: パーティの役割のうち、いちばん安いものから（主人公の役割をだいじに。福袋用はとっておく）
+  const roles = partyRoles(save);
+  const heroRole = mainWazaOf(save, hero).role!;
   for (;;) {
-    let pickId: string | null = null;
-    let pickCost = Infinity;
-    for (const n of skillTreeOf(id)) {
-      if (!canLearn(save, id, n.id).ok) continue;
-      const c = nextNodeCost(save, id, n.id)!;
-      if (c < pickCost) { pickCost = c; pickId = n.id; }
+    let pick: { role: CharRole; id: string; cost: number } | null = null;
+    let pickScore = Infinity;
+    for (const role of roles) {
+      const w = role === heroRole ? 1 : 3;
+      for (const n of skillTreeOf(role)) {
+        if (!canLearn(save, role, n.id).ok) continue;
+        const c = nextNodeCost(save, role, n.id)!;
+        if (c * w < pickScore) { pickScore = c * w; pick = { role, id: n.id, cost: c }; }
+      }
     }
-    if (!pickId || save.churu - pickCost < st.pullBudget) break;
-    learnSkill(save, id, pickId);
-    st.churuOnSkills += pickCost;
+    if (!pick || save.churu - pick.cost < st.pullBudget) break;
+    learnSkill(save, pick.role, pick.id);
+    st.churuOnSkills += pick.cost;
   }
   st.lastChuru = save.churu;
   // レリック
@@ -109,14 +136,18 @@ export interface SimRow {
   stage: string;
   ratio: number;      // 初めて挑むときの戦力の余裕
   grinds: number;     // 足りなくて前のステージを回した回数
-  level: number;
-  char: string;       // 出している猫「id(レアリティ)♥なかよし度」
-  skillLv: number;    // 出している猫のスキルのレベルの合計
+  level: number;      // 主人公のレベル
+  char: string;       // 主人公「名前/メインのわざ(レアリティ)Lv♥なかよし度」
+  party: number;      // パーティの数（主人公＋相棒）
+  skillLv: number;    // 主人公の役割のスキルのレベルの合計
+  combos: number;     // 主人公にかかっている複合効果の数
   charDps: number;
+  compDps: number;    // 相棒の DPS の合計
   objDps: number;
   bugHp: number;      // アリ1匹の体力（ステージ倍率をかけたあと）
   churu: number;      // いま持っているちゅ〜る
-  owned: number;      // お迎えした猫の数
+  owned: number;      // 猫の数
+  wazas: number;      // 覚えたわざの数
   obj: string;        // 持っていくオブジェクトの「id:レベル/かけら」
   perks: number;      // 持っていくオブジェクトの、解放ずみの特殊効果の数の合計
   bugs: number;       // そのステージの虫の数
@@ -128,6 +159,7 @@ export function simulate(
 ): { rows: SimRow[]; save: SaveData; st: SimState } {
   const rng = mulberry32(seed);
   const save = newSave();
+  save.setupDone = true;
   const st = newSimState(save, pullShare);
   const ids = stageIdList().slice(0, stages);
   const rows: SimRow[] = [];
@@ -142,13 +174,19 @@ export function simulate(
     }
     const lo = buildLoadout(save, id)!;
     const d = estimateDps(lo);
-    const cs = save.chars[save.selectedChar];
+    const hero = heroUid(save);
+    const cs = save.cats[hero];
+    const w = mainWazaOf(save, hero);
     rows.push({
       stage: id, ratio: first, grinds, level: cs.level,
-      char: `${save.selectedChar}(${CHAR_MAP[save.selectedChar].rarity})♥${cs.bond}`,
-      skillLv: Object.values(cs.skills).reduce((s, v) => s + v, 0),
-      charDps: d.char, objDps: d.objects, bugHp: BUG_MAP.ari.hp * lo.stage.hpMul, churu: save.churu,
-      owned: Object.keys(save.chars).length,
+      char: `${cs.name}/${w.name}(${w.rarity})${save.wazas[w.id]?.level ?? 1}♥${cs.bond}`,
+      party: partyUids(save).length,
+      skillLv: Object.values(save.skills[w.role!]).reduce((s, v) => s + v, 0),
+      combos: Object.keys(lo.char.combos).length,
+      charDps: d.char, compDps: d.companions, objDps: d.objects, bugHp: BUG_MAP.ari.hp * lo.stage.hpMul,
+      churu: save.churu,
+      owned: Object.keys(save.cats).length,
+      wazas: Object.keys(save.wazas).length,
       obj: save.loadout.map((i) => i + ":" + save.objects[i].level + "/" + save.objects[i].shards).join(" "),
       perks: lo.objects.reduce((s, o) => s + o.perks.length, 0),
       bugs: stageLoad(lo.stage).count,

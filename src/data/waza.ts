@@ -131,7 +131,7 @@ export const WAZAS: WazaDef[] = [
     [["combo:wakeUp", 2], ["revive", 0.1]]),
   sub("gochisousama", "ごちそうさま", "R", "倒すたび回復・与えたダメージの 2% 回復",
     [["combo:killHeal", 0.02], ["lifesteal", 0.02]]),
-  sub("bilibili", "会心ビリビリ", "SR", "会心 +5%・会心で電撃", [["crit", 0.05], ["combo:critChain", 1]]),
+  sub("bilibili", "会心ビリビリ", "SR", "会心 +3%・会心で電撃", [["crit", 0.03], ["combo:critChain", 1]]),
   sub("dokunoshippo", "毒のしっぽ", "SR", "毒 +15%・毒の虫への会心 +10%", [["poison", 0.15], ["combo:venomCrit", 0.1]]),
   sub("nakayoshitouch", "なかよしタッチ", "SR", "ほかの猫の近くで攻撃・攻撃の速さ +15%", [["combo:partyLink", 0.15]]),
   sub("mamanosoba", "ママのそばで", "SR", "ママの近くで攻撃 +30%・受けるダメージ -5%",
@@ -140,10 +140,10 @@ export const WAZAS: WazaDef[] = [
   sub("amattachikara", "あまった力", "SSR", "倒したときの余ったダメージを、となりの虫へ", [["combo:overkill", 0.6], ["atk", 0.05]]),
   sub("fumikomi", "ふみこみ衝撃", "SSR", "押しもどし +0.3・ぶつけてダメージ・範囲でしょうげき波",
     [["knockback", 0.3], ["combo:knockSlam", 1], ["combo:shockwave", 0.3]]),
-  sub("inazumanodoku", "いなずまの毒", "UR", "会心 +10%・会心で電撃2回・電撃と範囲に毒",
-    [["crit", 0.1], ["combo:critChain", 2], ["combo:zapVenom", 0.5]]),
-  sub("ooabare", "大暴れ", "UR", "連続攻撃 +1・倒すたびノリノリ・カリカリでやる気・最後の一撃が範囲に",
-    [["multiHit", 1], ["combo:frenzy", 0.08], ["combo:kibbleFever", 0.08], ["combo:multiEcho", 1]]),
+  sub("inazumanodoku", "いなずまの毒", "UR", "会心 +6%・会心で電撃2回・電撃と範囲に毒",
+    [["crit", 0.06], ["combo:critChain", 2], ["combo:zapVenom", 0.5]]),
+  sub("ooabare", "大暴れ", "UR", "攻撃の速さ +10%・倒すたびノリノリ・カリカリでやる気・連続攻撃の最後が範囲に",
+    [["atkSpd", 0.1], ["combo:frenzy", 0.08], ["combo:kibbleFever", 0.08], ["combo:multiEcho", 1]]),
 ];
 
 export const WAZA_MAP: Record<string, WazaDef> = Object.fromEntries(WAZAS.map((w) => [w.id, w]));
