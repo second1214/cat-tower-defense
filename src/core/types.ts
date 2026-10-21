@@ -131,6 +131,12 @@ export interface BugDef {
   atkInterval: number;
   boss?: boolean;
   fly?: boolean;        // 使わない（障害物を無視する虫は無し）
+  /** 猫からのダメージに掛ける倍率（0.25 なら猫の攻撃は 1/4 しか効かない。オブジェクトのダメージはそのまま）。なければ 1。 */
+  catResist?: number;
+  /** かじる虫: 通れないオブジェクトをよけずに進み、行く手のオブジェクトを 攻撃力×chew でかじって壊す（家具はかじらない）。なければ 0。 */
+  chew?: number;
+  /** 群れ: 同じ時に横にならんで出る数（ハエの大群など）。なければ 1。 */
+  pack?: number;
   drop: number;         // 倒したときに落とすカリカリ
 }
 
@@ -140,11 +146,19 @@ export interface WaveDef {
   bugs: { bug: string; count: number; every: number; lanes?: number[] }[];   // every: 何秒おきに出すか。lanes: 出てくる上の端の列（なければ、ばらばら）
 }
 
+/** 家具の種類（battle/sprites が全部描ける）。大きさは data/stages.ts の FURNITURE_SIZES。 */
+export const FURNITURE_KINDS = [
+  "table", "plant", "shelf", "sofa", "basket",
+  "bed", "counter", "fridge", "tv", "desk", "chair", "bookshelf", "partition",
+  "piano", "bathtub", "washer", "kotatsu", "tansu", "boxes", "pillar", "stove", "sink",
+] as const;
+export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
+
 /** ステージに最初からある障害物（家具など）。虫も通れず、オブジェクトも置けない。 */
 export interface Obstacle {
   col: number;
   row: number;
-  kind: string;         // 絵の種類（"table" "plant" "shelf" "sofa" "basket" など）
+  kind: string;         // 絵の種類（FurnitureKind）
   w?: number;           // 大きさ（マス。なければ 1）
   h?: number;
 }
@@ -162,6 +176,10 @@ export interface StageDef {
   obstacles?: Obstacle[]; // 最初からある障害物（家具）
   kibblePerSec: number; // 自然に増えるカリカリ（今は 0。カリカリは虫を倒すと、すぐに手に入る）
   rewards: StageRewards;
+  /** 難しさの山: 0 ふつう / 1 難関（章の5番目）/ 2 大難関（章のぬし）。画面で「難関」と出す。 */
+  wall?: 0 | 1 | 2;
+  /** 部屋のようす（"living" "kitchen" "bedroom" "washitsu" "study" "bath" など）。床や家具のえらび方に使う。 */
+  theme?: string;
 }
 
 /** ステージクリアでもらえるもの（目安。実際の抽選は core 側）。 */
