@@ -60,7 +60,7 @@ export const KIND_NAMES: Record<ObjectKind, string> = {
 export const PERK_LEVELS = [3, 6, 10, 15, 20, 30, 40, 50];
 
 /** レベルが1上がるごとに atk・maxHp に掛ける倍率。 */
-export const OBJ_LEVEL_GROWTH = 1.22;
+export const OBJ_LEVEL_GROWTH = 1.25;
 
 /** producer の生産は、レベル1つにつき +2%（カリカリはインフレしないので、ゆっくり）。 */
 export const OBJ_PRODUCE_PER_LEVEL = 0.02;
@@ -81,7 +81,7 @@ const B = (
   kind: ObjectKind,
   o: Partial<ObjectBase> & Pick<ObjectBase, "cost" | "maxHp" | "interval">,
 ): ObjectBase => ({
-  atk: 0, range: 0, slow: 1, produce: 0, cooldown: 0, upgradeCost: Math.round(o.cost * 0.8), upgradeMul: 1.5,
+  atk: 0, range: 0, slow: 1, produce: 0, cooldown: 0, upgradeCost: Math.round(o.cost * 0.8), upgradeMul: 1.35,
   block: kind !== "mine" && kind !== "slow", w: 1, h: 1,
   multishot: 0, spread: 0, pierce: 0, splash: 0, chain: 0, chainRange: 0, poison: 0, poisonSpread: 0,
   knockback: 0, crit: 0, critMul: 1.5,

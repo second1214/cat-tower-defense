@@ -161,9 +161,21 @@ export interface SimRow {
   bugs: number;       // そのステージの虫の数
 }
 
-/** need: 戦力の余裕がこれ以上なら挑む。maxGrind: 1ステージで回せる上限。 */
+/** 挑むのに必要な戦力の余裕（powerRatio）。これより小さいと、前のステージを回して育てる。 */
+export const SIM_NEED = 2;
+/** 1ステージで回せる上限（これをこえたら、あきらめて挑む）。 */
+export const SIM_MAX_GRIND = 40;
+
+/** hook の phase: "arrive" はそのステージに初めて来たとき（回す前）、"ready" は回しおえて挑む直前。 */
+export type SimPhase = "arrive" | "ready";
+
+/**
+ * need: 戦力の余裕がこれ以上なら挑む。maxGrind: 1ステージで回せる上限。
+ * hook: ステージごとに、そのときのセーブを見せる（本物の戦闘で試す用。書きかえないこと）。
+ */
 export function simulate(
-  stages = 100, need = 1.2, maxGrind = 30, seed = 42, pullShare = 0.35,
+  stages = 100, need = SIM_NEED, maxGrind = SIM_MAX_GRIND, seed = 42, pullShare = 0.35,
+  hook?: (id: string, save: SaveData, phase: SimPhase) => void,
 ): { rows: SimRow[]; save: SaveData; st: SimState } {
   const rng = mulberry32(seed);
   const save = newSave();
@@ -175,11 +187,13 @@ export function simulate(
     spendAll(save, rng, st);
     let grinds = 0;
     const first = powerRatio(save, id);
+    hook?.(id, save, "arrive");
     while (powerRatio(save, id) < need && grinds < maxGrind && save.cleared >= 0) {
       grantRewards(save, ids[save.cleared], rng);
       spendAll(save, rng, st);
       grinds++;
     }
+    hook?.(id, save, "ready");
     const lo = buildLoadout(save, id)!;
     const d = estimateDps(lo);
     const hero = heroUid(save);

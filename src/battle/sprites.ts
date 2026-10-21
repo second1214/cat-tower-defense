@@ -18,6 +18,7 @@
 //   コードから直接差しかえるときは registerSprite(kind, id, img)。
 // v5: 家具は drawFurniture(g, kind, l, t, w, h, u) で、どの大きさ（1×1〜4×2・1×4 など）にも描ける（FURNITURE_KINDS すべて）。
 //   相棒のひと休みの絵は sprites/cats/manifest.json（カフェと同じ）の "<id>_sit" / "<id>_groom" を loadCatIdlePoses() で読む。
+// v5: くせのある虫の絵（シロアリ termite・ハエ fly・ダンゴムシ pillbug・クワガタ stag・ゲジ geji）。id の一部で形を決める（bugShapeOf）。
 
 import { FURNITURE_KINDS } from "../core/types";
 import type { CharRole, ObjectKind } from "../core/types";
@@ -897,7 +898,9 @@ function drawTrap(g: G): void {
 
 export type BugShape =
   | "ant" | "mosquito" | "roach" | "stinkbug" | "spider"
-  | "caterpillar" | "centipede" | "beetle" | "horned" | "hornet";
+  | "caterpillar" | "centipede" | "beetle" | "horned" | "hornet"
+  // v5: くせのある虫（難関で出る）
+  | "termite" | "fly" | "pillbug" | "stag" | "geji";
 
 /** id の一部から形を決める（長いものから順に調べる）。 */
 export function bugShapeOf(id: string): BugShape {
@@ -909,13 +912,17 @@ export function bugShapeOf(id: string): BugShape {
     ["gokiburi", "roach"], ["roach", "roach"],
     ["imomushi", "caterpillar"], ["caterpillar", "caterpillar"], ["kemushi", "caterpillar"],
     ["kumo", "spider"], ["spider", "spider"],
-    ["kabuto", "horned"], ["kuwagata", "horned"],
+    ["kabuto", "horned"], ["kuwagata", "stag"], ["stag", "stag"],
+    ["shiroari", "termite"], ["termite", "termite"],
+    ["dangomushi", "pillbug"], ["dango", "pillbug"], ["pillbug", "pillbug"],
+    ["gejigeji", "geji"], ["geji", "geji"],
     ["kogane", "beetle"], ["beetle", "beetle"], ["tentou", "beetle"],
     ["mosquito", "mosquito"],
     ["ari", "ant"], ["ant", "ant"],
   ];
   for (const [k, v] of t) if (s.includes(k)) return v;
   if (s === "ka" || s.startsWith("ka_") || s.endsWith("_ka")) return "mosquito";
+  if (s === "hae" || s.startsWith("hae") || s.endsWith("_hae") || s.includes("fly")) return "fly";
   return "ant";
 }
 
@@ -1094,6 +1101,99 @@ function drawBug(shape: BugShape, id: string): HTMLCanvasElement {
       ell(g, 64, 90, 20, 13);
       fs(g, horned ? "#5a2e15" : "#2f7d55");
       bugEyes(g, 96, 9, 5, horned);
+      break;
+    }
+    case "termite": {
+      // シロアリ: 白っぽいクリーム色・大きな頭とあご（かじる）
+      legs(g, [[8, 56, 34, 44], [9, 62, 38, 64], [8, 68, 32, 86]], 4);
+      antennae(g, 102, 20, 16, 3.5);
+      ell(g, 64, 34, 17, 26);
+      fs(g, "#f1e3c4", () => {
+        for (const y of [22, 32, 42]) line(g, [52, y, 76, y], 2.5, "rgba(150,120,80,0.45)");
+      });
+      ell(g, 64, 62, 10, 9);
+      fs(g, "#ead7b0");
+      ell(g, 64, 88, 17, 15);
+      fs(g, "#e2a85a");
+      // あご（ぎざぎざ）
+      for (const sx of [-1, 1]) {
+        curve(g, 64 + sx * 6, 100, 64 + sx * 14, 112, 64 + sx * 4, 120, 4.5);
+      }
+      bugEyes(g, 88, 7, 4);
+      break;
+    }
+    case "fly": {
+      // ハエ: まるい黒い体・大きな赤い目・すきとおった羽
+      for (const [a, b, c, d] of [[10, 62, 40, 48], [12, 68, 44, 72], [10, 74, 36, 98]]) {
+        line(g, [64 + a, b, 64 + c, d], 3.5);
+        line(g, [64 - a, b, 64 - c, d], 3.5);
+      }
+      for (const sx of [-1, 1]) {
+        ell(g, 64 + sx * 26, 46, 24, 14, sx * -0.35);
+        fs(g, "rgba(215,230,240,0.7)", () => line(g, [64 + sx * 10, 48, 64 + sx * 44, 40], 2, "rgba(120,140,160,0.6)"), 4);
+      }
+      ell(g, 64, 50, 20, 24);
+      fs(g, "#3c3f48", () => {
+        for (const y of [38, 50]) line(g, [48, y, 80, y], 3, "rgba(140,200,160,0.55)");
+      });
+      ell(g, 64, 84, 18, 15);
+      fs(g, "#4a4d58");
+      for (const sx of [-1, 1]) { ell(g, 64 + sx * 13, 92, 10, 11); fs(g, "#c8392f", () => dot(g, 64 + sx * 15, 88, 3, "rgba(255,255,255,0.8)"), 3.5); }
+      break;
+    }
+    case "pillbug": {
+      // ダンゴムシ: 灰色のかたいからが何枚も重なる
+      legs(g, [[22, 44, 40, 40], [24, 58, 44, 58], [24, 72, 44, 76], [22, 86, 40, 92]], 3.5);
+      antennae(g, 104, 22, 12, 3.5);
+      ell(g, 64, 62, 30, 44);
+      fs(g, "#7d8794", () => {
+        for (let k = 0; k < 6; k++) {
+          const y = 28 + k * 12;
+          curve(g, 36, y + 4, 64, y - 6, 92, y + 4, 3, "rgba(40,45,55,0.55)");
+        }
+        ell(g, 52, 40, 8, 16, 0.2);
+        g.fillStyle = "rgba(255,255,255,0.28)";
+        g.fill();
+      });
+      ell(g, 64, 102, 16, 9);
+      fs(g, "#69727e");
+      bugEyes(g, 101, 7, 3.8);
+      break;
+    }
+    case "stag": {
+      // クワガタ: こげ茶のつやつや・大きなはさみのあご
+      legs(g, [[16, 50, 46, 36], [18, 64, 50, 66], [16, 76, 44, 100]]);
+      for (const sx of [-1, 1]) {
+        curve(g, 64 + sx * 10, 96, 64 + sx * 30, 112, 64 + sx * 10, 126, 8);
+        curve(g, 64 + sx * 10, 96, 64 + sx * 30, 112, 64 + sx * 10, 126, 4, "#3a1e10");
+        line(g, [64 + sx * 24, 110, 64 + sx * 16, 112], 3);
+      }
+      ell(g, 64, 48, 28, 34);
+      fs(g, "#4a2a18", () => {
+        line(g, [64, 16, 64, 80], 3.5, "rgba(0,0,0,0.5)");
+        ell(g, 50, 36, 7, 15, 0.2);
+        g.fillStyle = "rgba(255,210,170,0.35)";
+        g.fill();
+      });
+      rr(g, 42, 80, 44, 18, 8);
+      fs(g, "#3a1e10");
+      bugEyes(g, 90, 14, 4.5, true);
+      break;
+    }
+    case "geji": {
+      // ゲジ: うすい黄土色・とても長い足がたくさん
+      for (let k = 0; k < 7; k++) {
+        const y = 30 + k * 11, len = 46 + (k % 2) * 6;
+        for (const sx of [-1, 1]) curve(g, 64 + sx * 8, y, 64 + sx * (len * 0.6), y - 12, 64 + sx * len, y + 14, 2.5);
+      }
+      for (let k = 0; k < 6; k++) {
+        ell(g, 64, 32 + k * 12, 9, 7);
+        fs(g, k % 2 ? "#c9a46a" : "#b8925a", () => dot(g, 64, 30 + k * 12, 2.2, "#6b4a2a"), 3);
+      }
+      ell(g, 64, 102, 10, 9);
+      fs(g, "#c9a46a");
+      antennae(g, 108, 30, 16, 2.5);
+      bugEyes(g, 102, 5, 3.2);
       break;
     }
     case "hornet": {
@@ -1718,6 +1818,7 @@ export function debugSpriteSheet(): HTMLCanvasElement {
     ["object", "shitajiki"], ["object", "moufu"], ["object", "katorisenko"], ["object", "spray"],
     ["bug", "ari"], ["bug", "ka"], ["bug", "gokiburi"], ["bug", "kamemushi"], ["bug", "kumo"], ["bug", "imomushi"],
     ["bug", "kogane"], ["bug", "kabuto"], ["bug", "suzumebachi"], ["bug", "mukade"], ["bug", "unknown"], ["pickup", "kibble"],
+    ["bug", "shiroari"], ["bug", "hae"], ["bug", "dangomushi"], ["bug", "kuwagata"], ["bug", "gejigeji"],
     ["projectile", "cat"], ["projectile", "shooter"], ["projectile", "slow"],
   ];
   const cols = 6, cell = 100;

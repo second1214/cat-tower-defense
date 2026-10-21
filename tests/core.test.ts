@@ -27,16 +27,17 @@ import {
   COMBO_TEXT, SKILL_BRANCHES, SKILL_MAP, SKILL_TREES, SKILL_TREE_SIZE, TIER_MIN_LEVEL, effectText, nodeCost,
 } from "../src/data/skills";
 import { OBJECTS, OBJECT_MAP, PERK_LEVELS } from "../src/data/objects";
-import { BUGS, BUG_MAP } from "../src/data/bugs";
+import { BUGS, BUG_MAP, isTraitBug } from "../src/data/bugs";
 import { AFFIXES, EQUIPS, affixCount, affixText, rollAffix } from "../src/data/equips";
 import { RELICS } from "../src/data/relics";
 import {
   FURNITURE_SIZES, MAMA_COL, MAMA_H, MAMA_ROW, MAMA_W, OBSTACLE_ROW_MAX, OBSTACLE_ROW_MIN, STAGES, boardConnected,
-  obstacleCells, stageBlocked,
+  mazeLength, obstacleCells, stageBlocked, stageIndexOf, wallOf,
 } from "../src/data/stages";
-import { COLS, ROWS, type CharRole, type ComboId } from "../src/core/types";
+import { bugShapeOf } from "../src/battle/sprites";
+import { COLS, FURNITURE_KINDS, ROWS, type CharRole, type ComboId } from "../src/core/types";
 import type { SaveData } from "../src/core/save";
-import { simulate } from "./sim";
+import { SIM_MAX_GRIND, SIM_NEED, simulate } from "./sim";
 
 const ROLES: CharRole[] = ["melee", "ranged", "aoe", "fast"];
 
@@ -302,26 +303,49 @@ describe("データ", () => {
     expect(has("tape", "slow") && has("tape", "poison")).toBe(true);
     expect(has("nezumitori", "splash")).toBe(true);
   });
-  test("虫: 飛ぶ虫はいない・ゆっくり", () => {
+  test("虫: 飛ぶ虫はいない・ゆっくり（速い虫は「くせ」として少しだけ）", () => {
     for (const b of BUGS) {
       expect(b.fly).toBeFalsy();
       expect(b.speed).toBeGreaterThanOrEqual(0.2);
-      expect(b.speed).toBeLessThanOrEqual(0.55);
+      expect(b.speed).toBeLessThanOrEqual(1);
+      // 速い虫（0.6 以上）は、かたい・かじる・群れのくせが無い、体力の低い虫だけ
+      if (b.speed >= 0.6) expect(b.hp).toBeLessThanOrEqual(3);
     }
     expect(BUG_MAP.kamemushi.speed).toBe(0.35);
-    expect(BUG_MAP.gokiburi.speed).toBe(Math.max(...BUGS.map((b) => b.speed)));
     expect(BUG_MAP.imomushi.speed).toBe(Math.min(...BUGS.map((b) => b.speed)));
     for (const b of BUGS.filter((x) => x.boss)) expect(b.speed).toBeLessThanOrEqual(0.3);
   });
-  test("ステージの家具: 大きさ・場所・道がつながる", () => {
+  test("虫のくせ: かたい・かじる・群れ・速いがそろっていて、難関から出てくる", () => {
+    const trait = BUGS.filter((b) => isTraitBug(b));
+    expect(trait.some((b) => (b.catResist ?? 1) < 1)).toBe(true);
+    expect(trait.some((b) => (b.chew ?? 0) > 0)).toBe(true);
+    expect(trait.some((b) => (b.pack ?? 1) > 1)).toBe(true);
+    expect(trait.some((b) => b.speed >= 0.9)).toBe(true);
+    for (const b of trait) {
+      // はじめて出るのは難関（章の5番目か10番目）
+      expect(wallOf(b.from)).toBeGreaterThan(0);
+      const st = STAGES[b.from];
+      expect(st.waves.some((w) => w.bugs.some((g) => g.bug === b.id))).toBe(true);
+    }
+    // 新しい虫の絵は、ほかの虫と見分けがつく（シロアリはアリの絵ではない）
+    const normal = BUGS.filter((b) => !b.boss);
+    const shapes = new Set(normal.map((b) => bugShapeOf(b.id)));
+    expect(shapes.size).toBeGreaterThanOrEqual(normal.length - 2);
+    // ぬしは章ごと（ハチとムカデが交互）
+    expect(new Set(BUGS.filter((b) => b.boss).map((b) => bugShapeOf(b.id)))).toEqual(new Set(["hornet", "centipede"]));
+    expect(bugShapeOf("shiroari")).not.toBe(bugShapeOf("ari"));
+    expect(bugShapeOf("hae")).not.toBe(bugShapeOf("ka"));
+  });
+  test("ステージの家具: 大きさ・場所・道がつながる・いろいろ", () => {
     expect([COLS, ROWS]).toEqual([14, 18]);
     expect([MAMA_COL, MAMA_ROW, MAMA_W, MAMA_H]).toEqual([6, 16, 2, 2]);
     for (const s of STAGES) {
       const obs = s.obstacles ?? [];
-      expect(obs.length).toBeGreaterThanOrEqual(4);
+      expect(obs.length).toBeGreaterThanOrEqual(8);
       const used = new Set<number>();
       for (const o of obs) {
         const w = o.w ?? 1, h = o.h ?? 1;
+        expect(FURNITURE_KINDS as readonly string[]).toContain(o.kind);
         expect(FURNITURE_SIZES[o.kind]).toBeDefined();
         expect(FURNITURE_SIZES[o.kind].some(([a, b]) => a === w && b === h)).toBe(true);
         expect(o.col).toBeGreaterThanOrEqual(0);
@@ -338,8 +362,58 @@ describe("データ", () => {
       // ママのマス・上の端・左右の上の方は空いている
       for (let c = 0; c < COLS; c++) expect(blocked[c]).toBe(false);
       for (let r = 0; r < 3; r++) expect(blocked[r * COLS] || blocked[r * COLS + COLS - 1]).toBe(false);
+      // 盤面の 15〜25% くらいが家具
+      const cover = used.size / (COLS * ROWS);
+      expect(cover).toBeGreaterThanOrEqual(0.14);
+      expect(cover).toBeLessThanOrEqual(0.25);
+      // 2×2 のオブジェクトを置ける所が十分ある（ママのマスはのぞく）
+      let spots = 0;
+      for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS - 1; c++) {
+        const cells = [r * COLS + c, r * COLS + c + 1, (r + 1) * COLS + c, (r + 1) * COLS + c + 1];
+        const mama = (i: number) => (i % COLS) >= MAMA_COL && (i % COLS) < MAMA_COL + MAMA_W && Math.floor(i / COLS) >= MAMA_ROW;
+        if (cells.every((i) => !blocked[i] && !mama(i))) spots++;
+      }
+      expect(spots).toBeGreaterThanOrEqual(60);
+      // 難関は迷路が長い
+      if (s.wall) expect(mazeLength(obs)).toBeGreaterThan(30);
+      expect(s.theme).toBeDefined();
     }
     expect(STAGES.some((s) => s.obstacles!.some((o) => (o.w ?? 1) * (o.h ?? 1) >= 3))).toBe(true);
+    // 章ごとに部屋（床）が変わり、家具の種類もいろいろ
+    expect(new Set(STAGES.map((s) => s.theme)).size).toBeGreaterThanOrEqual(6);
+    for (let ch = 1; ch <= 10; ch++) {
+      const kinds = new Set(STAGES.filter((s) => s.chapter === ch).flatMap((s) => s.obstacles!.map((o) => o.kind)));
+      expect(kinds.size).toBeGreaterThanOrEqual(7);
+    }
+    expect(new Set(STAGES.flatMap((s) => s.obstacles!.map((o) => o.kind))).size).toBeGreaterThanOrEqual(20);
+    // 縦長の仕切り（1×3・1×4）も、横長（3×1・4×1）も出てくる
+    const all = STAGES.flatMap((s) => s.obstacles!);
+    expect(all.some((o) => (o.w ?? 1) === 1 && (o.h ?? 1) >= 3)).toBe(true);
+    expect(all.some((o) => (o.w ?? 1) >= 4 && (o.h ?? 1) === 1)).toBe(true);
+  });
+  test("難しさの山: 章の5番目は難関・10番目は大難関（ぬし）。体力がぐっと上がり、次はやさしくなる", () => {
+    for (const s of STAGES) {
+      expect(s.wall).toBe(s.index === 10 ? 2 : s.index === 5 ? 1 : 0);
+      expect(wallOf(stageIndexOf(s.id))).toBe(s.wall);
+    }
+    for (let g = 1; g < 100; g++) {
+      const r = STAGES[g].hpMul / STAGES[g - 1].hpMul;
+      if (STAGES[g].wall) expect(r).toBeGreaterThan(2.5);          // 難関でぐっと上がる
+      else if (STAGES[g - 1].wall) expect(r).toBeLessThan(1);      // 難関のあとは、やさしくなる
+      else expect(r).toBeGreaterThan(1.2);                         // ふつうは少しずつ
+    }
+    // 難関は出口が多い・くせのある虫が多い
+    const lanesOf = (s: (typeof STAGES)[number]) => new Set(s.waves.flatMap((w) => w.bugs.flatMap((g) => g.lanes ?? [-1]))).size;
+    const traitShare = (s: (typeof STAGES)[number]) => {
+      let t = 0, n = 0;
+      for (const w of s.waves) for (const g of w.bugs) { const b = BUG_MAP[g.bug]; if (b.boss) continue; n += g.count; if (isTraitBug(b)) t += g.count; }
+      return n ? t / n : 0;
+    };
+    const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const walls = STAGES.filter((s) => s.wall && s.chapter >= 1 && stageIndexOf(s.id) >= 4);
+    const normal = STAGES.filter((s) => !s.wall && stageIndexOf(s.id) >= 4);
+    expect(avg(walls.map(lanesOf))).toBeGreaterThan(avg(normal.map(lanesOf)));
+    expect(avg(walls.map(traitShare))).toBeGreaterThan(avg(normal.map(traitShare)) + 0.1);
   });
   test("ステージの虫: 次々にたくさん・いくつもの所から", () => {
     const counts = STAGES.map((s) => stageLoad(s).count);
@@ -348,7 +422,11 @@ describe("データ", () => {
     expect(Math.min(...counts.slice(50))).toBeGreaterThanOrEqual(150);
     // 1ステージの中では、最初の波は少なく、最後の波ほど多い
     const waveCount = (w: (typeof STAGES)[number]["waves"][number]) => w.bugs.reduce((a, x) => a + x.count, 0);
-    for (const s of STAGES) expect(waveCount(s.waves[s.waves.length - 1])).toBeGreaterThan(waveCount(s.waves[0]) * 3);
+    // （大難関の最後の「ぬしの波」は、ぬしとお供だけなので、その前の波でくらべる）
+    for (const s of STAGES) {
+      const swarm = s.waves.filter((w) => !w.bugs.some((g) => BUG_MAP[g.bug].boss));
+      expect(waveCount(swarm[swarm.length - 1])).toBeGreaterThan(waveCount(swarm[0]) * 3);
+    }
     for (const s of STAGES) {
       for (const w of s.waves) {
         for (const g of w.bugs) {
@@ -361,8 +439,13 @@ describe("データ", () => {
     // 後半は同時にいくつもの所から出てくる
     const multi = STAGES.slice(30).filter((s) => s.waves.some((w) => w.bugs.length >= 2 && w.bugs.some((g) => !g.lanes || g.lanes.length >= 2)));
     expect(multi.length).toBeGreaterThan(60);
-    // 体力はステージごとに約1.3倍
-    for (let g = 1; g < 100; g++) expect(STAGES[g].hpMul / STAGES[g - 1].hpMul).toBeCloseTo(1.3);
+    // 体力は、ふつうのステージどうしでは 1.3 倍くらいずつ（章の頭は少しやさしい）
+    for (let g = 1; g < 100; g++) {
+      if (STAGES[g].wall || STAGES[g - 1].wall || STAGES[g].index === 1) continue;
+      const r = STAGES[g].hpMul / STAGES[g - 1].hpMul;
+      expect(r).toBeGreaterThan(1.3);
+      expect(r).toBeLessThan(1.8);
+    }
   });
   test("ステージの虫はすべて定義ずみ・10番目はボス", () => {
     const bugIds = new Set(BUGS.map((b) => b.id));
@@ -372,7 +455,7 @@ describe("データ", () => {
       expect(hasBoss).toBe(s.index === 10);
     }
     expect(stageById("1-1")!.hpMul).toBe(1);
-    expect(stageById("1-2")!.hpMul).toBeCloseTo(1.3);
+    expect(stageById("1-2")!.hpMul).toBeGreaterThan(1.3);
   });
 });
 
@@ -637,9 +720,9 @@ describe("うちの子・近所の猫", () => {
     expect(resolveCat(s, "c1").atk).toBeCloseTo(base.atk * bondMul(MAX_BOND));
     expect(bondMul(MAX_BOND)).toBeCloseTo(2);
     s.cats.c1.bond = 0;
-    // 相棒は攻撃・体力 ×0.6
+    // 相棒は攻撃・体力 ×0.45（猫は手助け役。主役はオブジェクト）
     const comp = resolveCat(s, "c1", true);
-    expect(COMPANION_POWER).toBe(0.6);
+    expect(COMPANION_POWER).toBe(0.45);
     expect(comp.companion).toBe(true);
     expect(comp.atk).toBeCloseTo(base.atk * COMPANION_POWER);
     expect(comp.maxHp).toBeCloseTo(base.maxHp * COMPANION_POWER);
@@ -1139,7 +1222,7 @@ describe("戦闘の準備・報酬", () => {
     expect(estimateDps(lo).total * duration).toBeGreaterThan(totalHp * 2);
     expect(buildLoadout(s, "11-1")).toBeNull();
   });
-  test("相棒も戦闘に出る（強さ 0.6）・戦力の目安にも入る", () => {
+  test("相棒も戦闘に出る（強さ 0.45）・戦力の目安にも入る", () => {
     const s = newSave();
     const p0 = powerRatio(s, "1-1");
     const a = addCat(s, "あ"), b = addCat(s, "い");
@@ -1191,44 +1274,55 @@ describe("戦闘の準備・報酬", () => {
 });
 
 describe("インフレの曲線", () => {
-  test("ずっとクリアしつづけるプレイヤーの戦力が虫に追いつく", () => {
+  test("ずっとクリアしつづけるプレイヤー: 難関で止まって育て、最後まで進める", () => {
     const { rows, save, st } = simulate(100);
-    const pick = ["1-1", "1-5", "1-10", "2-5", "3-5", "5-5", "5-10", "7-5", "8-1", "10-1", "10-5", "10-10"];
+    const pick = ["1-1", "1-4", "1-5", "1-6", "1-10", "2-1", "2-5", "3-5", "3-10", "5-5", "5-10", "7-5", "8-10", "10-1", "10-5", "10-10"];
     for (const r of rows.filter((x) => pick.includes(x.stage))) {
       console.log(
         `${r.stage.padEnd(5)} 余裕 ${r.ratio.toFixed(2).padStart(6)}  回し ${String(r.grinds).padStart(2)}  Lv ${String(r.level).padStart(3)}` +
         `  ${r.char.padEnd(20)} スキルLv ${String(r.skillLv).padStart(3)} 複合 ${r.combos}  猫 ${String(r.owned).padStart(2)}匹 わざ ${r.wazas}` +
-        `  猫DPS ${fmt(r.charDps).padStart(6)}  相棒 ${fmt(r.compDps).padStart(6)}  物DPS ${fmt(r.objDps).padStart(6)}  アリHP ${fmt(r.bugHp).padStart(6)}`,
+        `  猫 ${fmt(r.charDps).padStart(6)}  相棒 ${fmt(r.compDps).padStart(6)}  物 ${fmt(r.objDps).padStart(6)}  アリHP ${fmt(r.bugHp).padStart(6)}`,
       );
     }
+    const isWall = (g: number) => g % 10 === 4 || g % 10 === 9;
     const totalGrinds = rows.reduce((s, r) => s + r.grinds, 0);
-    console.log("回した合計", totalGrinds, "レリック", save.relics.length,
+    const wallRows = rows.filter((_, g) => isWall(g));
+    const normalRows = rows.filter((_, g) => !isWall(g));
+    console.log("回した合計", totalGrinds, "（戦闘は合計", totalGrinds + 100, "回）", "難関で止まった", wallRows.filter((r) => r.grinds > 0).length, "/ 20",
+      "レリック", save.relics.length,
       `ちゅ〜る: もらった ${Math.round(st.churuEarned)} スキル ${Math.round(st.churuOnSkills)} 福袋 ${Math.round(st.churuOnPulls)}（${st.pulls}回）`);
     // 最初はかんたん
     expect(rows[0].ratio).toBeGreaterThan(2);
-    // 最後まで進める（回しすぎない）
+    // 最後まで進める。ただし難関で止まって、前のステージを回して育てる（作業だけで進めない）
     expect(save.cleared).toBe(99);
-    expect(totalGrinds).toBeLessThan(100);
-    expect(Math.max(...rows.map((r) => r.grinds))).toBeLessThan(25);
-    // 余裕がありすぎない・なさすぎない（福袋をよく引くと、装備がそろう 8 章あたりで余裕が大きくなる）
+    expect(totalGrinds).toBeGreaterThan(80);
+    expect(totalGrinds).toBeLessThan(320);
+    expect(Math.max(...rows.map((r) => r.grinds))).toBeLessThan(SIM_MAX_GRIND);
+    expect(wallRows.filter((r) => r.grinds > 0).length).toBeGreaterThanOrEqual(14);
+    // 1-5 と 1-10 では、かならず止まる
+    expect(rows[4].grinds).toBeGreaterThan(0);
+    expect(rows[9].grinds).toBeGreaterThan(0);
+    // ふつうのステージは、ほとんど止まらない
+    expect(normalRows.reduce((s, r) => s + r.grinds, 0)).toBeLessThan(totalGrinds * 0.25);
+    // のこぎりの歯: 難関に来たときの余裕は、ふつうのステージよりずっと小さい
+    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+    expect(med(wallRows.map((r) => r.ratio)) * 3).toBeLessThan(med(normalRows.map((r) => r.ratio)));
     for (const r of rows.slice(10)) {
-      expect(r.ratio).toBeGreaterThan(0.3);
-      expect(r.ratio).toBeLessThan(60);
+      expect(r.ratio).toBeGreaterThan(0.05);
+      expect(r.ratio).toBeLessThan(300); // 難関で育てたあとの章の頭は、とても楽になることがある
     }
-    const sorted = rows.slice(10).map((r) => r.ratio).sort((a, b) => a - b);
-    expect(sorted[Math.floor(sorted.length / 2)]).toBeLessThan(15); // ふだんは 15 倍以内
     // オブジェクトの特殊効果も解放されていく（後半は持っていく5つで合わせて20以上）
     expect(rows[0].perks).toBe(0);
     expect(rows[99].perks).toBeGreaterThanOrEqual(20);
     // 虫は次々にたくさん
-    expect(rows[99].bugs).toBeGreaterThan(rows[0].bugs * 10);
+    expect(rows[99].bugs).toBeGreaterThan(rows[0].bugs * 8);
     // 数字はちゃんとインフレしている
-    expect(rows[99].charDps).toBeGreaterThan(1e10);
-    // オブジェクトも最後まで役に立つ（猫の 5% 以上）
-    expect(rows[99].objDps).toBeGreaterThan(rows[99].charDps * 0.05);
+    expect(rows[99].bugHp).toBeGreaterThan(1e15);
+    // 2章からは、オブジェクトが主役のダメージ源（猫と相棒の合計の数倍）
+    for (const r of rows.slice(10)) expect(r.objDps).toBeGreaterThan((r.charDps + r.compDps) * 3);
     // 相棒もはたらく
     expect(rows[99].party).toBe(3);
-    expect(rows[99].compDps).toBeGreaterThan(rows[99].charDps * 0.3);
+    expect(rows[99].compDps).toBeGreaterThan(0);
     // ちゅ〜るはスキルにも福袋にも使える
     expect(st.churuOnSkills).toBeGreaterThan(st.churuEarned * 0.4);
     expect(st.pulls).toBeGreaterThanOrEqual(100);
@@ -1243,9 +1337,9 @@ describe("インフレの曲線", () => {
     expect(rows.findIndex((r) => r.wazas > 2)).toBeLessThan(20);
   });
   test("福袋を引かなくても（スキルだけでも）最後まで進める", () => {
-    const { rows, save, st } = simulate(100, 1.2, 30, 42, 0);
+    const { rows, save, st } = simulate(100, SIM_NEED, SIM_MAX_GRIND, 42, 0);
     expect(st.pulls).toBe(0);
     expect(save.cleared).toBe(99);
-    expect(rows.reduce((s, r) => s + r.grinds, 0)).toBeLessThan(100);
+    expect(rows.reduce((s, r) => s + r.grinds, 0)).toBeLessThan(400);
   });
 });

@@ -34,7 +34,7 @@ export const ROLE_BASE: Record<CharRole, CharShape> = {
 };
 
 /** 猫のレベルが1上がるごとに、基本の体力・攻撃に掛ける倍率（どの猫も同じ）。 */
-export const CHAR_GROWTH = { hp: 1.12, atk: 1.12 };
+export const CHAR_GROWTH = { hp: 1.12, atk: 1.085 };
 
 export type WazaSlot = "main" | "sub";
 
