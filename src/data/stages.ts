@@ -152,9 +152,9 @@ function pickLanes(rng: () => number, n: number): number[] {
 /** 1つの群れの数の目安（体力の高い虫は少なめ）。 */
 export const SWARM_BASE = 7;
 
-/** 虫の数の倍率。序盤は少なく、後半ほど一気に増える（1-1 で 0.45、10-10 で 1.8）。 */
-export function swarmMul(g: number): number {
-  return 0.45 + 1.35 * Math.pow(g / (CHAPTERS * STAGES_PER_CHAPTER - 1), 1.6);
+/** 1ステージの中での虫の数の伸び（最初の波は少なく、最後の波ほど多い）。p は 0〜1 の進み具合。 */
+export function waveRamp(p: number): number {
+  return 0.3 + 1.5 * Math.pow(p, 1.4);
 }
 
 function makeStage(g: number): StageDef {
@@ -170,14 +170,18 @@ function makeStage(g: number): StageDef {
   let t = 3;
   for (let w = 0; w < nWaves; w++) {
     const last = w === nWaves - 1;
-    const groups = g < 2 ? 1 : Math.min(3, 2 + Math.floor((w + g / 20) / 4));
+    const p = nWaves > 1 ? w / (nWaves - 1) : 1;
+    // 群れの数も、最初は1つから最後の波へ向けて増やす
+    const maxGroups = g < 2 ? 1 : Math.min(3, 2 + Math.floor(g / 40));
+    const groups = Math.max(1, Math.round(1 + (maxGroups - 1) * p));
     const bugs: WaveDef["bugs"] = [];
     for (let k = 0; k < groups; k++) {
       // 最初のステージはアリだけ。新しい虫は少しずつ混ぜる。
       const b = g === 0 ? pool[0] : (k === 0 && w === 1 ? newest : pick(rng, pool));
       const size = (g === 0 ? 6 : SWARM_BASE) + w * 1.5 + chapter * 1.8 + (g % 10) * 0.4;
-      const count = Math.max(3, Math.round(size * swarmMul(g) * Math.pow(2 / b.hp, 0.3)));
-      const every = Math.round(Math.max(0.25, 1.4 - g * 0.009 - w * 0.06) * 100) / 100;
+      const count = Math.max(3, Math.round(size * waveRamp(p) * Math.pow(2 / b.hp, 0.3)));
+      // 出てくる間かくも、最初はゆっくり・最後はびっしり
+      const every = Math.round(Math.max(0.25, (1.4 - g * 0.009) * (1.4 - 0.8 * p)) * 100) / 100;
       // はじめは1か所から。進むと、いくつもの所から同時に出てくる（lanes なしは、ばらばら）
       const nLanes = g < 3 ? 1 : Math.min(4, 1 + Math.floor(rng() * (2 + g / 30)));
       const lanes = rng() < 0.25 && g >= 10 ? undefined : pickLanes(rng, nLanes);
@@ -198,8 +202,7 @@ function makeStage(g: number): StageDef {
     chapter,
     index,
     name: boss ? `${CHAPTER_NAMES[chapter - 1]}のぬし` : `${CHAPTER_NAMES[chapter - 1]} ${index}`,
-    // 数が増えたぶん、1匹の体力を少し下げる（まとめて倒す気持ちよさを残す）
-    hpMul: Math.pow(HP_GROWTH, g) / Math.sqrt(Math.max(1, swarmMul(g))),
+    hpMul: Math.pow(HP_GROWTH, g),
     atkMul: Math.pow(ATK_GROWTH, g),
     waves,
     obstacles: makeObstacles(g, chapter, mulberry32(4242 + g * 131)),

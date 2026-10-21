@@ -222,12 +222,12 @@ describe("データ", () => {
   });
   test("ステージの虫: 次々にたくさん・いくつもの所から", () => {
     const counts = STAGES.map((s) => stageLoad(s).count);
-    // 序盤は少なく、後半ほど多い
-    expect(counts[0]).toBeGreaterThanOrEqual(10);
-    expect(counts[0]).toBeLessThanOrEqual(20);
-    expect(counts[99]).toBeGreaterThanOrEqual(1000);
+    expect(counts[0]).toBeGreaterThanOrEqual(20);
+    expect(counts[99]).toBeGreaterThanOrEqual(300);
     expect(Math.min(...counts.slice(50))).toBeGreaterThanOrEqual(150);
-    expect(counts[99]).toBeGreaterThan(counts[49] * 2.5);
+    // 1ステージの中では、最初の波は少なく、最後の波ほど多い
+    const waveCount = (w: (typeof STAGES)[number]["waves"][number]) => w.bugs.reduce((a, x) => a + x.count, 0);
+    for (const s of STAGES) expect(waveCount(s.waves[s.waves.length - 1])).toBeGreaterThan(waveCount(s.waves[0]) * 3);
     for (const s of STAGES) {
       for (const w of s.waves) {
         for (const g of w.bugs) {
@@ -240,8 +240,8 @@ describe("データ", () => {
     // 後半は同時にいくつもの所から出てくる
     const multi = STAGES.slice(30).filter((s) => s.waves.some((w) => w.bugs.length >= 2 && w.bugs.some((g) => !g.lanes || g.lanes.length >= 2)));
     expect(multi.length).toBeGreaterThan(60);
-    // 体力はステージごとに約1.3倍（後半は数が増えるぶん少しゆるい）
-    for (let g = 1; g < 100; g++) expect(STAGES[g].hpMul / STAGES[g - 1].hpMul).toBeCloseTo(1.3, 1);
+    // 体力はステージごとに約1.3倍
+    for (let g = 1; g < 100; g++) expect(STAGES[g].hpMul / STAGES[g - 1].hpMul).toBeCloseTo(1.3);
   });
   test("ステージの虫はすべて定義ずみ・10番目はボス", () => {
     const bugIds = new Set(BUGS.map((b) => b.id));
