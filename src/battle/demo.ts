@@ -1,5 +1,5 @@
 // 開発用: 手作りのデータで戦闘をすぐ試すための Loadout（本番では core の buildLoadout を使う）。
-import type { BugDef, CharRole, Loadout, ResolvedChar, ResolvedObject, StageDef } from "../core/types";
+import type { BugDef, CharRole, ComboId, Loadout, ResolvedChar, ResolvedObject, StageDef } from "../core/types";
 
 /** 特殊技能なしの値（ちょっとだけ入れておく）。 */
 const SPECIAL = {
@@ -8,10 +8,10 @@ const SPECIAL = {
 } satisfies Partial<ResolvedChar>;
 
 const CHARS: Record<CharRole, ResolvedChar> = {
-  melee: { id: "chatora", name: "ノルウェージャン", role: "melee", maxHp: 30, atk: 2, atkInterval: 0.8, range: 0.9, aoe: 0, moveSpeed: 2.5, restTime: 5, armor: 1, ...SPECIAL, knockback: 0.5 },
-  ranged: { id: "mike", name: "みけ", role: "ranged", maxHp: 18, atk: 1.5, atkInterval: 1.0, range: 3, aoe: 0, moveSpeed: 2.3, restTime: 5, armor: 1, ...SPECIAL, pierce: 1 },
-  fast: { id: "kuro", name: "くろ", role: "fast", maxHp: 20, atk: 1.3, atkInterval: 0.6, range: 0.9, aoe: 0, moveSpeed: 3.6, restTime: 4, armor: 1, ...SPECIAL, multiHit: 0.3, dodge: 0.15 },
-  aoe: { id: "shiro", name: "しろ", role: "aoe", maxHp: 22, atk: 1.2, atkInterval: 1.3, range: 1.2, aoe: 1.0, moveSpeed: 2.2, restTime: 5, armor: 1, ...SPECIAL, poison: 0.3 },
+  melee: { id: "c1", look: "chatora", companion: false, combos: { knockSlam: 1, lastStand: 0.5 }, name: "ノルウェージャン", role: "melee", maxHp: 30, atk: 2, atkInterval: 0.8, range: 0.9, aoe: 0, moveSpeed: 2.5, restTime: 5, armor: 1, ...SPECIAL, knockback: 0.5 },
+  ranged: { id: "c2", look: "mike", companion: false, combos: { pierceGrow: 0.3, critChain: 2 }, name: "みけ", role: "ranged", maxHp: 18, atk: 1.5, atkInterval: 1.0, range: 3, aoe: 0, moveSpeed: 2.3, restTime: 5, armor: 1, ...SPECIAL, pierce: 1 },
+  fast: { id: "c3", look: "kuro", companion: false, combos: { frenzy: 0.08, dodgeCounter: 2 }, name: "くろ", role: "fast", maxHp: 20, atk: 1.3, atkInterval: 0.6, range: 0.9, aoe: 0, moveSpeed: 3.6, restTime: 4, armor: 1, ...SPECIAL, multiHit: 0.3, dodge: 0.15 },
+  aoe: { id: "c4", look: "shiro", companion: false, combos: { shockwave: 0.4, poisonBurst: 1, zapVenom: 0.3 }, name: "しろ", role: "aoe", maxHp: 22, atk: 1.2, atkInterval: 1.3, range: 1.2, aoe: 1.0, moveSpeed: 2.2, restTime: 5, armor: 1, ...SPECIAL, poison: 0.3 },
 };
 
 function obj(o: Partial<ResolvedObject> & Pick<ResolvedObject, "id" | "name" | "kind">): ResolvedObject {
@@ -65,10 +65,21 @@ const STAGE: StageDef = {
   rewards: { exp: 10, coins: 10, relicPoints: 1, churu: 1, equipDrops: 0, objectDrops: 1 },
 };
 
-/** 開発用の Loadout。role で猫を選べる。 */
+/** 相棒の強さ（core の COMPANION_POWER と同じ）。 */
+const COMPANION_POWER = 0.6;
+
+/** 相棒にする（攻撃・体力に COMPANION_POWER を掛ける）。 */
+function asCompanion(c: ResolvedChar): ResolvedChar {
+  return { ...c, companion: true, combos: { ...c.combos, partyLink: 0.2 } as Partial<Record<ComboId, number>>, atk: c.atk * COMPANION_POWER, maxHp: c.maxHp * COMPANION_POWER };
+}
+
+/** 開発用の Loadout。role で主人公を選べる。相棒は残りの役割から2匹。 */
 export function demoLoadout(role: CharRole = "melee"): Loadout {
+  const main = CHARS[role] ?? CHARS.melee;
+  const others = (["ranged", "aoe", "fast", "melee"] as CharRole[]).filter((r) => r !== main.role).slice(0, 2);
   return {
-    char: { ...(CHARS[role] ?? CHARS.melee) },
+    char: { ...main, combos: { ...main.combos } },
+    companions: others.map((r) => asCompanion(CHARS[r])),
     objects: OBJECTS.map((o) => ({ ...o })),
     stage: { ...STAGE, waves: STAGE.waves.map((w) => ({ ...w, bugs: w.bugs.map((b) => ({ ...b })) })) },
     bugs: { ...BUGS },

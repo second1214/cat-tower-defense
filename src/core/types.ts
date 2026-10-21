@@ -9,14 +9,49 @@
 export const COLS = 14;
 export const ROWS = 18;
 
-/** 猫の戦い方の個性。 */
+/** 猫の戦い方の個性（メインの「わざ」で決まる。猫そのものには無い）。 */
 export type CharRole = "melee" | "ranged" | "aoe" | "fast";
+
+/** レアリティ（わざ・装備に付く。猫そのものには付けない）。 */
+export type Rarity = "N" | "R" | "SR" | "SSR" | "UR";
+
+/** 猫の性格（強い・弱いの差はなく、得意・不得意が入れかわるだけ）。 */
+export type Personality = "yancha" | "nonbiri" | "amaenbo" | "kuishinbo" | "kokishin" | "maipace";
+
+/**
+ * 複合効果（スキルツリーの特別なノード・わざで手に入る）。値 v の意味は下のとおり。0 / 無しなら効果なし。
+ * 戦闘（battle/engine.ts）がこの意味どおりに動かす。
+ */
+export type ComboId =
+  | "poisonBurst"   // 毒がかかった虫が倒れると、半径1.2マスに 攻撃力×v の爆発
+  | "critChain"     // 会心が出ると、近く（2マス）の虫へ電撃が v 回とぶ（1回 攻撃力×0.5）
+  | "knockSlam"     // 押しもどした虫が、かべ・家具・オブジェクト・ほかの虫にぶつかると 攻撃力×v
+  | "frenzy"        // 虫を倒すたび攻撃の速さ +v（4秒、最大10重ね）
+  | "lastStand"     // 体力30%以下のとき、攻撃 +v（1 で2倍）
+  | "wakeUp"        // 休けいから戻ったあと v 秒、無敵＋攻撃の速さ2倍
+  | "slowShatter"   // 遅くなっている虫へのダメージ +v
+  | "pierceGrow"    // 弾が1匹つらぬくたび、その弾のダメージ +v
+  | "multiEcho"     // 連続攻撃の最後の一撃が、半径 v マスの範囲攻撃になる
+  | "kibbleFever"   // カリカリが入るたび攻撃 +v（3秒、最大10重ね）
+  | "partyLink"     // ほかの猫（相棒・主人公）と2マス以内なら、攻撃と攻撃の速さ +v
+  | "bossHunter"    // ボスへのダメージ +v
+  | "venomCrit"     // 毒がかかった虫への会心率 +v
+  | "shockwave"     // 範囲攻撃で、当てた虫を v マス押しもどし、2秒 0.7倍の速さにする
+  | "mamaGuard"     // ママから3マス以内で、攻撃 +v・受けるダメージ ×(1 - v/2)
+  | "dodgeCounter"  // よけたとき、まわり1マスの虫へ 攻撃力×v の反撃
+  | "zapVenom"      // 猫の電撃（critChain）と範囲攻撃が、当てた虫に毒（攻撃力×v/秒・3秒）をのせる
+  | "objectSync"    // 猫が攻撃するたび、2マス以内のオブジェクトの次の発動を v 秒早める
+  | "killHeal"      // 虫を倒すたび、最大体力の v 回復
+  | "overkill";     // 倒したときの余ったダメージ ×v を、いちばん近い虫へ
 
 /** 戦闘で使う、計算ずみの猫の強さ（成長・スキル・装備・レリックをすべて掛けたあと）。 */
 export interface ResolvedChar {
-  id: string;
+  id: string;           // 猫の uid（セーブの cats のキー）
   name: string;
-  role: CharRole;
+  look: string;         // 見た目（絵の id。例 "chatora"。sprites の id はこれを使う）
+  role: CharRole;       // メインのわざで決まる
+  companion: boolean;   // 相棒として出るとき true（AI で動く）
+  combos: Partial<Record<ComboId, number>>;  // 複合効果（ComboId の説明どおり）
   maxHp: number;
   atk: number;          // 1回の攻撃のダメージ
   atkInterval: number;  // 攻撃の間隔（秒）
@@ -141,7 +176,8 @@ export interface StageRewards {
 
 /** 戦闘を始めるのに必要なもの。 */
 export interface Loadout {
-  char: ResolvedChar;
+  char: ResolvedChar;          // 主人公（スティックで動かす）
+  companions: ResolvedChar[];  // 相棒（0〜2匹。AI で動いて戦う）
   objects: ResolvedObject[];   // 持っていくオブジェクト（最大5）
   stage: StageDef;
   bugs: Record<string, BugDef>;

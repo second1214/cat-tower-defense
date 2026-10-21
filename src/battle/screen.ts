@@ -137,6 +137,19 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const kibbleBox = el("div", "bt-kibble", row1);
   paintIcon(iconCanvas("bt-kibble-icon", kibbleBox, 26), getSprite("pickup", "kibble"));
   const kibbleNum = el("span", "bt-kibble-num", kibbleBox, "0");
+  // 猫たち（相棒がいるときだけ）: 小さな顔＋体力のバー（休けい中はうすく）
+  const party: { box: HTMLElement; icon: HTMLCanvasElement; fill: HTMLElement; last: { hp: number; rest: boolean } }[] = [];
+  if (battle.cats.length > 1) {
+    const partyBox = el("div", "bt-party", row1);
+    for (const c of battle.cats) {
+      const box = el("div", `bt-pcat${c.companion ? " mate" : ""}`, partyBox);
+      box.title = c.char.name;
+      const icon = iconCanvas("bt-pcat-icon", box, 22);
+      paintIcon(icon, getSprite("cat", c.char.look, { role: c.char.role }));
+      const bar = el("div", "bt-pcat-bar", box);
+      party.push({ box, icon, fill: el("div", "bt-pcat-fill", bar), last: { hp: -1, rest: false } });
+    }
+  }
   const modeText = el("div", "bt-mode", row1, "");
 
   const cardsBox = el("div", "bt-cards", bottom);
@@ -645,7 +658,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     overlay.classList.add("result");
     const card = el("div", `bt-dialog ${res.win ? "win" : "lose"}`, overlay);
     const pic = iconCanvas("bt-result-pic", card, 96);
-    paintIcon(pic, res.win ? (getCatPose(loadout.char.id, "win") ?? getSprite("cat", loadout.char.id, { role: loadout.char.role })) : getSprite("mama", "scared"));
+    const look = loadout.char.look || loadout.char.id;
+    paintIcon(pic, res.win ? (getCatPose(look, "win") ?? getSprite("cat", look, { role: loadout.char.role })) : getSprite("mama", "scared"));
     el("div", "bt-dialog-title", card, res.win ? "ママを守った！" : "ママがにげちゃった…");
     const stats = el("div", "bt-stats", card);
     const row = (k: string, v: string) => {
@@ -754,6 +768,13 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     const v = spriteVersion();
     const repaint = v !== iconVersion;
     iconVersion = v;
+    party.forEach((p, i) => {
+      const c = battle.cats[i];
+      if (repaint) paintIcon(p.icon, getSprite("cat", c.char.look, { role: c.char.role }));
+      const hp = Math.round((100 * c.hp) / Math.max(1e-9, c.maxHp));
+      if (hp !== p.last.hp) { p.last.hp = hp; p.fill.style.width = `${hp}%`; }
+      if (c.resting !== p.last.rest) { p.last.rest = c.resting; p.box.classList.toggle("rest", c.resting); }
+    });
     cards.forEach((c, i) => {
       const o = loadout.objects[i];
       if (repaint) paintIcon(c.icon, getSprite("object", o.id, { kind: o.kind }));

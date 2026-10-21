@@ -47,12 +47,30 @@
 //   イベントに "push" | "zap" | "splash" | "poisonCloud" | "poisonSpread" を追加。
 // - events の中身（イベントの入れ物）は使い回すので、次の step() のあとまで持っておかないこと（必要ならコピーする）。
 //   step() の外（place・upgrade）で起きたイベントは、次の step() の events にも残る。
+//
+// v4（相棒・複合効果）:
+// - 猫は cats 配列（[0] = 主人公、[1]〜 = 相棒。Loadout.companions の順）。cat は cats[0] と同じ（互換のため残す）。
+//   どの猫も同じ攻撃のしくみ（役割・特殊技能・複合効果）で戦い、HP 0 で休けい・restTime で復活する。虫はどの猫にもかじりつく。
+// - 相棒は AI で動く: ふだんは主人公のまわりの決まった位置（COMPANION_SLOTS）へついていき、
+//   主人公から COMPANION_LEASH マス以内の虫がいれば、いちばん近い虫へ向かって自分の役割で攻撃する。
+//   主人公から COMPANION_FOLLOW マスより離れたら、少し急いで戻る。
+// - 複合効果（ResolvedChar.combos。意味は core/types.ts の ComboId）はすべての猫に効く。
+//   「攻撃 +v」は足し算でまとめる（攻撃力 × (1 + lastStand + kibbleFever×重ね + partyLink + mamaGuard)）。
+//   「攻撃の速さ」は間隔を (1 + frenzy×重ね + partyLink) で割る（wakeUp 中はさらに半分）。
+//   slowShatter・bossHunter は、その猫が与えるすべてのダメージ（毒・爆発・電撃も）に掛ける。
+//   「範囲攻撃」は、猫の範囲の当たり（aoe の猫・aoe > 0・弾の splash・multiEcho）。shockwave と zapVenom が効く。
+//   「虫を倒すたび」（frenzy・killHeal・overkill）は、その猫の攻撃（猫の毒・爆発・電撃・反撃・overkill も含む）で倒したとき。
+//   kibbleFever は、だれが倒しても（producer でも）カリカリが入るたび。
+//   poisonBurst は、毒がかかった虫が（だれに倒されても）倒れたとき、poisonBurst を持つ猫のうち いちばん強い猫が爆発させる。
+//   爆発・overkill はつながる（倒れた虫がさらに爆発する）ので、順番待ちの列（fxQ）で1つずつ処理する。
+// - objectAura・kibbleBonus は、いちばん大きい猫の値を使う（足し算はしない）。
 
 import { COLS, ROWS } from "../core/types";
 import type {
   BattleInput,
   BattleResult,
   BugDef,
+  ComboId,
   Loadout,
   ResolvedChar,
   ResolvedObject,
@@ -90,6 +108,33 @@ const MAX_FLOATS = 90;
 const MAX_EVENTS = 2500;              // 1 回の step で出すイベントの上限（"hit" などの細かいものから捨てる）
 const EVENT_POOL = 8192;
 const SQRT2 = Math.SQRT2;
+
+// ---- 相棒・複合効果 ----
+/** 相棒が主人公からこれより離れたら、急いで戻る（マス）。 */
+export const COMPANION_FOLLOW = 2.5;
+/** 相棒が攻撃しに行く虫は、主人公からこのマス以内。 */
+export const COMPANION_LEASH = 3.5;
+/** 相棒が狙う虫を選びなおす間隔（秒）。 */
+const COMPANION_RETARGET = 0.25;
+/** 相棒の決まった位置（主人公からのずれ。マス）。 */
+export const COMPANION_SLOTS: readonly [number, number][] = [[-1.0, 0.7], [1.0, 0.7], [0, 1.2], [-1.6, -0.3], [1.6, -0.3]];
+const CATCH_UP = 1.3;                 // 離れすぎたときの速さの倍率
+export const LAST_STAND_HP = 0.3;
+export const FRENZY_TIME = 4;
+export const FRENZY_MAX = 10;
+export const FEVER_TIME = 3;
+export const FEVER_MAX = 10;
+export const PARTY_LINK_R = 2;
+export const MAMA_GUARD_R = 3;
+export const BURST_RADIUS = 1.2;
+export const CRIT_CHAIN_R = 2;
+export const CRIT_CHAIN_MUL = 0.5;
+export const SHOCK_SLOW = 0.7;
+export const COUNTER_R = 1;
+export const SYNC_R = 2;
+const SLAM_BUMP_R = 0.5;              // 押しもどした虫が、ほかの虫にぶつかったとみなす距離
+const OVERKILL_RANGE = 6;             // 余ったダメージが飛ぶ距離
+const MAX_CHAIN = 800;                // 1回の連鎖（爆発・overkill）の上限
 
 // ---- 描画に渡す状態の型 ----
 
@@ -135,6 +180,8 @@ export interface BugState {
   knock: number;
   /** 内部用（電撃がもう当たったかの印）。 */
   mark: number;
+  /** 毒をかけた猫（cats の添字。オブジェクトの毒・毒なしは -1）。 */
+  poisonSrc: number;
 }
 
 export interface ObjState {
@@ -157,6 +204,9 @@ export interface ObjState {
 }
 
 export interface CatState {
+  index: number;       // cats の添字（0 = 主人公）
+  char: ResolvedChar;  // この猫の強さ（絵は char.look）
+  companion: boolean;  // 相棒（AI で動く）か
   x: number;
   y: number;
   hp: number;
@@ -168,6 +218,26 @@ export interface CatState {
   facingY: number;
   attackAnim: number;  // 攻撃してからの残り表示時間
   hurt: number;
+  moving: boolean;     // 直前のコマで動いたか（描画用）
+  /** 複合効果の状態（描画にも使う）。 */
+  frenzy: number;      // frenzy の重ね（0〜FRENZY_MAX）
+  frenzyTimer: number;
+  fever: number;       // kibbleFever の重ね（0〜FEVER_MAX）
+  feverTimer: number;
+  wakeUp: number;      // wakeUp の残り秒数（無敵＋攻撃の速さ2倍）
+  linked: boolean;     // partyLink が効いている（ほかの猫が近い）
+  guarded: boolean;    // ママの近く（mamaGuard が効く位置）
+  desperate: boolean;  // 体力が LAST_STAND_HP 以下（lastStand が効く）
+}
+
+/** 猫ごとの内部の状態（描画には出さない）。 */
+interface CatRt {
+  pend: number[];      // 連続攻撃の残り待ち時間
+  pendLast: boolean[]; // その一撃が連続攻撃の最後か（multiEcho）
+  target: BugState | null; // 相棒が狙っている虫
+  retarget: number;
+  slotX: number;
+  slotY: number;
 }
 
 export interface Projectile {
@@ -190,6 +260,10 @@ export interface Projectile {
   kind: string;        // 撃ったもの（"cat" または ObjectKind）
   /** 撃ったオブジェクト（猫の弾は null）。 */
   src: ObjState | null;
+  /** 撃った猫（オブジェクトの弾は null）。 */
+  owner: CatState | null;
+  /** 1匹つらぬくたびに増えるダメージ（pierceGrow）。 */
+  grow: number;
   alive: boolean;
 }
 
@@ -230,6 +304,15 @@ export type BattleEventType =
   | "upgrade"      // オブジェクトを強化した（value = 新しいレベル）
   | "produce"      // producer がカリカリを生んだ（value = 量）
   | "mamaHit"      // 虫がママに着いた（value = 減った HP）
+  // v4: 複合効果（猫の電撃 critChain は "zap" を使う）
+  | "poisonBurst"  // 毒の虫が倒れて爆発（value = 半径）
+  | "slam"         // 押しもどした虫が、かべ・虫にぶつかった（knockSlam）
+  | "shockwave"    // 範囲攻撃の衝撃波（value = 半径）
+  | "counter"      // よけて反撃（value = 半径。x, y は猫）
+  | "echo"         // 連続攻撃の最後の一撃が範囲攻撃に（value = 半径）
+  | "overkill"     // 余ったダメージが次の虫へ（x, y → x2, y2）
+  | "wakeUp"       // 休けいから戻って、無敵＋速い（value = 秒数。x, y は猫）
+  | "objectSync"   // 猫の攻撃で、近くのオブジェクトの次の発動が早まった（x, y はオブジェクトの中心）
   | "win"
   | "lose";
 
@@ -259,7 +342,10 @@ export interface BattleState {
   mamaHp: number;
   mamaMaxHp: number;
   kills: number;
+  /** 主人公（= cats[0]）。 */
   cat: CatState;
+  /** 戦っている猫すべて（[0] = 主人公、[1]〜 = 相棒）。 */
+  cats: CatState[];
   bugs: BugState[];
   objects: ObjState[];
   projectiles: Projectile[];
@@ -347,7 +433,16 @@ export class Battle {
   private readonly anyTopNeeded: boolean;  // lanes 無しの虫がいる（一番上のどこか1つは空ける）
   private readonly sideSpawns: boolean;
   private flowVer = 0;
-  private pendingHits: number[] = [];      // 連続攻撃の残り待ち時間
+  private readonly rt: CatRt[] = [];       // 猫ごとの内部の状態（cats と同じ順）
+  private readonly kibbleBonus: number;    // いちばん大きい猫の kibbleBonus
+  private readonly burstCat: CatState | null; // poisonBurst で爆発させる猫
+  private readonly feverCats: CatState[];  // kibbleFever を持つ猫
+  private curCat: CatState | null = null;  // いま攻撃している猫（倒したのがだれかを数える）
+  private readonly fxQ: number[] = [];     // 連鎖の順番待ち（種類, x, y, ダメージ, 猫の添字 の5つずつ）
+  private draining = false;
+  private aiX = 0;                         // 相棒の AI が決めた動き
+  private aiY = 0;
+  private aiMul = 1;
   private nextUid = 1;
   private markId = 1;
   // spatial hash
@@ -376,18 +471,18 @@ export class Battle {
       }
     }
     const st = loadout.stage;
-    const c = loadout.char;
-    this.s = {
-      time: 0,
-      kibble: st.startKibble + loadout.global.startKibbleAdd,
-      mamaHp: loadout.global.mamaHp,
-      mamaMaxHp: loadout.global.mamaHp,
-      kills: 0,
-      cat: {
-        x: GOAL_X,
-        y: GOAL_ROW - 0.6,
-        hp: c.maxHp,
-        maxHp: c.maxHp,
+    const chars = [loadout.char, ...(loadout.companions ?? [])];
+    const cats: CatState[] = chars.map((ch, i) => {
+      const slot = i === 0 ? [0, 0] : COMPANION_SLOTS[(i - 1) % COMPANION_SLOTS.length];
+      this.rt.push({ pend: [], pendLast: [], target: null, retarget: 0, slotX: slot[0], slotY: slot[1] });
+      return {
+        index: i,
+        char: ch,
+        companion: i > 0,
+        x: clamp(GOAL_X + slot[0], CAT_MARGIN, COLS - CAT_MARGIN),
+        y: clamp(GOAL_ROW - 0.6 + slot[1], CAT_MARGIN, ROWS - CAT_MARGIN),
+        hp: ch.maxHp,
+        maxHp: ch.maxHp,
         resting: false,
         restTimer: 0,
         atkTimer: 0,
@@ -395,7 +490,30 @@ export class Battle {
         facingY: -1,
         attackAnim: 0,
         hurt: 0,
-      },
+        moving: false,
+        frenzy: 0,
+        frenzyTimer: 0,
+        fever: 0,
+        feverTimer: 0,
+        wakeUp: 0,
+        linked: false,
+        guarded: false,
+        desperate: false,
+      };
+    });
+    this.kibbleBonus = Math.max(0, ...chars.map((ch) => ch.kibbleBonus || 0));
+    let burst: CatState | null = null;
+    for (const c of cats) if (combo(c, "poisonBurst") > 0 && (!burst || c.char.atk * combo(c, "poisonBurst") > burst.char.atk * combo(burst, "poisonBurst"))) burst = c;
+    this.burstCat = burst;
+    this.feverCats = cats.filter((c) => combo(c, "kibbleFever") > 0);
+    this.s = {
+      time: 0,
+      kibble: st.startKibble + loadout.global.startKibbleAdd,
+      mamaHp: loadout.global.mamaHp,
+      mamaMaxHp: loadout.global.mamaHp,
+      kills: 0,
+      cat: cats[0],
+      cats,
       bugs: [],
       objects: [],
       projectiles: [],
@@ -436,6 +554,8 @@ export class Battle {
   get mamaMaxHp(): number { return this.s.mamaMaxHp; }
   get kills(): number { return this.s.kills; }
   get cat(): Readonly<CatState> { return this.s.cat; }
+  /** 戦っている猫すべて（[0] = 主人公、[1]〜 = 相棒）。 */
+  get cats(): readonly Readonly<CatState>[] { return this.s.cats; }
   get bugs(): readonly BugState[] { return this.s.bugs; }
   get objects(): readonly ObjState[] { return this.s.objects; }
   get projectiles(): readonly Projectile[] { return this.s.projectiles; }
@@ -550,10 +670,20 @@ export class Battle {
 
   /** objectAura が効いているか（猫が近くにいる）。 */
   auraActive(o: ObjState): boolean {
-    const ch = this.loadout.char;
-    const c = this.s.cat;
-    if (!(ch.objectAura > 0) || c.resting) return false;
-    return Math.hypot(c.x - o.cx, c.y - o.cy) <= AURA_RADIUS + Math.max(o.w, o.h) / 2 - 0.5;
+    return this.auraBonus(o) > 0;
+  }
+
+  /** オブジェクトにかかる objectAura（近くにいる猫のうち、いちばん大きい値）。 */
+  auraBonus(o: ObjState): number {
+    let best = 0;
+    const cats = this.s.cats;
+    for (let i = 0; i < cats.length; i++) {
+      const c = cats[i];
+      const a = c.char.objectAura || 0;
+      if (!(a > best) || c.resting) continue;
+      if (Math.hypot(c.x - o.cx, c.y - o.cy) <= AURA_RADIUS + Math.max(o.w, o.h) / 2 - 0.5) best = a;
+    }
+    return best;
   }
 
   /**
@@ -698,7 +828,7 @@ export class Battle {
         return;
       }
       if (input.place !== null && input.place !== undefined) {
-        const c = s.cat;
+        const c = s.cats[0];
         const a = this.anchorAt(input.place, c.x, c.y);
         this.place(input.place, a.col, a.row);
       }
@@ -724,7 +854,7 @@ export class Battle {
 
     this.updateSpawns();
     this.buildHash();
-    this.updateCat(h, input);
+    this.updateCats(h, input);
     this.updateObjects(h);
     this.updateProjectiles(h);
     this.updateBugs(h);
@@ -921,6 +1051,7 @@ export class Battle {
       knockY: 0,
       knock: 0,
       mark: 0,
+      poisonSrc: -1,
     };
     this.s.bugs.push(b);
     this.emit("spawn", b.x, b.y, 0);
@@ -994,13 +1125,103 @@ export class Battle {
   }
 
   // ---- 猫 ----
-  private updateCat(h: number, input: BattleInput): void {
-    const c = this.s.cat;
-    const ch = this.loadout.char;
+  private updateCats(h: number, input: BattleInput): void {
+    const cats = this.s.cats;
+    // 複合効果の状態（重ねの時間・ママの近く・体力が少ない・ほかの猫が近い）
+    for (let i = 0; i < cats.length; i++) {
+      const c = cats[i];
+      if (c.frenzyTimer > 0) { c.frenzyTimer -= h; if (c.frenzyTimer <= 0) { c.frenzyTimer = 0; c.frenzy = 0; } }
+      if (c.feverTimer > 0) { c.feverTimer -= h; if (c.feverTimer <= 0) { c.feverTimer = 0; c.fever = 0; } }
+      if (c.wakeUp > 0) c.wakeUp = Math.max(0, c.wakeUp - h);
+      c.desperate = !c.resting && c.hp <= c.maxHp * LAST_STAND_HP;
+      const gx = c.x - GOAL_X, gy = c.y - GOAL_Y;
+      c.guarded = !c.resting && gx * gx + gy * gy <= MAMA_GUARD_R * MAMA_GUARD_R;
+      c.linked = false;
+    }
+    for (let i = 0; i < cats.length; i++) {
+      const a = cats[i];
+      if (a.resting) continue;
+      for (let j = i + 1; j < cats.length; j++) {
+        const b = cats[j];
+        if (b.resting) continue;
+        const dx = a.x - b.x, dy = a.y - b.y;
+        if (dx * dx + dy * dy <= PARTY_LINK_R * PARTY_LINK_R) { a.linked = true; b.linked = true; }
+      }
+    }
+    for (let i = 0; i < cats.length; i++) {
+      const c = cats[i];
+      if (i === 0) {
+        this.aiX = input.move.x || 0;
+        this.aiY = input.move.y || 0;
+        this.aiMul = 1;
+      } else if (!c.resting) {
+        this.companionSteer(c, this.rt[i], h);
+      }
+      this.updateCat(c, this.rt[i], h);
+    }
+  }
+
+  /** 相棒の動き（aiX・aiY・aiMul に入れる）。近くの虫へ向かうか、主人公についていく。 */
+  private companionSteer(c: CatState, rt: CatRt, h: number): void {
+    const p = this.s.cats[0];
+    const ch = c.char;
+    rt.retarget -= h;
+    let t = rt.target;
+    if (t) {
+      const dx = t.x - p.x, dy = t.y - p.y;
+      if (!t.alive || dx * dx + dy * dy > COMPANION_LEASH * COMPANION_LEASH) t = null;
+    }
+    if (!t || rt.retarget <= 0) {
+      rt.retarget = COMPANION_RETARGET;
+      t = this.companionTarget(c, p);
+    }
+    rt.target = t;
+    let tx: number, ty: number, stop: number;
+    if (t) {
+      tx = t.x; ty = t.y;
+      stop = Math.max(0.2, ch.range * 0.75);
+    } else {
+      tx = clamp(p.x + rt.slotX, CAT_MARGIN, COLS - CAT_MARGIN);
+      ty = clamp(p.y + rt.slotY, CAT_MARGIN, ROWS - CAT_MARGIN);
+      stop = 0.12;
+    }
+    const dx = tx - c.x, dy = ty - c.y;
+    const d = Math.hypot(dx, dy);
+    const px = c.x - p.x, py = c.y - p.y;
+    this.aiMul = px * px + py * py > COMPANION_FOLLOW * COMPANION_FOLLOW && !t ? CATCH_UP : 1;
+    if (d <= stop) { this.aiX = 0; this.aiY = 0; return; }
+    // 行きすぎないように（1コマで進める分より近ければ、ゆっくり）
+    const k = Math.min(1, (d - stop) / Math.max(1e-6, ch.moveSpeed * this.aiMul * h));
+    this.aiX = (dx / d) * k;
+    this.aiY = (dy / d) * k;
+  }
+
+  /** 主人公から COMPANION_LEASH 以内の虫のうち、相棒にいちばん近い虫。 */
+  private companionTarget(c: CatState, p: CatState): BugState | null {
+    const start = this.qtop;
+    const n = this.queryBugs(p.x, p.y, COMPANION_LEASH);
+    let best: BugState | null = null, bd = Infinity;
+    for (let k = start; k < start + n; k++) {
+      const b = this.s.bugs[this.qbuf[k]];
+      if (b.y < 0) continue;
+      const dx = b.x - c.x, dy = b.y - c.y;
+      const d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = b; }
+    }
+    this.qtop = start;
+    return best;
+  }
+
+  /** 1匹の猫を進める（移動は aiX・aiY・aiMul。主人公はスティックの入力）。 */
+  private updateCat(c: CatState, rt: CatRt, h: number): void {
+    const ch = c.char;
     if (c.hurt > 0) c.hurt -= h;
     if (c.attackAnim > 0) c.attackAnim -= h;
+    c.moving = false;
     if (c.resting) {
-      this.pendingHits.length = 0;
+      rt.pend.length = 0;
+      rt.pendLast.length = 0;
+      rt.target = null;
       c.restTimer -= h;
       if (c.restTimer <= 0) {
         c.resting = false;
@@ -1008,19 +1229,25 @@ export class Battle {
         c.hp = c.maxHp * clamp(ch.reviveHp || 0, 0.5, 1);
         c.atkTimer = 0;
         this.emit("catUp", c.x, c.y, 0);
+        const wu = combo(c, "wakeUp");
+        if (wu > 0) {
+          c.wakeUp = wu;
+          this.emit("wakeUp", c.x, c.y, wu);
+        }
       }
       return;
     }
     // 自動回復
     if (ch.regen > 0 && c.hp < c.maxHp) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * ch.regen * h);
     // 移動
-    let mx = input.move.x || 0;
-    let my = input.move.y || 0;
+    let mx = this.aiX;
+    let my = this.aiY;
     const len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
-    if (len > 0.01) { c.facingX = mx; c.facingY = my; }
-    c.x = clamp(c.x + mx * ch.moveSpeed * h, CAT_MARGIN, COLS - CAT_MARGIN);
-    c.y = clamp(c.y + my * ch.moveSpeed * h, CAT_MARGIN, ROWS - CAT_MARGIN);
+    if (len > 0.01) { c.facingX = mx; c.facingY = my; c.moving = true; }
+    const sp = ch.moveSpeed * this.aiMul * h;
+    c.x = clamp(c.x + mx * sp, CAT_MARGIN, COLS - CAT_MARGIN);
+    c.y = clamp(c.y + my * sp, CAT_MARGIN, ROWS - CAT_MARGIN);
 
     // 修理
     if (ch.repair > 0) {
@@ -1029,15 +1256,17 @@ export class Battle {
     }
 
     // 連続攻撃の残り
-    if (this.pendingHits.length > 0) {
+    const pend = rt.pend, pl = rt.pendLast;
+    if (pend.length > 0) {
       let w = 0;
-      for (let i = 0; i < this.pendingHits.length; i++) {
-        const t = this.pendingHits[i] - h;
-        if (t > 0) { this.pendingHits[w++] = t; continue; }
+      for (let i = 0; i < pend.length; i++) {
+        const t = pend[i] - h;
+        if (t > 0) { pend[w] = t; pl[w] = pl[i]; w++; continue; }
         const tg = this.nearestBug(c.x, c.y, ch.range);
-        if (tg) { c.attackAnim = 0.15; this.catStrike(ch, tg); }
+        if (tg && !c.resting) { c.attackAnim = 0.15; this.catStrike(c, tg, pl[i]); }
       }
-      this.pendingHits.length = w;
+      pend.length = w;
+      pl.length = w;
     }
 
     // 攻撃
@@ -1045,76 +1274,265 @@ export class Battle {
     if (c.atkTimer <= 0) {
       const t = this.nearestBug(c.x, c.y, ch.range);
       if (t) {
-        c.atkTimer = ch.atkInterval;
+        c.atkTimer = ch.atkInterval / this.catSpeed(c);
         c.attackAnim = 0.15;
         const dx = t.x - c.x, dy = t.y - c.y;
         const d = Math.hypot(dx, dy) || 1;
         c.facingX = dx / d; c.facingY = dy / d;
-        this.emit("catAttack", c.x, c.y, 0);
-        this.catStrike(ch, t);
+        this.emit("catAttack", c.x, c.y, c.index);
+        this.objectSync(c);
         // 連続攻撃（端数は確率で）
         const mh = Math.max(0, ch.multiHit || 0);
         const extra = Math.floor(mh) + (this.rng() < mh % 1 ? 1 : 0);
-        for (let k = 1; k <= extra; k++) this.pendingHits.push(MULTI_HIT_GAP * k);
+        for (let k = 1; k <= extra; k++) { pend.push(MULTI_HIT_GAP * k); pl.push(k === extra); }
+        this.catStrike(c, t, false);
       } else {
         c.atkTimer = 0;
       }
     }
   }
 
-  private catStrike(ch: ResolvedChar, t: BugState): void {
-    const c = this.s.cat;
-    const crit = ch.crit > 0 && this.rng() < ch.crit;
-    const dmg = ch.atk * (crit ? Math.max(1, ch.critMul || 1) : 1);
-    if (ch.role === "ranged") {
-      this.addProjectile(c.x, c.y, 0, 0, t, dmg, ch.aoe, ch.range + 3, null, "cat", crit, Math.max(0, Math.floor(ch.pierce || 0)));
-    } else if (ch.role === "aoe") {
-      const r = ch.aoe > 0 ? ch.aoe : 1;
-      this.catHitArea(t.x, t.y, r, dmg, crit);
-      this.emit("aoe", t.x, t.y, r);
-    } else if (ch.aoe > 0) {
-      this.catHitArea(t.x, t.y, ch.aoe, dmg, crit);
-    } else {
-      this.catHit(t, dmg, crit);
-    }
+  /** 今の攻撃力（lastStand・kibbleFever・partyLink・mamaGuard の上乗せつき）。 */
+  catPower(c: Readonly<CatState>): number {
+    let bonus = 0;
+    if (c.desperate) bonus += combo(c, "lastStand");
+    if (c.fever > 0) bonus += c.fever * combo(c, "kibbleFever");
+    if (c.linked) bonus += combo(c, "partyLink");
+    if (c.guarded) bonus += combo(c, "mamaGuard");
+    return c.char.atk * (1 + bonus);
   }
 
-  private catHitArea(x: number, y: number, r: number, dmg: number, crit: boolean): void {
+  /** 攻撃の速さの倍率（frenzy・partyLink・wakeUp）。間隔をこれで割る。 */
+  catSpeed(c: Readonly<CatState>): number {
+    let m = 1 + c.frenzy * combo(c, "frenzy") + (c.linked ? combo(c, "partyLink") : 0);
+    if (c.wakeUp > 0) m *= 2;
+    return m > 0.05 ? m : 0.05;
+  }
+
+  /** 相手の虫による倍率（slowShatter・bossHunter）。 */
+  private vsMul(c: CatState, b: BugState): number {
+    let m = 1;
+    if (b.slowMul < 1) m *= 1 + combo(c, "slowShatter");
+    if (b.def.boss) m *= 1 + combo(c, "bossHunter");
+    return m;
+  }
+
+  /** 1回の攻撃（echo: 連続攻撃の最後の一撃で、multiEcho の範囲攻撃になる）。 */
+  private catStrike(c: CatState, t: BugState, echo: boolean): void {
+    const ch = c.char;
+    const prev = this.curCat;
+    this.curCat = c;
+    let rate = ch.crit || 0;
+    if (t.poisonDps > 0) rate += combo(c, "venomCrit");
+    const crit = rate > 0 && this.rng() < rate;
+    const base = this.catPower(c);
+    const dmg = base * (crit ? Math.max(1, ch.critMul || 1) : 1);
+    const echoR = echo ? combo(c, "multiEcho") : 0;
+    const tx = t.x, ty = t.y;
+    if (ch.role === "ranged") {
+      const pg = combo(c, "pierceGrow");
+      this.addProjectile(c.x, c.y, 0, 0, t, dmg, Math.max(ch.aoe || 0, echoR), ch.range + 3, null, "cat", crit,
+        Math.max(0, Math.floor(ch.pierce || 0)), c, pg > 0 ? dmg * pg : 0);
+    } else if (ch.role === "aoe") {
+      const r = Math.max(ch.aoe > 0 ? ch.aoe : 1, echoR);
+      this.catHitArea(c, tx, ty, r, dmg, crit);
+      this.emit("aoe", tx, ty, r);
+    } else if (ch.aoe > 0 || echoR > 0) {
+      this.catHitArea(c, tx, ty, Math.max(ch.aoe || 0, echoR), dmg, crit);
+    } else {
+      this.catHit(c, t, dmg, crit, false);
+    }
+    if (echoR > 0 && ch.role !== "ranged") this.emit("echo", tx, ty, echoR);
+    if (crit && ch.role !== "ranged") this.critChain(c, tx, ty, t);
+    this.curCat = prev;
+  }
+
+  /** 猫の範囲攻撃（shockwave・zapVenom が効く）。 */
+  private catHitArea(c: CatState, x: number, y: number, r: number, dmg: number, crit: boolean): void {
     const start = this.qtop;
     const n = this.queryBugs(x, y, r);
-    for (let k = start; k < start + n; k++) this.catHit(this.s.bugs[this.qbuf[k]], dmg, crit);
+    for (let k = start; k < start + n; k++) this.catHit(c, this.s.bugs[this.qbuf[k]], dmg, crit, true);
     this.qtop = start;
+    if (combo(c, "shockwave") > 0) this.emit("shockwave", x, y, r);
   }
 
-  /** 猫の攻撃が虫に当たった（会心・吸血・毒・減速・押し戻し）。 */
-  private catHit(b: BugState, dmg: number, crit: boolean): void {
+  /** 猫の攻撃が虫に当たった（会心・吸血・毒・減速・押し戻し・複合効果）。 */
+  private catHit(c: CatState, b: BugState, dmg: number, crit: boolean, area: boolean): void {
     if (!b.alive) return;
-    const ch = this.loadout.char;
-    const dealt = this.damageBug(b, dmg, crit ? "crit" : "bug");
-    const c = this.s.cat;
+    const ch = c.char;
+    const prev = this.curCat;
+    this.curCat = c;
+    const dealt = this.damageBug(b, dmg * this.vsMul(c, b), crit ? "crit" : "bug");
     if (ch.lifesteal > 0 && dealt > 0 && !c.resting && c.hp < c.maxHp) {
       const heal = Math.min(c.maxHp - c.hp, dealt * ch.lifesteal);
       c.hp += heal;
       if (heal >= c.maxHp * 0.02) this.addFloat(heal, c.x, c.y - 0.5, "heal");
     }
-    if (!b.alive) return;
-    if (ch.poison > 0) this.applyPoison(b, ch.atk * ch.poison, 0);
-    if (ch.slowHit > 0 && ch.slowHit < 1) {
-      b.slowMul = Math.min(b.slowMul, ch.slowHit);
-      b.slowTimer = SLOW_TIME;
+    if (b.alive) {
+      if (ch.poison > 0) this.applyPoison(b, this.catPower(c) * ch.poison, 0, c.index);
+      const zv = area ? combo(c, "zapVenom") : 0;
+      if (zv > 0) this.applyPoison(b, this.catPower(c) * zv, 0, c.index);
+      if (ch.slowHit > 0 && ch.slowHit < 1) {
+        b.slowMul = Math.min(b.slowMul, ch.slowHit);
+        b.slowTimer = Math.max(b.slowTimer, SLOW_TIME);
+      }
+      let kb = ch.knockback || 0;
+      const sw = area ? combo(c, "shockwave") : 0;
+      if (sw > 0) {
+        kb += sw;
+        b.slowMul = Math.min(b.slowMul, SHOCK_SLOW);
+        b.slowTimer = Math.max(b.slowTimer, SLOW_TIME);
+      }
+      if (kb > 0) this.catKnock(c, b, kb * (b.def.boss ? 0.5 : 1));
     }
-    if (ch.knockback > 0) this.knockBack(b, ch.knockback * (b.def.boss ? 0.5 : 1));
+    this.curCat = prev;
   }
 
-  private damageCat(dmg: number): void {
-    const c = this.s.cat;
-    if (c.resting) return;
-    const ch = this.loadout.char;
+  /** 猫が虫を押し戻す（knockSlam: かべ・家具・オブジェクト・ほかの虫にぶつかるとダメージ）。 */
+  private catKnock(c: CatState, b: BugState, amount: number): void {
+    const left = this.knockBack(b, amount);
+    const slam = combo(c, "knockSlam");
+    if (!(slam > 0) || !b.alive || left < 0 || !this.inStep) return;
+    const mark = this.markId++;
+    b.mark = mark;
+    const other = this.nearestBug(b.x, b.y, SLAM_BUMP_R, mark);
+    if (left <= 0.05 && !other) return;
+    const d = this.catPower(c) * slam;
+    this.emit("slam", b.x, b.y, other ? 1 : 0);
+    this.damageBug(b, d * this.vsMul(c, b), "crit");
+    if (other) this.damageBug(other, d * this.vsMul(c, other), "bug");
+  }
+
+  /** critChain: 会心が出たとき、近くの虫へ電撃が v 回とぶ（zapVenom なら毒も）。 */
+  private critChain(c: CatState, x: number, y: number, first: BugState | null): void {
+    const v = combo(c, "critChain");
+    if (!(v > 0) || !this.inStep) return;
+    const n = Math.floor(v) + (this.rng() < v % 1 ? 1 : 0);
+    if (n <= 0) return;
+    const mark = this.markId++;
+    if (first) first.mark = mark;
+    const dmg = this.catPower(c) * CRIT_CHAIN_MUL;
+    const venom = combo(c, "zapVenom");
+    let px = x, py = y;
+    for (let k = 0; k < n; k++) {
+      const t = this.nearestBug(px, py, CRIT_CHAIN_R, mark);
+      if (!t) break;
+      t.mark = mark;
+      const bx = t.x, by = t.y;
+      this.emit("zap", px, py, k, bx, by);
+      this.damageBug(t, dmg * this.vsMul(c, t), "bug");
+      if (venom > 0 && t.alive) this.applyPoison(t, this.catPower(c) * venom, 0, c.index);
+      px = bx; py = by;
+    }
+  }
+
+  /** objectSync: 猫が攻撃するたび、近くのオブジェクトの次の発動を v 秒早める。 */
+  private objectSync(c: CatState): void {
+    const v = combo(c, "objectSync");
+    if (!(v > 0)) return;
+    const objs = this.s.objects;
+    for (let i = 0; i < objs.length; i++) {
+      const o = objs[i];
+      if (o.hp <= 0 || o.def.kind === "wall" || o.def.kind === "mine") continue;
+      if (Math.hypot(c.x - o.cx, c.y - o.cy) > SYNC_R + Math.max(o.w, o.h) / 2 - 0.5) continue;
+      const before = o.timer;
+      o.timer += v;
+      if (before < o.def.interval) this.emit("objectSync", o.cx, o.cy, v);
+    }
+  }
+
+  /** 猫が虫を倒した（frenzy・killHeal・overkill）。 */
+  private onCatKill(c: CatState, b: BugState, overflow: number): void {
+    const fr = combo(c, "frenzy");
+    if (fr > 0) {
+      c.frenzy = Math.min(FRENZY_MAX, c.frenzy + 1);
+      c.frenzyTimer = FRENZY_TIME;
+    }
+    const kh = combo(c, "killHeal");
+    if (kh > 0 && !c.resting && c.hp < c.maxHp) {
+      const heal = Math.min(c.maxHp - c.hp, c.maxHp * kh);
+      c.hp += heal;
+      if (heal >= c.maxHp * 0.05) this.addFloat(heal, c.x, c.y - 0.5, "heal");
+    }
+    const ok = combo(c, "overkill");
+    if (ok > 0 && overflow > 0) this.fxQ.push(1, b.x, b.y, overflow * ok, c.index);
+  }
+
+  /** カリカリが入った（kibbleFever）。 */
+  private onKibble(): void {
+    const fc = this.feverCats;
+    for (let i = 0; i < fc.length; i++) {
+      const c = fc[i];
+      if (c.resting) continue;
+      c.fever = Math.min(FEVER_MAX, c.fever + 1);
+      c.feverTimer = FEVER_TIME;
+    }
+  }
+
+  /** 連鎖（毒の爆発・overkill）を順番に処理する。処理中に増えた分も続けて処理する。 */
+  private drainFx(): void {
+    if (this.draining) return;
+    const q = this.fxQ;
+    if (!this.inStep) { q.length = 0; return; }
+    this.draining = true;
+    const prev = this.curCat;
+    const cats = this.s.cats;
+    let count = 0;
+    for (let i = 0; i < q.length && count < MAX_CHAIN; i += 5, count++) {
+      const kind = q[i], x = q[i + 1], y = q[i + 2], dmg = q[i + 3];
+      const c = cats[q[i + 4]];
+      this.curCat = c;
+      if (kind === 0) {
+        // 毒の爆発
+        this.emit("poisonBurst", x, y, BURST_RADIUS);
+        const start = this.qtop;
+        const n = this.queryBugs(x, y, BURST_RADIUS);
+        for (let k = start; k < start + n; k++) {
+          const b = this.s.bugs[this.qbuf[k]];
+          this.damageBug(b, dmg * this.vsMul(c, b), "bug");
+        }
+        this.qtop = start;
+      } else {
+        // 余ったダメージを、いちばん近い虫へ
+        const t = this.nearestBug(x, y, OVERKILL_RANGE);
+        if (t) {
+          this.emit("overkill", x, y, dmg, t.x, t.y);
+          this.damageBug(t, dmg, "crit");
+        }
+      }
+    }
+    q.length = 0;
+    this.curCat = prev;
+    this.draining = false;
+  }
+
+  private damageCat(c: CatState, dmg: number): void {
+    if (c.resting || c.wakeUp > 0) return;
+    const ch = c.char;
     if (ch.dodge > 0 && this.rng() < ch.dodge) {
       this.emit("dodge", c.x, c.y, 0);
+      const dc = combo(c, "dodgeCounter");
+      if (dc > 0 && this.inStep) {
+        const prev = this.curCat;
+        this.curCat = c;
+        const d = this.catPower(c) * dc;
+        this.emit("counter", c.x, c.y, COUNTER_R);
+        const start = this.qtop;
+        const n = this.queryBugs(c.x, c.y, COUNTER_R);
+        for (let k = start; k < start + n; k++) {
+          const b = this.s.bugs[this.qbuf[k]];
+          this.damageBug(b, d * this.vsMul(c, b), "crit");
+        }
+        this.qtop = start;
+        this.curCat = prev;
+      }
       return;
     }
-    const v = dmg * ch.armor;
+    let v = dmg * ch.armor;
+    if (c.guarded) {
+      const mg = combo(c, "mamaGuard");
+      if (mg > 0) v *= Math.max(0, 1 - mg / 2);
+    }
     c.hp -= v;
     c.hurt = 0.15;
     this.addFloat(v, c.x, c.y - 0.3, "cat");
@@ -1123,13 +1541,15 @@ export class Battle {
       c.hp = 0;
       c.resting = true;
       c.restTimer = ch.restTime;
+      c.desperate = false;
+      c.linked = false;
       this.emit("catDown", c.x, c.y, 0);
     }
   }
 
   // ---- オブジェクト ----
   private objAtk(o: ObjState): number {
-    return this.auraActive(o) ? o.atk * (1 + this.loadout.char.objectAura) : o.atk;
+    return o.atk * (1 + this.auraBonus(o));
   }
 
   /** 会心の判定（当たるたびに）。 */
@@ -1164,9 +1584,10 @@ export class Battle {
   }
 
   /** 毒をかける（強い方の毒が残る。時間は戻る）。 */
-  private applyPoison(b: BugState, dps: number, spread: number): void {
+  private applyPoison(b: BugState, dps: number, spread: number, src = -1): void {
     if (!b.alive || !(dps > 0)) return;
     const active = b.poisonTimer > 0;
+    if (!active || dps >= b.poisonDps) b.poisonSrc = src;
     b.poisonDps = Math.max(active ? b.poisonDps : 0, dps);
     b.poisonSpread = Math.max(active ? b.poisonSpread : 0, spread);
     b.poisonTimer = POISON_TIME;
@@ -1215,6 +1636,7 @@ export class Battle {
               this.s.kibble += v;
               this.emit("produce", cx, cy, v);
               this.emit("kibble", cx, cy, v);
+              this.onKibble();
             }
           }
           break;
@@ -1371,12 +1793,12 @@ export class Battle {
 
   // ---- 弾 ----
   private addProjectile(x: number, y: number, vx: number, vy: number, target: BugState | null, dmg: number, splash: number,
-    maxDist: number, src: ObjState | null, kind: string, crit: boolean, pierce: number): void {
+    maxDist: number, src: ObjState | null, kind: string, crit: boolean, pierce: number, owner: CatState | null = null, grow = 0): void {
     let p = this.projPool.pop();
     if (!p) {
       p = {
         uid: 0, x: 0, y: 0, vx: 0, vy: 0, dmg: 0, splash: 0, target: null, targetUid: -1, maxDist: 0, traveled: 0,
-        fromCat: false, crit: false, pierce: 0, hitUids: [], kind: "", src: null, alive: true,
+        fromCat: false, crit: false, pierce: 0, hitUids: [], kind: "", src: null, owner: null, grow: 0, alive: true,
       };
     }
     p.uid = this.nextUid++;
@@ -1387,7 +1809,7 @@ export class Battle {
     p.fromCat = src === null && kind === "cat";
     p.crit = crit; p.pierce = pierce;
     p.hitUids.length = 0;
-    p.kind = kind; p.src = src; p.alive = true;
+    p.kind = kind; p.src = src; p.owner = owner; p.grow = grow; p.alive = true;
     this.s.projectiles.push(p);
   }
 
@@ -1449,12 +1871,18 @@ export class Battle {
     p.hitUids.push(t.uid);
     const tx = t.x, ty = t.y;
     if (p.fromCat || !p.src) {
+      const c = p.owner ?? this.s.cats[0];
+      const prev = this.curCat;
+      this.curCat = c;
       if (p.splash > 0) {
-        this.catHitArea(tx, ty, p.splash, p.dmg, p.crit);
+        this.catHitArea(c, tx, ty, p.splash, p.dmg, p.crit);
         this.emit("aoe", tx, ty, p.splash);
       } else {
-        this.catHit(t, p.dmg, p.crit);
+        this.catHit(c, t, p.dmg, p.crit, false);
       }
+      if (p.crit && p.hitUids.length === 1) this.critChain(c, tx, ty, t);
+      this.curCat = prev;
+      if (p.pierce > 0 && p.grow > 0) p.dmg += p.grow;
     } else {
       const o = p.src;
       const base = p.crit ? p.dmg / this.critMul(o.def) : p.dmg;
@@ -1474,7 +1902,7 @@ export class Battle {
   // ---- 虫 ----
   private updateBugs(h: number): void {
     const s = this.s;
-    const c = s.cat;
+    const cats = s.cats;
     const bugs = s.bugs;
     for (let bi = 0; bi < bugs.length; bi++) {
       const b = bugs[bi];
@@ -1488,24 +1916,36 @@ export class Battle {
       if (b.poisonTimer > 0) {
         b.poisonTimer -= h;
         b.poisonTick += h;
-        while (b.poisonTick >= POISON_TICK - 1e-9 && b.alive) {
-          b.poisonTick -= POISON_TICK;
-          this.damageBug(b, b.poisonDps * POISON_TICK, "poison");
+        if (b.poisonTick >= POISON_TICK - 1e-9) {
+          // 猫の毒は、その猫が倒したことにする（slowShatter・bossHunter も効く）
+          const pc = b.poisonSrc >= 0 ? s.cats[b.poisonSrc] ?? null : null;
+          const mul = pc ? this.vsMul(pc, b) : 1;
+          this.curCat = pc;
+          while (b.poisonTick >= POISON_TICK - 1e-9 && b.alive) {
+            b.poisonTick -= POISON_TICK;
+            this.damageBug(b, b.poisonDps * POISON_TICK * mul, "poison");
+          }
+          this.curCat = null;
         }
-        if (b.alive && b.poisonTimer <= 0) { b.poisonTimer = 0; b.poisonDps = 0; b.poisonTick = 0; b.poisonSpread = 0; }
+        if (b.alive && b.poisonTimer <= 0) { b.poisonTimer = 0; b.poisonDps = 0; b.poisonTick = 0; b.poisonSpread = 0; b.poisonSrc = -1; }
         if (!b.alive) continue;
       }
-      if (!c.resting) {
+      // 触れている猫（主人公・相棒のどれか）をかじる
+      let bit: CatState | null = null;
+      for (let ci = 0; ci < cats.length; ci++) {
+        const c = cats[ci];
+        if (c.resting) continue;
         const dx = c.x - b.x, dy = c.y - b.y;
-        if (dx * dx + dy * dy < CAT_TOUCH * CAT_TOUCH) {
-          if (b.mode !== "bite") { b.mode = "bite"; b.atkTimer = 0; }
-          b.atkTimer += h;
-          if (b.atkTimer >= b.def.atkInterval) {
-            b.atkTimer -= b.def.atkInterval;
-            this.damageCat(b.atk);
-          }
-          continue;
+        if (dx * dx + dy * dy < CAT_TOUCH * CAT_TOUCH) { bit = c; break; }
+      }
+      if (bit) {
+        if (b.mode !== "bite") { b.mode = "bite"; b.atkTimer = 0; }
+        b.atkTimer += h;
+        if (b.atkTimer >= b.def.atkInterval) {
+          b.atkTimer -= b.def.atkInterval;
+          this.damageCat(bit, b.atk);
         }
+        continue;
       }
       b.mode = "walk";
       this.moveGround(b, b.speed * b.slowMul * h);
@@ -1550,9 +1990,9 @@ export class Battle {
     this.emit("mamaHit", GOAL_X, GOAL_Y - 0.5, dmg);
   }
 
-  /** 虫を amount マスぶん押し戻す（道を逆に）。 */
-  private knockBack(b: BugState, amount: number): void {
-    if (!(amount > 0) || b.y < 0) return;
+  /** 虫を amount マスぶん押し戻す（道を逆に）。押し戻せなかった残り（かべ・家具などに当たった）を返す。押し戻さなかったときは -1。 */
+  private knockBack(b: BugState, amount: number): number {
+    if (!(amount > 0) || b.y < 0) return -1;
     const x0 = b.x, y0 = b.y;
     let amt = amount;
     let sx = b.stepX, sy = b.stepY;
@@ -1575,11 +2015,13 @@ export class Battle {
       b.knockX = x0 - b.x; b.knockY = y0 - b.y; b.knock = KNOCK_TIME;
       this.emit("knockback", b.x, b.y, Math.hypot(b.knockX, b.knockY));
     }
+    return amt;
   }
 
   /** 虫にダメージ。実際に減った HP を返す。倒したらカリカリがすぐ手に入る。毒で倒れたら、まわりに毒がうつる。 */
   private damageBug(b: BugState, dmg: number, kind: FloatKind): number {
     if (!b.alive || !(dmg > 0)) return 0;
+    const before = b.hp;
     const dealt = Math.min(dmg, b.hp);
     b.hp -= dmg;
     b.hurt = 0.12;
@@ -1590,14 +2032,20 @@ export class Battle {
       b.hp = 0;
       this.s.kills++;
       this.waveAlive[b.wave]--;
-      const drop = b.def.drop * this.loadout.global.kibbleMul * (1 + (this.loadout.char.kibbleBonus || 0));
+      const drop = b.def.drop * this.loadout.global.kibbleMul * (1 + this.kibbleBonus);
       const kx = clamp(b.x, 0.2, COLS - 0.2), ky = clamp(b.y, 0.2, ROWS - 0.2);
       if (drop > 0) {
         this.s.kibble += drop;
         this.emit("kibble", kx, ky, drop);
+        if (this.feverCats.length > 0) this.onKibble();
       }
       this.emit("kill", kx, ky, 0);
+      const c = this.curCat;
+      if (c) this.onCatKill(c, b, dmg - before);
+      const bc = this.burstCat;
+      if (bc && b.poisonDps > 0) this.fxQ.push(0, b.x, b.y, this.catPower(bc) * combo(bc, "poisonBurst"), bc.index);
       if (b.poisonTimer > 0 && b.poisonSpread > 0 && b.poisonDps > 0) this.spreadPoison(b);
+      if (this.fxQ.length > 0) this.drainFx();
     }
     return dealt;
   }
@@ -1647,7 +2095,8 @@ export class Battle {
 
   private emit(type: BattleEventType, x: number, y: number, value: number, x2 = 0, y2 = 0): void {
     const ev = this.s.events;
-    if (ev.length >= MAX_EVENTS && (type === "hit" || type === "spawn" || type === "kibble" || type === "kill" || type === "shoot" || type === "knockback")) return;
+    if (ev.length >= MAX_EVENTS && (type === "hit" || type === "spawn" || type === "kibble" || type === "kill" || type === "shoot" || type === "knockback"
+      || type === "objectSync" || type === "slam" || type === "overkill" || type === "zap")) return;
     let e = this.evPool[this.evCursor];
     if (!e) { e = { type, x, y, value, x2, y2 }; this.evPool[this.evCursor] = e; }
     this.evCursor = (this.evCursor + 1) % EVENT_POOL;
@@ -1667,7 +2116,7 @@ export class Battle {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
       if (p.alive) ps[w++] = p;
-      else { p.target = null; p.src = null; this.projPool.push(p); }
+      else { p.target = null; p.src = null; p.owner = null; this.projPool.push(p); }
     }
     ps.length = w;
     const os = s.objects;
@@ -1698,6 +2147,12 @@ export class Battle {
     s.result = { win: true, stageId: this.loadout.stage.id, kills: s.kills, time: s.time, wavesCleared: s.waveTotal };
     this.emit("win", COLS / 2, ROWS / 2, 0);
   }
+}
+
+/** 猫の複合効果の値（無ければ 0）。 */
+function combo(c: Readonly<CatState>, id: ComboId): number {
+  const v = c.char.combos?.[id];
+  return v !== undefined && v > 0 ? v : 0;
 }
 
 /** 盤面の座標 → spatial hash の入れ物の番号。 */
