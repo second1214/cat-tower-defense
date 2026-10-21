@@ -250,7 +250,6 @@ export const ICONS = {
     <rect x="25" y="22" width="14" height="24" rx="4" fill="#fff6ea"/>
     <g fill="#ff5c9a"><ellipse cx="32" cy="38" rx="4" ry="3.4"/><circle cx="27.4" cy="32.6" r="1.8"/><circle cx="30.6" cy="30.6" r="1.8"/><circle cx="33.8" cy="30.6" r="1.8"/><circle cx="36.8" cy="32.6" r="1.8"/></g>
     <path d="M26 52 h12" stroke="#fff" stroke-width="3" opacity=".7"/></g>`),
-  tent: S(`<path d="M4 54 L32 10 L60 54 Z" fill="#fff3dc" stroke="#5a2d00" stroke-width="4"/><path d="M32 10 L18 54 M32 10 L46 54" stroke="#ff6b6b" stroke-width="7"/><path d="M4 54 L32 10 L60 54 Z" stroke="#5a2d00" stroke-width="4"/><path d="M26 54 L32 38 L38 54 Z" fill="#6b3f2a"/><path d="M32 10 V3 L42 6 L32 9" fill="#ffd23f" stroke="#5a2d00" stroke-width="2.5"/>`),
   heart: S(`<path d="M32 56 L10 34 Q2 22 12 12 Q24 4 32 18 Q40 4 52 12 Q62 22 54 34 Z" fill="currentColor"/>`),
   wind: S(`<path d="M6 22 H40 Q52 22 50 12 Q46 4 38 10 M6 34 H52 Q62 34 60 44 Q56 52 48 46 M6 46 H30" stroke="currentColor" stroke-width="7"/>`),
   crown: S(`<path d="M6 50 L10 18 L22 32 L32 10 L42 32 L54 18 L58 50 Z" fill="currentColor"/><rect x="6" y="50" width="52" height="6" rx="2" fill="currentColor"/>`),
@@ -272,35 +271,6 @@ const BRANCH_ICON: Record<SkillBranch, string> = {
 
 export function branchSvg(b: SkillBranch): string {
   return BRANCH_ICON[b] ?? ICONS.crown;
-}
-
-// ---------------- 譲渡会会場 ----------------
-
-/** キャリーケース（段ボールのお迎え箱）。open なら、ふたが開いている。 */
-export function carrierSvg(open: boolean): string {
-  if (open) {
-    return S(`<path d="M6 30 L16 22 L22 36 Z M58 30 L48 22 L42 36 Z" fill="#e2b06c" stroke="${OUT}" stroke-width="2.5"/>
-      <path d="M8 34 H56 L52 60 H12 Z" fill="#c98b4e" stroke="${OUT}" stroke-width="2.5"/>
-      <path d="M8 34 H56" stroke="#8a5a2a" stroke-width="3"/>
-      <ellipse cx="32" cy="48" rx="7" ry="3.5" fill="#8a5a2a" opacity=".7"/>
-      <g fill="#fff3dc" opacity=".85"><ellipse cx="32" cy="50" rx="3" ry="2.4"/><circle cx="27.5" cy="46" r="1.4"/><circle cx="30.5" cy="44.6" r="1.4"/><circle cx="33.5" cy="44.6" r="1.4"/><circle cx="36.5" cy="46" r="1.4"/></g>`);
-  }
-  return S(`<path d="M8 22 L32 14 L56 22 L56 54 L32 60 L8 54 Z" fill="#d6a463" stroke="${OUT}" stroke-width="2.5"/>
-    <path d="M8 22 L32 30 L56 22 M32 30 V60" stroke="${OUT}" stroke-width="2.5"/>
-    <path d="M20 18 L44 26" stroke="#f3d39a" stroke-width="4"/>
-    <rect x="15" y="34" width="12" height="5" rx="2.5" fill="#5a3a1e"/>
-    <path d="M38 40 q3 -2 6 0 M37 44 h8" stroke="#8a5a2a" stroke-width="2"/>
-    <g fill="#ff7eb6"><ellipse cx="44" cy="49" rx="3.4" ry="2.8"/><circle cx="39.6" cy="45" r="1.5"/><circle cx="42.6" cy="43.4" r="1.5"/><circle cx="45.8" cy="43.4" r="1.5"/><circle cx="48.6" cy="45" r="1.5"/></g>`);
-}
-
-/** 譲渡会のテント。 */
-export function tentSvg(): string {
-  return S(`<path d="M8 120 L100 30 L192 120 Z" fill="#fff3dc" stroke="${OUT}" stroke-width="4"/>
-    <path d="M100 30 L40 120 M100 30 L70 120 M100 30 L130 120 M100 30 L160 120" stroke="#ff8a7a" stroke-width="12"/>
-    <path d="M8 120 L100 30 L192 120 Z" stroke="${OUT}" stroke-width="4"/>
-    <path d="M100 30 V8" stroke="${OUT}" stroke-width="4"/><path d="M100 8 L122 14 L100 20 Z" fill="#ffd23f" stroke="${OUT}" stroke-width="3"/>
-    <path d="M14 120 Q34 136 54 120 Q74 136 94 120 Q114 136 134 120 Q154 136 174 120 Q184 128 192 120" fill="#ff6b6b" stroke="${OUT}" stroke-width="3"/>
-    <path d="M78 140 L100 96 L122 140 Z" fill="#6b3f2a" stroke="${OUT}" stroke-width="3"/>`, "0 0 200 150");
 }
 
 // ---------------- v4: ねこ福袋・わざ・複合効果 ----------------

@@ -8,9 +8,9 @@ import {
 } from "../core/progress";
 import { fmt } from "../core/num";
 import type { BattleResult, Loadout } from "../core/types";
-import { CHAR_MAP, MAX_BOND } from "../data/chars";
+import { MAX_BOND } from "../data/chars";
 import { OBJECT_MAP } from "../data/objects";
-import { type Ctx, type GachaSub, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
+import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, bagSvg, objectSvg } from "./icons";
 import { catIcon, loadCatSprites } from "./cafe";
@@ -82,7 +82,7 @@ export function createApp(root: HTMLElement): AppHandle {
   root.appendChild(app);
 
   const modals = new Modals(layer);
-  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all", gachaSub: "bag", skillRole: null };
+  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all", skillRole: null };
   // 開発用: ?tab=gacha|grow|main|relic で最初のタブ
   if (typeof location !== "undefined") {
     const t = new URLSearchParams(location.search).get("tab");
@@ -110,11 +110,10 @@ export function createApp(root: HTMLElement): AppHandle {
     modals,
     toast,
     confirm,
-    goTab(tab: Tab, sub?: GrowSub | GachaSub) {
+    goTab(tab: Tab, sub?: GrowSub) {
       modals.closeAll();
       ui.tab = tab;
-      if (sub === "bag" || sub === "adopt") ui.gachaSub = sub;
-      else if (sub) ui.growSub = sub;
+      if (sub) ui.growSub = sub;
       ui.fuseMode = false;
       ui.fuseSel = [];
       render();
@@ -327,11 +326,6 @@ export function createApp(root: HTMLElement): AppHandle {
           h("div", { class: "rwp-churu-note" },
             h("span", null, res.firstClear ? "クリア（はじめて ×2）" : "クリア", h("b", null, ` +${fmt(res.churu)}`)),
             res.churuFromLevels > 0 ? h("span", null, "レベルアップ", h("b", null, ` +${fmt(res.churuFromLevels)}`)) : null),
-          res.newNeighbors.length ? h("div", { class: "rwp-sec rwp-nb" },
-            h("div", { class: "rwp-nb-t" }, svgIcon(ICONS.tent, "rwp-nb-ico"), "近所の猫が譲渡会に来たよ！"),
-            h("div", { class: "rwp-nb-cats" }, res.newNeighbors.map((id) => h("div", { class: "rwp-nb-cat" },
-              catIcon(id, "rwp-nb-cat-ico"), h("span", null, CHAR_MAP[id]?.name ?? id)))),
-            h("div", { class: "muted small" }, "福袋タブの「譲渡会」で、無料でお迎えできます")) : null,
           ups.length ? h("div", { class: "rwp-sec" },
             h("div", { class: "panel-title" }, "レベルアップ"),
             h("div", { class: "rwp-ups" }, ups.map(([uid, n]) => {
@@ -360,11 +354,7 @@ export function createApp(root: HTMLElement): AppHandle {
             h("div", { class: "rwp-cards" },
               res.newObjects.map((id) => h("div", { class: `card new-card r-${OBJECT_MAP[id]?.rarity ?? "N"}` }, svgIcon(objectSvg(id, OBJECT_MAP[id]?.kind), "card-ico"), h("span", { class: "card-name small" }, OBJECT_MAP[id]?.name ?? id))))) : null);
       },
-      footer: () => res.newNeighbors.length
-        ? h("div", { class: "foot-row" },
-          h("button", { class: "btn btn-gray", onclick: () => m.close() }, "やったね！"),
-          h("button", { class: "btn btn-green", onclick: () => { m.close(); ctx.goTab("gacha", "adopt"); } }, "譲渡会へ"))
-        : h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "やったね！"),
+      footer: () => h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "やったね！"),
     });
   }
 

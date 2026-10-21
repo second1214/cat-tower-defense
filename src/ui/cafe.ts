@@ -1,5 +1,6 @@
 // メインの猫カフェ（窓からのぞいているような部屋）。DOM と CSS アニメーションだけで、JS は1秒に1回の見回りだけ（軽い）。
-// - 選んでいる猫は手前の真ん中（名前の札は tab-main がのせる）。ほかのお迎えした猫は、キャットタワー・棚・クッションなどでくつろぐ
+// - 猫たちは、キャットタワー・棚・クッション・床などでくつろぎ（すわる・香箱・ねる・毛づくろい）、ときどき場所を移る
+// - 主人公・相棒も同じようにくつろぐ。少し大きく、名札つき。手前の床にいることが多い
 // - 窓の外: いまの時刻（朝・昼・夕方・夜）と月（春夏秋冬）で景色が変わる。ときどき虫が飛んでいき、猫たちが目で追う
 // - ときどきママの手がごはんを入れて、猫が食べに来る
 // 開発用: ?cafeTime=morning|day|evening|night・?cafeSeason=spring|summer|autumn|winter・?cafeFast（できごとを早く）
@@ -225,22 +226,66 @@ const yarnSvg = () => SV("0 0 40 30", `<circle cx="16" cy="16" r="12" fill="#7fb
 
 // ================= 場所 =================
 
-interface Spot { id: string; x: number; b: number; u: string; pose: CatPose; z: number; look: number; perch: boolean }
+interface Spot {
+  id: string;
+  /** 中心（%）。 */
+  x: number;
+  /** 下から（%）。 */
+  b: number;
+  /** 猫の大きさ（奥ほど小さい）。 */
+  u: string;
+  /** ここでするポーズ（はじめは先頭）。 */
+  poses: CatPose[];
+  z: number;
+  look: number;
+  /** 高い所（床からぴょんと乗る）。 */
+  perch: boolean;
+}
 
-/** ほかの猫のいる場所（すき間が多い順に使う）。x は中心（%）、b は下から（%）。 */
+/** 猫のいる場所。主人公・相棒も、ほかの猫と同じようにここを行ったり来たりする。 */
 const SPOTS: Spot[] = [
-  { id: "tower", x: 16, b: 79.5, u: "min(16cqw, 14cqh)", pose: "loaf", z: 16, look: 1, perch: true },
-  { id: "cushion", x: 83, b: 13, u: "min(18cqw, 16cqh)", pose: "groom", z: 26, look: -1, perch: false },
-  { id: "shelf", x: 87, b: 61.5, u: "min(13cqw, 12cqh)", pose: "sleep", z: 14, look: -1, perch: true },
-  { id: "rug", x: 66, b: 33, u: "min(12cqw, 11cqh)", pose: "sit", z: 12, look: -1, perch: false },
-  { id: "tower2", x: 22, b: 62.5, u: "min(12cqw, 11cqh)", pose: "sleep", z: 17, look: 1, perch: true },
-  { id: "sill", x: 64, b: 62.5, u: "min(10cqw, 9cqh)", pose: "sit", z: 9, look: -1, perch: true },
+  // 床（手前ほど大きい）
+  { id: "front", x: 52, b: 9, u: "min(19cqw, 17cqh)", poses: ["sit", "groom", "loaf", "sleep"], z: 38, look: 0, perch: false },
+  { id: "frontL", x: 26, b: 14, u: "min(18cqw, 16cqh)", poses: ["sit", "loaf", "groom", "sleep"], z: 34, look: 1, perch: false },
+  { id: "cushion", x: 83, b: 9, u: "min(18cqw, 16cqh)", poses: ["groom", "sleep", "loaf", "sit"], z: 26, look: -1, perch: false },
+  { id: "rug", x: 70, b: 33, u: "min(12cqw, 11cqh)", poses: ["sit", "groom", "loaf", "sleep"], z: 12, look: -1, perch: false },
+  { id: "mid", x: 44, b: 37, u: "min(11cqw, 10cqh)", poses: ["loaf", "sit", "groom"], z: 11, look: 1, perch: false },
+  // 高い所
+  { id: "tower", x: 16, b: 79.5, u: "min(16cqw, 14cqh)", poses: ["loaf", "sleep", "sit"], z: 16, look: 1, perch: true },
+  { id: "shelf", x: 87, b: 61.5, u: "min(13cqw, 12cqh)", poses: ["sleep", "loaf"], z: 14, look: -1, perch: true },
+  { id: "sill", x: 64, b: 62.5, u: "min(10cqw, 9cqh)", poses: ["sit", "groom", "loaf"], z: 9, look: -1, perch: true },
+  { id: "tower2", x: 22, b: 62.5, u: "min(12cqw, 11cqh)", poses: ["sleep", "loaf", "sit"], z: 17, look: 1, perch: true },
 ];
+const SPOT_MAP: Record<string, Spot> = Object.fromEntries(SPOTS.map((sp) => [sp.id, sp]));
+/** はじめの場所（主人公・相棒は手前の床、ほかの猫は高い所から）。 */
+const PARTY_START = ["front", "frontL", "cushion"];
+const OTHER_START = ["tower", "shelf", "sill", "tower2", "rug", "mid", "cushion", "frontL"];
+/** いつも空けておく場所の数（猫が場所を移れるように）。 */
+const FREE_SPOTS = 2;
 
+/** 高い所から下りた床（%）。 */
+const FLOOR_B = 30;
 const FLOOR_U = "min(17cqw, 15cqh)";
-const BOWLS = [{ x: 11, b: 6 }, { x: 25, b: 4.5 }];
+const BOWLS = [{ x: 11, b: 6 }, { x: 29, b: 4.5 }];
+/** 主人公・相棒の大きさ（ほかの猫より少し大きい）。 */
+const HERO_K = 1.2;
+const MATE_K = 1.08;
 
-interface CatEl { id: string; spot: Spot; wrap: HTMLElement; pose: CatPose; busy: boolean }
+interface CatEl {
+  uid: string;
+  look: string;
+  kind: "hero" | "mate" | "";
+  /** 大きさの倍率。 */
+  k: number;
+  /** 名札（主人公・相棒だけ）。 */
+  tag: HTMLElement | null;
+  spot: Spot;
+  wrap: HTMLElement;
+  pose: CatPose;
+  busy: boolean;
+  /** いまの横の位置（%）。 */
+  x: number;
+}
 
 // ================= 本体 =================
 
@@ -265,12 +310,6 @@ export function renderCafe(ctx: Ctx, onCatTap: (uid: string) => void): HTMLEleme
   cache = { key, ctx, el: built.el, stop: built.stop };
   return built.el;
 }
-
-/** 相棒の場所（主人公のとなり）。 */
-const MATE_SPOTS: Spot[] = [
-  { id: "mate1", x: 24, b: 21, u: "min(21cqw, 19cqh)", pose: "sit", z: 36, look: 1, perch: false },
-  { id: "mate2", x: 76, b: 21, u: "min(21cqw, 19cqh)", pose: "sit", z: 36, look: -1, perch: false },
-];
 
 function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap: (uid: string) => void, onSprites: () => void): { el: HTMLElement; stop(): void } {
   const q = query();
@@ -311,22 +350,27 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
 
   // ---- 猫 ----
   const cats: CatEl[] = [];
-  const makeCat = (cat: CafeCat, spot: Spot, kind: "hero" | "mate" | ""): CatEl => {
+  /** 場所 id → そこにいる（向かっている）猫。 */
+  const occ = new Map<string, CatEl>();
+  const uAt = (c: CatEl, base: string) => `calc(${base} * ${c.k})`;
+  const makeCat = (cat: CafeCat, spot: Spot, kind: CatEl["kind"]): CatEl => {
+    const k = kind === "hero" ? HERO_K : kind === "mate" ? MATE_K : 1;
+    const tag = kind ? h("span", { class: kind === "hero" ? "cf-hero-tag" : "cf-mate-tag" }, cat.name) : null;
     const wrap = h("button", {
       class: `cf-cat ${kind}`, "aria-label": cat.name,
-      style: `left:${spot.x}%;bottom:${spot.b}%;--u:${spot.u};z-index:${spot.z};--look:${spot.look};--d:${(cats.length * 0.37) % 2}s`,
+      style: `left:${spot.x}%;bottom:${spot.b}%;--u:calc(${spot.u} * ${k});z-index:${spot.z + (kind ? 1 : 0)};--look:${spot.look};--d:${(cats.length * 0.37) % 2}s`,
       onclick: (e: Event) => { e.stopPropagation(); onCatTap(cat.uid); },
-    }, catPoseEl(cat.look, spot.pose), kind === "mate" ? h("span", { class: "cf-mate-tag" }, cat.name) : null);
-    const c: CatEl = { id: cat.look, spot, wrap, pose: spot.pose, busy: false };
+    }, catPoseEl(cat.look, spot.poses[0]), tag);
+    const c: CatEl = { uid: cat.uid, look: cat.look, kind, k, tag, spot, wrap, pose: spot.poses[0], busy: false, x: spot.x };
     cats.push(c);
+    occ.set(spot.id, c);
     return c;
   };
-  const heroSpot: Spot = { id: "hero", x: 50, b: 14, u: "min(30cqw, 27cqh)", pose: "sit", z: 40, look: 0, perch: false };
-  makeCat(hero, heroSpot, "hero");
-  mates.forEach((m, i) => makeCat(m, MATE_SPOTS[i], "mate"));
-  // 相棒がいるときは、相棒と重なる場所（ラグ・クッション）は使わない
-  const spots = SPOTS.filter((sp) => !(mates.length >= 1 && sp.id === "rug") && !(mates.length >= 2 && sp.id === "cushion"));
-  const lounging = others.slice(0, spots.length).map((c, i) => makeCat(c, spots[i], ""));
+  makeCat(hero, SPOT_MAP[PARTY_START[0]], "hero");
+  mates.forEach((m, i) => makeCat(m, SPOT_MAP[PARTY_START[i + 1]], "mate"));
+  const room0 = Math.max(0, SPOTS.length - FREE_SPOTS - cats.length);
+  const freeStart = OTHER_START.filter((id) => !occ.has(id));
+  others.slice(0, Math.min(room0, freeStart.length)).forEach((c, i) => makeCat(c, SPOT_MAP[freeStart[i]], ""));
 
   const room = h("div", { class: "cf-room" },
     h("div", { class: "cf-wall" }), h("div", { class: "cf-wains" }), h("div", { class: "cf-floor" }),
@@ -371,8 +415,9 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
   const setPose = (c: CatEl, pose: CatPose) => {
     if (c.pose === pose) return;
     c.pose = pose;
-    c.wrap.replaceChildren(catPoseEl(c.id, pose));
+    c.wrap.replaceChildren(catPoseEl(c.look, pose), ...(c.tag ? [c.tag] : []));
   };
+  const pick = <T>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
 
   // 虫が窓の外を飛ぶ → 猫たちが目で追う
   let watching = false;
@@ -390,21 +435,93 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
     }
   };
 
-  // ごはん
-  let feeding = false;
-  const move = async (c: CatEl, left: string, bottom: string, ms: number, cls: string) => {
-    c.wrap.style.transition = `left ${ms}ms ${cls}, bottom ${ms}ms ${cls}, --u ${ms}ms ease`;
+  // ---- 歩く・ぴょんと乗る ----
+  const move = async (c: CatEl, x: number, left: string, bottom: string, ms: number, ease: string) => {
+    c.wrap.style.transition = `left ${ms}ms ${ease}, bottom ${ms}ms ${ease}, --u ${ms}ms ease`;
     c.wrap.style.left = left;
     c.wrap.style.bottom = bottom;
+    c.x = x;
     await wait(ms + 40);
   };
-  const xOf = (c: CatEl) => c.wrap.style.left;
+  /** いまの場所から床へ（高い所なら、ぴょんと下りる）。 */
+  const leave = async (c: CatEl, from: Spot) => {
+    if (c.pose === "sleep" || c.pose === "loaf") { setPose(c, "sit"); await wait(450); }
+    if (!from.perch) return;
+    c.wrap.classList.add("hop");
+    await move(c, c.x, `${c.x}%`, `${FLOOR_B}%`, 480, "cubic-bezier(.5,0,.9,.6)");
+    c.wrap.classList.remove("hop");
+  };
+  /** 床の上を歩く。 */
+  const walk = async (c: CatEl, x: number, left: string, b: number, u: string) => {
+    setPose(c, "walk");
+    c.wrap.style.zIndex = "30";
+    c.wrap.classList.toggle("flip", x > c.x + 0.5);
+    c.wrap.style.setProperty("--u", uAt(c, u));
+    const cur = parseFloat(c.wrap.style.bottom) || b;
+    const ms = Math.round(700 + Math.abs(x - c.x) * 26 + Math.abs(b - cur) * 22);
+    await move(c, x, left, `${b}%`, ms, "linear");
+    c.wrap.classList.remove("flip");
+  };
+  /** 場所に着いて、くつろぐ（高い所なら、ぴょんと乗る）。 */
+  const settle = async (c: CatEl, spot: Spot, pose: CatPose) => {
+    if (spot.perch) {
+      setPose(c, "sit");
+      c.wrap.classList.add("hop");
+      c.wrap.style.setProperty("--u", uAt(c, spot.u));
+      await move(c, spot.x, `${spot.x}%`, `${spot.b}%`, 480, "cubic-bezier(.1,.4,.5,1)");
+      c.wrap.classList.remove("hop");
+    }
+    c.wrap.style.setProperty("--u", uAt(c, spot.u));
+    c.wrap.style.setProperty("--look", String(spot.look));
+    c.wrap.style.zIndex = String(spot.z + (c.kind ? 1 : 0));
+    setPose(c, pose);
+    c.wrap.style.transition = "";
+  };
+  /** べつの場所へ移る。 */
+  const goTo = async (c: CatEl, to: Spot) => {
+    const from = c.spot;
+    occ.delete(from.id);
+    occ.set(to.id, c);
+    c.spot = to;
+    c.busy = true;
+    try {
+      await leave(c, from);
+      await walk(c, to.x, `${to.x}%`, to.perch ? FLOOR_B : to.b, to.perch ? FLOOR_U : to.u);
+      await settle(c, to, pick(to.poses));
+    } finally { c.busy = false; }
+  };
+
+  // ときどき、だれかが場所を移る（主人公・相棒は手前の床がすき）
+  const wander = () => {
+    const free = cats.filter((c) => !c.busy);
+    const spots = SPOTS.filter((sp) => !occ.has(sp.id));
+    if (!free.length || !spots.length) return;
+    const c = pick(free);
+    const wts = spots.map((sp) => (c.kind ? (sp.perch ? 1 : sp.b < 20 ? 6 : 3) : (sp.perch ? 3 : 2)));
+    let r = Math.random() * wts.reduce((a, b) => a + b, 0);
+    let to = spots[0];
+    for (let i = 0; i < spots.length; i++) { r -= wts[i]; if (r <= 0) { to = spots[i]; break; } }
+    void goTo(c, to).catch(() => undefined);
+  };
+  // ときどき、その場でポーズを変える（すわる → 毛づくろい → 香箱 → ねる …）
+  const fidget = () => {
+    const free = cats.filter((c) => !c.busy && c.spot.poses.length > 1);
+    if (!free.length) return;
+    const c = pick(free);
+    setPose(c, pick(c.spot.poses.filter((p) => p !== c.pose)));
+  };
+
+  // ごはん
+  let feeding = false;
   const feed = async () => {
     if (feeding) return;
+    const ready = cats.filter((c) => !c.busy);
+    if (!ready.length) return;
     feeding = true;
-    const order = ["cushion", "rug", "tower", "sill", "shelf", "tower2"];
-    const eaters = order.map((sid) => lounging.find((c) => c.spot.id === sid)).filter((c): c is CatEl => !!c).slice(0, 2);
-    if (!eaters.length) { feeding = false; return; }
+    // 近い猫から2匹まで（だれが来るかは少しばらばら）
+    const eaters = ready.map((c) => ({ c, d: Math.hypot(c.x - BOWLS[0].x, c.spot.b) + Math.random() * 40 }))
+      .sort((a, b) => a.d - b.d).slice(0, 2).map((x) => x.c);
+    for (const c of eaters) c.busy = true;
     try {
       // ママの手がごはんを入れる
       hand.classList.remove("pour1", "pour2");
@@ -417,50 +534,26 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
       hand.classList.remove("pour1", "pour2");
       el.classList.add("dinner");
       await Promise.all(eaters.map(async (c, i) => {
-        c.busy = true;
-        await wait(i * 700 + 300);
-        const bowl = BOWLS[i];
-        if (c.pose === "sleep" || c.pose === "loaf") { setPose(c, "sit"); await wait(500); }
-        // 高い所からは、まず床へぴょん
-        if (c.spot.perch) {
-          c.wrap.classList.add("hop");
-          await move(c, xOf(c), "30%", 480, "cubic-bezier(.5,0,.9,.6)");
-          c.wrap.classList.remove("hop");
-        }
-        setPose(c, "walk");
-        const tx = `calc(${bowl.x}% + ${FLOOR_U} * 0.42)`;
-        c.wrap.style.setProperty("--u", FLOOR_U);
-        c.wrap.style.zIndex = "30";
-        c.wrap.classList.toggle("flip", parseFloat(xOf(c)) < bowl.x + 4);
-        await move(c, tx, `${bowl.b + 2.5}%`, 1700, "linear");
-        c.wrap.classList.remove("flip");
-        setPose(c, "eat");
-        for (const f of ["f2", "f1", "f0"]) {
-          await wait(2400 * sp);
-          bowls[i].classList.remove("f3", "f2", "f1", "f0");
-          bowls[i].classList.add(f);
-        }
-        setPose(c, "sit");
-        c.wrap.classList.add("happy");
-        await wait(1300);
-        c.wrap.classList.remove("happy");
-        // もどる
-        setPose(c, "walk");
-        const backX = `${c.spot.x}%`;
-        c.wrap.classList.toggle("flip", c.spot.x > bowl.x);
-        await move(c, backX, c.spot.perch ? "30%" : `${c.spot.b}%`, 1700, "linear");
-        c.wrap.classList.remove("flip");
-        c.wrap.style.setProperty("--u", c.spot.u);
-        c.wrap.style.zIndex = String(c.spot.z);
-        if (c.spot.perch) {
+        try {
+          await wait(i * 700 + 300);
+          const bowl = BOWLS[i];
+          await leave(c, c.spot);
+          await walk(c, bowl.x, `calc(${bowl.x}% + ${uAt(c, FLOOR_U)} * 0.42)`, bowl.b + 2.5, FLOOR_U);
+          setPose(c, "eat");
+          for (const f of ["f2", "f1", "f0"]) {
+            await wait(2400 * sp);
+            bowls[i].classList.remove("f3", "f2", "f1", "f0");
+            bowls[i].classList.add(f);
+          }
           setPose(c, "sit");
-          c.wrap.classList.add("hop");
-          await move(c, backX, `${c.spot.b}%`, 480, "cubic-bezier(.1,.4,.5,1)");
-          c.wrap.classList.remove("hop");
-        }
-        setPose(c, c.spot.pose);
-        c.wrap.style.transition = "";
-        c.busy = false;
+          c.wrap.classList.add("happy");
+          await wait(1300);
+          c.wrap.classList.remove("happy");
+          // もどる
+          const sp0 = c.spot;
+          await walk(c, sp0.x, `${sp0.x}%`, sp0.perch ? FLOOR_B : sp0.b, sp0.perch ? FLOOR_U : sp0.u);
+          await settle(c, sp0, sp0.poses[0]);
+        } finally { c.busy = false; }
       }));
     } catch { /* 止めたとき */ } finally {
       el.classList.remove("dinner");
@@ -471,13 +564,17 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
   // 1秒に1回の見回り（見えていないときは何もしない）
   let nextBug = (fast ? 3 : rnd(6, 12));
   let nextFeed = (fast ? 2 : rnd(5, 9));
+  let nextWander = (fast ? 2 : rnd(4, 8));
+  let nextFidget = (fast ? 3 : rnd(6, 10));
   let nextClock = 60;
   const iv = setInterval(() => {
     if (!alive) return;
     if (!el.isConnected || el.offsetParent === null || (typeof document !== "undefined" && document.hidden)) return;
     if (--nextClock <= 0) { nextClock = 60; applyTime(); }
     if (--nextBug <= 0) { nextBug = fast ? 7 : rnd(14, 26); void flyBug(); }
-    if (!feeding && --nextFeed <= 0) { nextFeed = fast ? 6 : rnd(30, 50); void feed(); }
+    if (!feeding && --nextFeed <= 0) { nextFeed = fast ? 9 : rnd(30, 50); void feed(); }
+    if (--nextWander <= 0) { nextWander = fast ? 2 : rnd(6, 12); wander(); }
+    if (--nextFidget <= 0) { nextFidget = fast ? 3 : rnd(7, 13); fidget(); }
   }, 1000);
 
   loadCatSprites(onSprites);

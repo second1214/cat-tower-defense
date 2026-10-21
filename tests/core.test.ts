@@ -11,14 +11,14 @@ import {
   stageById, isStageUnlocked, estimateDps, stageLoad, toggleLoadout, sellEquip, relicBonus, churuForLevel,
   nodeLevel, nextNodeCost, resetSkills, skillSpent, skillTreeOf, isNodeOpen, bondMul, FIRST_CLEAR_CHURU_MUL,
   objectPerks, resolveObject, objectDps, equipBonus, registerCat, updateCat, removeCat, setParty, equipWaza,
-  adoptableNeighbors, adoptNeighbor, familyLevel, catPower, partyRoles, addBondExp, bondToNext, COMPANION_POWER,
+  familyLevel, catPower, partyRoles, addBondExp, bondToNext, COMPANION_POWER,
   IDLE_EXP_RATE, heroUid, powerRatio,
 } from "../src/core/progress";
 import {
   GACHA_RATES, PITY_PULLS, PULL10_COST, PULL_COST, WAZA_REFUND, gainWaza, pull, pullCost, pullRates, pullsToPity,
   rollRarity, canPull,
 } from "../src/core/gacha";
-import { CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, NEIGHBOR_UNLOCK } from "../src/data/chars";
+import { CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND } from "../src/data/chars";
 import {
   MAIN_WAZAS, MAX_WAZA_LEVEL, RARITIES, RARITY_MUL, STARTER_WAZAS, SUB_WAZAS, WAZAS, WAZA_MAP, wazaLevelMul, wazaText,
 } from "../src/data/waza";
@@ -112,17 +112,6 @@ describe("データ", () => {
       expect(c.desc.length).toBeGreaterThan(0);
       expect(PERSONALITY_MAP[c.personality]).toBeDefined();
       expect(WAZA_MAP[c.waza]?.slot).toBe("main"); // 特技はメインのわざに
-    }
-  });
-  test("近所の猫が来るステージ: 1-3 クリアから、だいたい5ステージごと", () => {
-    const gs = CHARS.map((c) => NEIGHBOR_UNLOCK[c.id]);
-    for (const g of gs) expect(Number.isInteger(g) && g >= 0 && g < 100).toBe(true);
-    const sorted = [...gs].sort((a, b) => a - b);
-    expect(sorted[0]).toBe(2);
-    expect(stageIdList()[sorted[0]]).toBe("1-3");
-    for (let i = 1; i < sorted.length; i++) {
-      expect(sorted[i] - sorted[i - 1]).toBeGreaterThanOrEqual(3);
-      expect(sorted[i] - sorted[i - 1]).toBeLessThanOrEqual(7);
     }
   });
   test("わざ: メイン 20 以上（役割ごとに5以上）・サブ 12 以上", () => {
@@ -452,8 +441,6 @@ describe("セーブ", () => {
     expect(s.nextCatUid).toBe(4);
     expect("chars" in s).toBe(false);
     expect("selectedChar" in s).toBe(false);
-    // お迎えした近所の猫は、譲渡会にはもう来ない
-    expect(adoptableNeighbors(s)).not.toContain("mike");
     // v1（スキルは id の配列）も
     const t = migrate({ version: 1, coins: 1, selectedChar: "kuro", chars: { chatora: { level: 2, skills: ["melee_atk1", "melee_hp2", "nazo"] }, kuro: { level: 3 } } });
     expect(t.churu).toBe(START_CHURU + v2SkillCost("melee.atk1", 1) + v2SkillCost("melee.armor1", 1));
@@ -591,49 +578,31 @@ describe("うちの子・近所の猫", () => {
     expect(k.combos.critChain).toBe(1);   // サブ（会心ビリビリ）
     expect(k.combos.pierceGrow).toBeCloseTo(0.15); // メイン（気品）
   });
-  test("近所の猫: 1-3 クリアで譲渡会に来る・無料でお迎え", () => {
+  test("譲渡会はない: ステージを進めても猫は勝手に増えない（増やすのは登録だけ）", () => {
     const s = newSave();
-    expect(adoptableNeighbors(s)).toEqual([]);
     const rng = mulberry32(1);
-    for (const id of ["1-1", "1-2"]) expect(grantRewards(s, id, rng).newNeighbors).toEqual([]);
-    const r = grantRewards(s, "1-3", rng);
-    expect(r.newNeighbors).toEqual(["mike"]);
-    expect(adoptableNeighbors(s)).toEqual(["mike"]);
-    expect(adoptNeighbor(s, "kuro").ok).toBe(false); // まだ来ていない
-    const c0 = s.churu;
-    const a = adoptNeighbor(s, "mike");
-    expect(a.ok).toBe(true);
-    if (!a.ok) return;
-    expect(s.churu).toBe(c0);
-    expect(s.cats[a.value]).toMatchObject({ name: "みけ", look: "mike", preset: "mike", personality: CHAR_MAP.mike.personality, level: 1 });
-    expect(s.cats[a.value].waza.main).toBe("choichoi");
-    expect(adoptNeighbor(s, "mike").ok).toBe(false); // 2回はお迎えできない
-    expect(adoptableNeighbors(s)).toEqual([]);
-    // その猫らしいわざを覚えていれば、それをつけてくる。なければ役割の近いはじめのわざ
-    s.cleared = 99;
-    const kuro = adoptNeighbor(s, "kuro");
-    expect(kuro.ok && s.cats[kuro.value].waza.main).toBe("nekopunch");
-    learnWaza(s, "kihin");
-    const hime = adoptNeighbor(s, "hime");
-    expect(hime.ok && s.cats[hime.value].waza.main).toBe("kihin");
-    const luna = adoptNeighbor(s, "luna");
-    expect(luna.ok && s.cats[luna.value].waza.main).toBe("choichoi");
-    expect(adoptableNeighbors(s).length).toBe(20 - 4);
-    // お別れすると、また来る
-    expect(removeCat(s, a.value).ok).toBe(true);
-    expect(adoptableNeighbors(s)).toContain("mike");
+    for (const id of ["1-1", "1-2", "1-3", "1-4", "1-5"]) {
+      const r = grantRewards(s, id, rng);
+      expect("newNeighbors" in r).toBe(false);
+    }
+    expect(Object.keys(s.cats)).toEqual(["c1"]);
+    const uid = addCat(s, "みけ", "mike");
+    expect(s.cats[uid]).toMatchObject({ name: "みけ", look: "mike", level: 1 });
+    expect(s.cats[uid].preset).toBeUndefined();
   });
   test("猫にはレアリティがない（同じわざ・レベル・性格なら同じ強さ）", () => {
     const s = newSave();
-    s.cleared = 99;
-    const taisho = adoptNeighbor(s, "taisho");
-    const mine = addCat(s, "うちの子", "chatora");
-    if (!taisho.ok) throw new Error();
-    s.cats[taisho.value].personality = "nonbiri";
-    equipWaza(s, taisho.value, "main", "nekopunch");
-    const x = resolveCat(s, taisho.value), y = resolveCat(s, mine);
+    // 古いセーブから引きついだ猫（preset あり）と、登録したうちの子
+    const old = migrate({ version: 2, selectedChar: "taisho", chars: { taisho: { level: 1 } } });
+    const taisho = old.party[0];
+    const mine = addCat(old, "うちの子", "chatora");
+    old.cats[taisho].personality = "nonbiri";
+    old.cats[taisho].bond = 0; old.cats[taisho].bondExp = 0;
+    equipWaza(old, taisho, "main", "nekopunch");
+    expect(old.cats[taisho].preset).toBe("taisho");
+    const x = resolveCat(old, taisho), y = resolveCat(old, mine);
     for (const key of ["atk", "maxHp", "atkInterval", "range", "moveSpeed", "crit"] as const) expect(x[key]).toBeCloseTo(y[key]);
-    expect(catPower(s, taisho.value)).toBeCloseTo(catPower(s, mine));
+    expect(catPower(old, taisho)).toBeCloseTo(catPower(old, mine));
   });
   test("メインのわざのレアリティ・わざのレベル・性格・なかよし度・相棒", () => {
     const s = newSave();
@@ -1267,8 +1236,9 @@ describe("インフレの曲線", () => {
     // スキルは深いところまで・複合効果も取れる
     expect(rows[99].skillLv).toBeGreaterThan(200);
     expect(rows[99].combos).toBeGreaterThanOrEqual(3);
-    // 近所の猫が来て、お迎えしていく
-    expect(rows[99].owned).toBeGreaterThanOrEqual(15);
+    // 猫は登録した3匹だけ（譲渡会はない）。1 章のうちに3匹のパーティになる
+    expect(rows[99].owned).toBe(3);
+    expect(rows[9].party).toBe(3);
     // 最初の10回（10回まとめて）は 2 章のうちにできる
     expect(rows.findIndex((r) => r.wazas > 2)).toBeLessThan(20);
   });

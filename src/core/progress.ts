@@ -3,7 +3,7 @@
 import type { BugDef, CharRole, ComboId, Loadout, ObjectKind, Personality, ResolvedChar, ResolvedObject, StageDef } from "./types";
 import { type Rng, pickWeighted, randInt } from "./rng";
 import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
-import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, NEIGHBOR_UNLOCK, bondToNext } from "../data/chars";
+import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bondToNext } from "../data/chars";
 import {
   SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
   modsFromTotals, nodeCost, nodeTotalCost,
@@ -264,25 +264,6 @@ export function equipWaza(save: SaveData, uid: string, slot: "main" | 0 | 1, waz
   else subs.push(w.id);
   c.waza.subs = subs.slice(0, MAX_SUBS);
   return ok(undefined);
-}
-
-/** 譲渡会に来ている近所の猫（まだお迎えしていないもの）のひな形 id。 */
-export function adoptableNeighbors(save: SaveData): string[] {
-  const have = new Set(Object.values(save.cats).map((c) => c.preset).filter(Boolean));
-  return CHARS.filter((d) => (NEIGHBOR_UNLOCK[d.id] ?? Infinity) <= save.cleared && !have.has(d.id)).map((d) => d.id);
-}
-
-/** 近所の猫をお迎えする（無料）。その猫らしいわざを覚えていればそれを、なければ「ねこパンチ」か「ちょいちょい」をつける。 */
-export function adoptNeighbor(save: SaveData, presetId: string): Result<string> {
-  const def = CHAR_MAP[presetId];
-  if (!def) return ng("猫が見つかりません");
-  if (!adoptableNeighbors(save).includes(presetId)) return ng("まだ譲渡会に来ていません");
-  if (Object.keys(save.cats).length >= MAX_CATS) return ng(`猫は ${MAX_CATS} 匹までです`);
-  const sig = WAZA_MAP[def.waza];
-  const main = save.wazas[def.waza] ? def.waza : (sig?.role === "ranged" || sig?.role === "aoe" ? "choichoi" : DEFAULT_MAIN_WAZA);
-  const uid = newCatUid(save);
-  save.cats[uid] = newCatSave(uid, def.name, def.id, def.personality, main, def.id);
-  return ok(uid);
 }
 
 /** その猫のメインのわざ（なければ「ねこパンチ」）。 */
@@ -953,8 +934,6 @@ export interface RewardResult {
   equips: EquipItem[];
   shards: { id: string; count: number }[];
   newObjects: string[];
-  /** 新しく譲渡会に来た近所の猫（ひな形 id）。 */
-  newNeighbors: string[];
   levelUps: Record<string, number>;   // 猫の uid → 上がったレベル数
   bondUps: Record<string, number>;    // 猫の uid → 上がったあとのなかよし度（上がった猫だけ）
 }
@@ -1040,16 +1019,14 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   for (const [id, cnt] of shardMap) save.objects[id].shards += cnt;
 
   // クリアの記録
-  const before = new Set(adoptableNeighbors(save));
   save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + 1;
   if (firstClear) save.cleared = g;
   const { newObjects } = syncUnlocks(save);
-  const newNeighbors = adoptableNeighbors(save).filter((id) => !before.has(id));
 
   return {
     stageId: stage.id, firstClear, exp, coins, relicPoints, churu, churuFromLevels, equips,
     shards: [...shardMap].map(([id, count]) => ({ id, count })),
-    newObjects, newNeighbors, levelUps, bondUps,
+    newObjects, levelUps, bondUps,
   };
 }
 

@@ -1,12 +1,12 @@
 // テスト用: ステージを順にクリアしつづけるプレイヤーのまね（欲ばりに全部つかう）。
 // ちゅ〜るは「スキル」と「ねこ福袋」に分けて使う（もらったちゅ〜るの一部を、福袋用にとっておく）。
-// 近所の猫が来たらお迎えして、いちばん強い3匹をパーティ（主人公・相棒）にする。
+// はじめのほうで、うちの子を2匹追加で登録して、いちばん強い3匹をパーティ（主人公・相棒）にする。
 import { newSave, type SaveData } from "../src/core/save";
 import { mulberry32, type Rng } from "../src/core/rng";
 import {
-  adoptNeighbor, adoptableNeighbors, autoEquip, autoFuse, buildLoadout, canLearn, catPower, equipWaza, estimateDps,
+  autoEquip, autoFuse, buildLoadout, canLearn, catPower, equipWaza, estimateDps,
   grantRewards, heroUid, learnSkill, levelUpObject, mainWazaOf, nextNodeCost, nextRelic, objectDps, objectUpgradeCost,
-  partyRoles, partyUids, powerRatio, resolveObjects, setLoadout, setParty, skillTreeOf, stageIdList, stageLoad,
+  partyRoles, partyUids, powerRatio, registerCat, resolveObjects, setLoadout, setParty, skillTreeOf, stageIdList, stageLoad,
   unlockRelic,
 } from "../src/core/progress";
 import { PULL10_COST, pull } from "../src/core/gacha";
@@ -14,6 +14,12 @@ import { MAX_SUBS, WAZA_MAP } from "../src/data/waza";
 import { OBJECTS } from "../src/data/objects";
 import { BUG_MAP } from "../src/data/bugs";
 import type { CharRole } from "../src/core/types";
+
+/** あとから登録するうちの子（クリアした通し番号 → 猫）。 */
+const EXTRA_CATS: [number, { name: string; look: string; personality: "yancha" | "amaenbo" }][] = [
+  [2, { name: "みけ", look: "mike", personality: "amaenbo" }],
+  [7, { name: "くろ", look: "kuro", personality: "yancha" }],
+];
 
 export interface SimState {
   /** 福袋用にとっておくちゅ〜る。 */
@@ -81,8 +87,10 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
     st.churuOnPulls += before - save.churu;
     st.pulls += 10;
   }
-  // 近所の猫はみんなお迎えする
-  for (const id of adoptableNeighbors(save)) adoptNeighbor(save, id);
+  // うちの子を追加で登録する（1-3 クリアで2匹目、1-8 クリアで3匹目）
+  for (const [g, cat] of EXTRA_CATS) {
+    if (save.cleared >= g && !Object.values(save.cats).some((c) => c.name === cat.name)) registerCat(save, cat);
+  }
   // わざをつけて、強い3匹をパーティに
   const prevHero = heroUid(save);
   for (const uid of Object.keys(save.cats)) bestWaza(save, uid);

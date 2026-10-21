@@ -1,43 +1,26 @@
-// 下のタブ「福袋」: ねこ福袋（ちゅ〜るで「わざ」を引く）と、譲渡会（近所の猫を無料でお迎え）。
+// 下のタブ「福袋」: ねこ福袋（ちゅ〜るで「わざ」を引く）。
 import {
   PITY_PULLS, PULL10_COST, PULL_COST, WAZA_REFUND, canPull, pull, pullRates, pullsToPity, type PullResult,
 } from "../core/gacha";
-import { adoptNeighbor, adoptableNeighbors } from "../core/progress";
 import { fmt } from "../core/num";
-import { MAX_CATS, writeSave } from "../core/save";
-import { CHARS, CHAR_MAP, NEIGHBOR_UNLOCK, ROLE_NAMES } from "../data/chars";
-import { PERSONALITY_MAP } from "../data/personality";
-import { stageIdOf } from "../data/stages";
+import { writeSave } from "../core/save";
+import { ROLE_NAMES } from "../data/chars";
 import { MAX_WAZA_LEVEL, RARITIES, RARITY_RANK, WAZAS, WAZA_MAP, wazaText } from "../data/waza";
-import type { Ctx, GachaSub } from "./ctx";
-import { badge, bar, h, svgIcon } from "./dom";
-import { ICONS, bagSvg, tentSvg, carrierSvg } from "./icons";
-import { catIcon } from "./cafe";
-import { adoptBadge, bagBadge } from "./badges";
+import type { Ctx } from "./ctx";
+import { bar, h, svgIcon } from "./dom";
+import { ICONS, bagSvg } from "./icons";
 import { rarityPill, roleTag, wazaIcon, wazaStars } from "./parts";
-import { openCatDetail } from "./grow-char";
 
 export { rarityPill, bondHearts } from "./parts";
 
 /** 福袋タブへ行く。 */
-export function openGacha(ctx: Ctx, sub: GachaSub = "bag"): void {
-  ctx.goTab("gacha", sub);
+export function openGacha(ctx: Ctx): void {
+  ctx.goTab("gacha");
 }
 
 /** 下のタブ「福袋」。 */
 export function renderGachaTab(ctx: Ctx): HTMLElement {
-  const save = ctx.save;
-  const cur = ctx.ui.gachaSub;
-  const subs: [GachaSub, string, string, boolean][] = [
-    ["bag", "ねこ福袋", bagSvg(false), bagBadge(save)],
-    ["adopt", "譲渡会", ICONS.tent, adoptBadge(save)],
-  ];
-  return h("div", { class: `tab tab-gacha gs-${cur}` },
-    h("div", { class: "gc-subtabs" }, subs.map(([id, label, icon, b]) => h("button", {
-      class: `gc-subtab ${cur === id ? "on" : ""}`,
-      onclick: () => { if (ctx.ui.gachaSub !== id) { ctx.ui.gachaSub = id; ctx.rerender(); } },
-    }, svgIcon(icon, "gc-subtab-ico"), h("span", null, label), badge(b)))),
-    cur === "bag" ? renderBag(ctx) : renderAdopt(ctx));
+  return h("div", { class: "tab tab-gacha" }, renderBag(ctx));
 }
 
 // ================= ねこ福袋 =================
@@ -217,78 +200,4 @@ function openRates(ctx: Ctx): void {
 function pct(r: number): string {
   const v = r * 100;
   return `${v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)}%`;
-}
-
-// ================= 譲渡会（近所の猫） =================
-
-function renderAdopt(ctx: Ctx): HTMLElement {
-  const save = ctx.save;
-  const here = adoptableNeighbors(save);
-  const have = new Set(Object.values(save.cats).map((c) => c.preset).filter(Boolean));
-  const full = Object.keys(save.cats).length >= MAX_CATS;
-  const upcoming = CHARS.filter((d) => !have.has(d.id) && !here.includes(d.id))
-    .sort((a, b) => (NEIGHBOR_UNLOCK[a.id] ?? 999) - (NEIGHBOR_UNLOCK[b.id] ?? 999));
-  const peek = here[0] ?? "mike";
-
-  const cards = here.map((id) => {
-    const def = CHAR_MAP[id];
-    const pers = PERSONALITY_MAP[def.personality];
-    return h("div", { class: "ad-card" },
-      h("div", { class: "ad-ico-wrap" }, catIcon(id, "ad-ico"), svgIcon(carrierSvg(true), "ad-box")),
-      h("div", { class: "ad-body" },
-        h("div", { class: "ad-name" }, def.name, h("span", { class: "pers-pill" }, pers?.name ?? "")),
-        h("div", { class: "ad-desc" }, def.desc),
-        h("button", {
-          class: `btn btn-small ${full ? "btn-gray is-off" : "btn-green"} ad-go`, disabled: full,
-          onclick: () => {
-            const r = adoptNeighbor(ctx.save, id);
-            if (!r.ok) { ctx.toast(r.reason, "ng"); return; }
-            ctx.commit();
-            showWelcome(ctx, r.value);
-          },
-        }, "お迎えする")));
-  });
-
-  return h("div", { class: "scroll gacha", dataset: { sk: "adopt" } },
-    h("div", { class: "gc-scene" },
-      h("div", { class: "gc-bunting" }, Array.from({ length: 11 }, (_, i) => h("span", { class: `gb gb${i % 4}` }))),
-      h("div", { class: "gc-sign" }, "ねこの譲渡会"),
-      svgIcon(tentSvg(), "gc-tent"),
-      h("div", { class: "gc-boxes" },
-        svgIcon(carrierSvg(false), "gc-box b1"),
-        h("div", { class: "gc-peek" }, svgIcon(carrierSvg(true), "gc-box-open"), here.length ? catIcon(peek, "gc-peek-cat") : null),
-        svgIcon(carrierSvg(false), "gc-box b2"))),
-    h("div", { class: "gc-talk" }, here.length
-      ? "近所の猫たちが、新しいおうちをさがしに来ているよ。無料でお迎えできる！"
-      : "いまは来ている猫がいないみたい。ステージを進めると、近所の猫が会いに来るよ。"),
-    full ? h("div", { class: "ad-full" }, `猫は ${MAX_CATS} 匹までです。お迎えするには、成長タブでだれかとお別れしてね`) : null,
-    here.length ? h("div", { class: "ad-list" }, h("div", { class: "ad-sec" }, `来ている猫 ${here.length}匹`), cards) : null,
-    upcoming.length ? h("div", { class: "ad-list" },
-      h("div", { class: "ad-sec" }, "これから来る猫"),
-      h("div", { class: "ad-locked" }, upcoming.map((d, i) => {
-        const g = NEIGHBOR_UNLOCK[d.id] ?? 0;
-        return h("div", { class: `ad-lk ${i === 0 ? "next" : ""}` },
-          catIcon(d.id, "ad-lk-ico", true),
-          h("div", { class: "ad-lk-name" }, "？？？"),
-          h("div", { class: "ad-lk-when" }, `${stageIdOf(g)} クリア`));
-      }))) : null,
-    h("div", { class: "gc-foot" }, h("div", { class: "gc-stat" }, `お迎えした近所の猫 ${have.size} / ${CHARS.length}`)));
-}
-
-/** お迎えしたときのよろこび。 */
-function showWelcome(ctx: Ctx, uid: string): void {
-  const c = ctx.save.cats[uid];
-  if (!c) return;
-  const m = ctx.modals.open({
-    cls: "modal-small modal-welcome",
-    closeButton: false,
-    render: () => h("div", { class: "welcome" },
-      h("div", { class: "wl-rays" }),
-      catIcon(c.look, "wl-ico"),
-      h("div", { class: "wl-t" }, `${c.name}がうちの子になった！`),
-      h("div", { class: "muted small" }, "成長タブで、わざをつけたり相棒にしたりできるよ")),
-    footer: () => h("div", { class: "foot-row" },
-      h("button", { class: "btn btn-gray", onclick: () => m.close() }, "OK"),
-      h("button", { class: "btn btn-green", onclick: () => { m.close(); ctx.goTab("grow", "char"); openCatDetail(ctx, uid); } }, "くわしく")),
-  });
 }

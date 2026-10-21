@@ -81,11 +81,7 @@ export function renderCharList(ctx: Ctx): HTMLElement {
           class: `btn btn-small ${n >= MAX_CATS ? "btn-gray is-off" : "btn-green"} add-cat`, disabled: n >= MAX_CATS,
           onclick: () => openAddCat(ctx, (uid) => openCatDetail(ctx, uid)),
         }, h("span", { class: "add-cat-in" }, svgIcon(PLUS_ICON), "うちの子を追加"))),
-      h("div", { class: "grid grid-3 cat-grid" }, cards),
-      h("button", { class: "adopt-link", onclick: () => ctx.goTab("gacha", "adopt") },
-        svgIcon(ICONS.tent, "adopt-link-ico"),
-        h("span", { class: "adopt-link-t" }, h("b", null, "譲渡会"), h("span", null, "近所の猫を無料でお迎えできるよ")),
-        h("span", { class: "gbn-go" }, "見に行く"))));
+      h("div", { class: "grid grid-3 cat-grid" }, cards)));
 }
 
 /** 空いている相棒の枠に入れる猫をえらぶ。 */
@@ -98,7 +94,7 @@ function openPartyPicker(ctx: Ctx, slot: 1 | 2): void {
       const party = partyUids(save);
       const list = sortedCats(save).filter((c) => !party.includes(c.uid));
       if (!list.length) {
-        return h("div", { class: "empty-msg" }, "ほかの猫がいません。", h("br"), "うちの子を追加するか、譲渡会でお迎えしてね。");
+        return h("div", { class: "empty-msg" }, "ほかの猫がいません。", h("br"), "「うちの子を追加」で、猫を登録してね。");
       }
       return h("div", { class: "pk-cats" }, list.map((c) => {
         const w = mainWazaOf(save, c.uid);
@@ -213,8 +209,7 @@ export function openCatDetail(ctx: Ctx, uid: string): void {
               h("span", { class: "cd-lv" }, `Lv ${c.level}`)),
             h("div", { class: "cd-row" },
               h("span", { class: "pers-pill" }, pers?.name ?? ""),
-              roleTag(catRole(save, uid)),
-              preset ? h("span", { class: "nb-pill" }, "近所の猫") : null),
+              roleTag(catRole(save, uid))),
             bar(c.level >= MAX_CHAR_LEVEL ? 1 : c.exp / need, "bar-exp", c.level >= MAX_CHAR_LEVEL ? "MAX" : `経験値 ${fmt(c.exp)} / ${fmt(need)}`),
             h("div", { class: "cd-bond" },
               h("span", { class: "cd-bond-k" }, "なかよし度"),
@@ -309,7 +304,7 @@ function openWazaPicker(ctx: Ctx, uid: string, slot: "main" | 0 | 1): void {
               h("span", { class: "wp-eff" }, wazaText(w, lv))),
             on ? h("span", { class: "wp-st on" }, "つけている") : dup ? h("span", { class: "wp-st" }, "もう1つの枠") : null);
         }),
-        missing > 0 ? h("button", { class: "wp-more", onclick: () => ctx.goTab("gacha", "bag") },
+        missing > 0 ? h("button", { class: "wp-more", onclick: () => ctx.goTab("gacha") },
           h("span", null, `まだ覚えていないわざ `, h("b", null, String(missing)), " こ"),
           h("span", { class: "wp-more-go" }, "ねこ福袋へ")) : null);
     },
