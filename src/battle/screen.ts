@@ -11,14 +11,17 @@
 //   強化: 置いたオブジェクトをタップ → となりに小さな窓（レベル・特殊効果・強化ボタン）。
 //   猫: カードを持っていない・選んでいないときに盤面を指でなぞるとスティック（オブジェクトの上から始めてもよい。動かせばスティック）。
 //   PC: WASD / 矢印キーで移動、1〜5 でカードを選んでマスをクリック、Esc でやめる（何も選んでいなければ一時停止）、
-//       P で一時停止、F で速さ（x1/x2/x3）、R で通り道の表示。
-// 右上の「x1 / x2 / x3」で速さを切りかえる。盤面の左上の「みち」で虫の通り道の表示を切りかえる（はじめは表示）。
+//       P で一時停止、F で速さ（x1/x2/x3）。
+// 右上の「x1 / x2 / x3」で速さを切りかえる。
+// v5: カードを持っている・選んでいる・強化の窓を出しているあいだは、戦闘が止まる（battle.setHold）。盤面の上に「配置中・一時停止」
+//     （タップでやめる）。虫の通り道は、置いているあいだだけ出す（「みち」ボタンは無くした）。盤面の外（上のバー・下のパネル）を
+//     押しても、やめて戦闘にもどる。上のバーには、ステージの wall が 1 / 2 なら「難関」「大難関」。ママの顔は PNG があれば縦横比そのまま。
 
 import "./battle.css";
 import type { BattleInput, BattleResult, Loadout } from "../core/types";
 import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
-import { getCatPose, getSprite, loadSpriteOverrides, spriteVersion } from "./sprites";
+import { getCatPose, getSprite, imageSize, loadCatIdlePoses, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
 
 export interface BattleScreenOptions {
@@ -62,6 +65,17 @@ function paintIcon(c: HTMLCanvasElement, img: CanvasImageSource): void {
   g.drawImage(img, 0, 0, c.width, c.height);
 }
 
+/** 縦横比そのままで、canvas に収めて描く（切らない。ママの PNG など）。 */
+function paintFit(c: HTMLCanvasElement, img: CanvasImageSource): void {
+  const g = c.getContext("2d")!;
+  g.clearRect(0, 0, c.width, c.height);
+  const { w, h } = imageSize(img);
+  const k = Math.min(c.width / Math.max(1, w), c.height / Math.max(1, h));
+  const dw = w * k, dh = h * k;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(img, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
+}
+
 function timeText(t: number): string {
   const s = Math.floor(t);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -75,6 +89,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScreenOptions): BattleScreenHandle {
   loadSpriteOverrides();
+  loadCatIdlePoses();
   const battle = new Battle(loadout, opts.seed ?? ((Math.random() * 2 ** 31) | 0));
 
   if (getComputedStyle(root).position === "static") root.style.position = "relative";
@@ -86,7 +101,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   // 上のバー
   const top = el("header", "bt-top", col);
   const mamaBox = el("div", "bt-mama", top);
-  paintIcon(iconCanvas("bt-mama-icon", mamaBox, 30), getSprite("mama", "normal"));
+  const mamaIcon = iconCanvas("bt-mama-icon", mamaBox, 30);
+  paintFit(mamaIcon, getSprite("mama", "normal"));
   const heartsBox = el("div", "bt-hearts", mamaBox);
   const useHearts = battle.mamaMaxHp <= 10;
   const hearts: HTMLElement[] = [];
@@ -104,7 +120,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     mamaBarText = el("span", "bt-mamabar-text", bar);
   }
   const mid = el("div", "bt-mid", top);
-  const waveText = el("div", "bt-wave", mid);
+  const waveRow = el("div", "bt-waverow", mid);
+  const wall = loadout.stage.wall ?? 0;
+  if (wall === 1 || wall === 2) el("span", `bt-wall w${wall}`, waveRow, wall === 2 ? "大難関" : "難関");
+  const waveText = el("div", "bt-wave", waveRow);
   const timeEl = el("div", "bt-time", mid);
   const speedBtn = el("button", "bt-speed", top, "x1");
   speedBtn.type = "button";
@@ -124,10 +143,13 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const hint = el("div", "bt-hint", board);
   el("span", "", hint, "カードを盤面へドラッグして置こう");
   el("span", "bt-hint-sub", hint, "盤面をなぞると猫が動くよ");
-  const pathBtn = el("button", "bt-pathbtn on", board, "みち");
-  pathBtn.type = "button";
-  pathBtn.setAttribute("aria-pressed", "true");
-  pathBtn.title = "虫の通り道を表示（R）";
+  // 置いているあいだ（＝止まっている）のしるし。押すとやめる
+  const holdTag = el("button", "bt-hold", board);
+  holdTag.type = "button";
+  holdTag.hidden = true;
+  const holdText = el("span", "bt-hold-t", holdTag, "配置中・一時停止");
+  el("span", "bt-hold-x", holdTag, "×");
+  holdTag.setAttribute("aria-label", "やめて戦闘にもどる");
   const pop = el("div", "bt-pop", board);
   pop.hidden = true;
 
@@ -188,13 +210,6 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     speedBtn.classList.toggle("fast", v > 1);
     speedBtn.classList.toggle("faster", v > 2);
     savePref("bt-speed", String(v));
-  }
-  function setPath(on: boolean): void {
-    view.showPath = on;
-    pathBtn.classList.toggle("on", on);
-    pathBtn.setAttribute("aria-pressed", String(on));
-    savePref("bt-path", on ? "1" : "0");
-    if (paused || endShown) view.render(0);
   }
   let paused = false;
   let destroyed = false;
@@ -344,7 +359,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (o.hp <= 0) { closePop(); return; }
     const chk = battle.upgradeCheck(o);
     const d = o.def;
-    const key = `${o.level}|${chk.ok}|${fmt(o.upgradeCost)}|${fmt(o.atk)}`;
+    const key = `${o.level}|${chk.ok}|${fmt(o.upgradeCost)}|${fmt(o.atk)}|${fmt(Math.ceil(o.hp))}`;
     if (key === popLast.key) return;
     popLast.key = key;
     popTitle.textContent = `${d.name}  Lv${o.level + 1}`;
@@ -353,6 +368,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (d.kind === "producer") info.push(`カリカリ +${fmt(d.produce)} / ${d.interval}秒`);
     else if (d.kind !== "wall" && o.atk > 0) info.push(`こうげき ${fmt(o.atk)}`);
     if (d.range > 0 && d.kind !== "wall" && d.kind !== "producer") info.push(`しゃてい ${Math.round(d.range * 10) / 10}`);
+    // たいきゅう（虫にかじられると減る。強化で満タンにもどる）
+    if (d.kind !== "mine") info.push(`たいきゅう ${fmt(Math.ceil(o.hp))}/${fmt(o.maxHp)}`);
     popInfo.textContent = info.join("・");
     popPerks.replaceChildren();
     const perks = d.perks && d.perks.length > 0 ? d.perks : [];
@@ -563,8 +580,21 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   });
   pauseBtn.addEventListener("click", () => setPaused(true));
   speedBtn.addEventListener("click", () => setSpeed(speed >= 3 ? 1 : speed + 1));
-  pathBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); setPath(!view.showPath); });
-  pathBtn.addEventListener("click", (e) => { if (e.detail === 0) setPath(!view.showPath); });
+  /** 置く・強化をやめて、戦闘にもどる。 */
+  function cancelPlacing(): void {
+    closePop();
+    if (sel >= 0) setSel(-1);
+    if (aimId === -1 && !(drag && drag.active)) clearGhost();
+  }
+  holdTag.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); cancelPlacing(); });
+  holdTag.addEventListener("click", (e) => { if (e.detail === 0) cancelPlacing(); });
+  // 盤面・カード・窓の外（上のバー・下のパネルのすきま）を押したら、やめる
+  wrap.addEventListener("pointerdown", (e) => {
+    const t = e.target as Node | null;
+    if (!t || paused || endShown) return;
+    if (board.contains(t) || cardsBox.contains(t) || overlay.contains(t)) return;
+    if (sel >= 0 || popObj) cancelPlacing();
+  }, true);
 
   // 長押しメニューを止める
   const stopCtx = (e: Event) => e.preventDefault();
@@ -596,8 +626,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (e.code === "KeyP") { e.preventDefault(); if (!endShown) setPaused(!paused); return; }
     const m = /^(?:Digit|Numpad)([1-5])$/.exec(e.code);
     if (m) { e.preventDefault(); toggleSel(Number(m[1]) - 1); return; }
-    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed >= 3 ? 1 : speed + 1); return; }
-    if (e.code === "KeyR") { e.preventDefault(); setPath(!view.showPath); }
+    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed >= 3 ? 1 : speed + 1); }
   }
   function onKeyUp(e: KeyboardEvent): void { keys.delete(e.code); }
   function onBlur(): void { keys.clear(); }
@@ -659,7 +688,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     const card = el("div", `bt-dialog ${res.win ? "win" : "lose"}`, overlay);
     const pic = iconCanvas("bt-result-pic", card, 96);
     const look = loadout.char.look || loadout.char.id;
-    paintIcon(pic, res.win ? (getCatPose(look, "win") ?? getSprite("cat", look, { role: loadout.char.role })) : getSprite("mama", "scared"));
+    if (res.win) paintIcon(pic, getCatPose(look, "win") ?? getSprite("cat", look, { role: loadout.char.role }));
+    else paintFit(pic, getSprite("mama", "scared"));
     el("div", "bt-dialog-title", card, res.win ? "ママを守った！" : "ママがにげちゃった…");
     const stats = el("div", "bt-stats", card);
     const row = (k: string, v: string) => {
@@ -693,6 +723,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
           break;
         }
         case "mamaHit":
+          mamaScaredT = 1.2;
           bump(mamaBox, "hit");
           bump(wrap, "hurt");
           if (navigator.vibrate) try { navigator.vibrate(40); } catch { /* 無視 */ }
@@ -747,7 +778,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   }
 
   // ---- 上下のバーの更新（変わったときだけ DOM をさわる） ----
-  const last = { mama: -1, wave: "", time: "", kib: "" };
+  const last = { mama: -1, wave: "", time: "", kib: "", scared: false };
+  let mamaScaredT = 0;
   function updateHud(): void {
     const s = battle.state;
     if (s.mamaHp !== last.mama) {
@@ -768,6 +800,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     const v = spriteVersion();
     const repaint = v !== iconVersion;
     iconVersion = v;
+    // ママの顔（虫が着いたすぐあと・負けたときは、こわがる顔）
+    const scared = mamaScaredT > 0 || (!!s.result && !s.result.win);
+    if (repaint || scared !== last.scared) { last.scared = scared; paintFit(mamaIcon, getSprite("mama", scared ? "scared" : "normal")); }
     party.forEach((p, i) => {
       const c = battle.cats[i];
       if (repaint) paintIcon(p.icon, getSprite("cat", c.char.look, { role: c.char.role }));
@@ -798,6 +833,20 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     raf = requestAnimationFrame(frame);
     const dt = Math.min(MAX_DT, Math.max(0, (now - prev) / 1000));
     prev = now;
+    // 置いている・選んでいる・強化の窓を出しているあいだは止める（道も出す）
+    const placing = sel >= 0 || !!(drag && drag.active);
+    const holding = (placing || !!popObj) && !endShown && !battle.result;
+    battle.setHold(holding);
+    view.showPath = placing;
+    if (holdTag.hidden === holding) {
+      holdTag.hidden = !holding;
+      wrap.classList.toggle("holding", holding);
+    }
+    if (holding) {
+      const t = placing ? "配置中・一時停止" : "強化中・一時停止";
+      if (holdText.textContent !== t) holdText.textContent = t;
+    }
+    if (mamaScaredT > 0 && !paused && !holding) mamaScaredT -= dt;
     if (!paused) {
       input.move = readMove();
       battle.step(dt * speed, input);
@@ -815,7 +864,6 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   }
   const sp = Number(loadPref("bt-speed"));
   if (sp === 2 || sp === 3) setSpeed(sp);
-  if (loadPref("bt-path") === "0") setPath(false);
   updateMode();
   resize();
   updateHud();

@@ -13,8 +13,11 @@
 //     bug      … 虫の id（例 "ari"）
 //     projectile … "shot_<kind>"（kind は "cat" または ObjectKind）
 //     pickup   … "kibble"
-//     mama     … "mama"（ふつう）/ "mama_scared"（びっくり）
+//     mama     … "mama"（ふつう）/ "mama_scared"（びっくり）。正方形でなくてもよい（描く側が縦横比そのままで収める）
+//     家具     … "furn_<kind>"（例 "furn_sofa"。drawFurniture が箱に収めて描く）
 //   コードから直接差しかえるときは registerSprite(kind, id, img)。
+// v5: 家具は drawFurniture(g, kind, l, t, w, h, u) で、どの大きさ（1×1〜4×2・1×4 など）にも描ける（FURNITURE_KINDS すべて）。
+//   相棒のひと休みの絵は sprites/cats/manifest.json（カフェと同じ）の "<id>_sit" / "<id>_groom" を loadCatIdlePoses() で読む。
 
 import { FURNITURE_KINDS } from "../core/types";
 import type { CharRole, ObjectKind } from "../core/types";
@@ -1344,19 +1347,24 @@ function furnitureBody(g: G, kind: string, w: number, h: number, u: number, rnd:
       break;
     }
     case "basket": {
-      const cx = w / 2, cy = h / 2;
-      R(w * 0.08, h * 0.16, w * 0.84, h * 0.76, "#d9a85e", m * 0.2);
-      // あみめ
-      g.save();
-      g.beginPath(); g.roundRect(w * 0.08, h * 0.16, w * 0.84, h * 0.76, m * 0.2); g.clip();
-      for (let y = h * 0.2; y < h; y += m * 0.12) Ln(0, y, w, y, "rgba(120,70,20,0.45)", lw * 0.8);
-      for (let x = w * 0.1; x < w; x += m * 0.14) Ln(x, h * 0.16, x, h, "rgba(255,230,170,0.35)", lw * 0.7);
-      g.restore();
-      // ふち
-      R(w * 0.04, h * 0.1, w * 0.92, h * 0.16, "#c8904a", m * 0.08);
-      // 洗たく物
-      E(cx - m * 0.16, cy - m * 0.12, m * 0.2, m * 0.13, "#8fd0ff");
-      E(cx + m * 0.14, cy - m * 0.16, m * 0.17, m * 0.12, "#ffb3c8");
+      // 大きい箱には、かごをいくつか（横は2つ・縦は2つまで）
+      const nx = Math.min(2, cellsW), ny = Math.min(2, cellsH);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const bw = w / nx, bh = h / ny, x0 = bw * i, y0 = bh * j, bm = Math.min(bw, bh);
+        const cx = x0 + bw / 2, cy = y0 + bh / 2;
+        R(x0 + bw * 0.08, y0 + bh * 0.16, bw * 0.84, bh * 0.76, "#d9a85e", bm * 0.2);
+        // あみめ
+        g.save();
+        g.beginPath(); g.roundRect(x0 + bw * 0.08, y0 + bh * 0.16, bw * 0.84, bh * 0.76, bm * 0.2); g.clip();
+        for (let y = y0 + bh * 0.2; y < y0 + bh; y += bm * 0.12) Ln(x0, y, x0 + bw, y, "rgba(120,70,20,0.45)", lw * 0.8);
+        for (let x = x0 + bw * 0.1; x < x0 + bw; x += bm * 0.14) Ln(x, y0 + bh * 0.16, x, y0 + bh, "rgba(255,230,170,0.35)", lw * 0.7);
+        g.restore();
+        // ふち
+        R(x0 + bw * 0.04, y0 + bh * 0.1, bw * 0.92, bh * 0.16, "#c8904a", bm * 0.08);
+        // 洗たく物
+        E(cx - bm * 0.16, cy - bm * 0.12, bm * 0.2, bm * 0.13, (i + j) % 2 ? "#c9f0a0" : "#8fd0ff");
+        E(cx + bm * 0.14, cy - bm * 0.16, bm * 0.17, bm * 0.12, "#ffb3c8");
+      }
       break;
     }
     case "bed": {
@@ -1620,12 +1628,12 @@ function furnitureBody(g: G, kind: string, w: number, h: number, u: number, rnd:
       break;
     }
     case "boxes": {
-      const n = Math.max(2, Math.min(6, cellsW * cellsH + 1));
-      const cols = Math.max(1, Math.min(n, cellsW + (cellsW === 1 ? 0 : 0)));
-      const rows = Math.ceil(n / cols);
+      const cols = Math.min(4, cellsW);
+      const rows = cols * Math.min(3, cellsH) === 1 ? 2 : Math.min(3, cellsH);
       const bw = w / cols, bh = h / rows;
+      const skip = cols * rows > 3 ? Math.floor(rnd() * cols * rows) : -1;
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-        if (j * cols + i >= n) continue;
+        if (j * cols + i === skip) continue;
         const jx = (rnd() - 0.5) * bw * 0.1, jy = (rnd() - 0.5) * bh * 0.08;
         const x = i * bw + bw * 0.05 + jx, y = j * bh + bh * 0.05 + jy, ww = bw * 0.9, hh = bh * 0.88;
         const fh = hh * 0.36;
