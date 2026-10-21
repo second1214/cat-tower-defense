@@ -21,6 +21,7 @@ import "./battle.css";
 import type { BattleInput, BattleResult, Loadout } from "../core/types";
 import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
+import { createAutoPilot } from "./auto";
 import { getCatPose, getSprite, imageSize, loadCatIdlePoses, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
 
@@ -125,6 +126,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   if (wall === 1 || wall === 2) el("span", `bt-wall w${wall}`, waveRow, wall === 2 ? "大難関" : "難関");
   const waveText = el("div", "bt-wave", waveRow);
   const timeEl = el("div", "bt-time", mid);
+  const autoBtn = el("button", "bt-speed bt-auto", top, "オート");
+  autoBtn.type = "button";
+  autoBtn.setAttribute("aria-label", "オート（オブジェクトと猫をまかせる）");
   const speedBtn = el("button", "bt-speed", top, "x1");
   speedBtn.type = "button";
   speedBtn.setAttribute("aria-label", "速さ");
@@ -213,6 +217,14 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   }
   let paused = false;
   let destroyed = false;
+  // オート: オブジェクトを置く・強化する、猫を動かす（スティックをさわっているあいだは、猫は手で動かす）
+  const pilot = createAutoPilot(battle, loadout);
+  let autoOn = false, autoThink = 0;
+  function setAuto(v: boolean): void {
+    autoOn = v;
+    autoBtn.classList.toggle("on", v);
+    savePref("bt-auto", v ? "1" : "0");
+  }
   let endShown = false;
   let endCalled = false;
   let endTimer = 0;
@@ -580,6 +592,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   });
   pauseBtn.addEventListener("click", () => setPaused(true));
   speedBtn.addEventListener("click", () => setSpeed(speed >= 3 ? 1 : speed + 1));
+  autoBtn.addEventListener("click", () => setAuto(!autoOn));
   /** 置く・強化をやめて、戦闘にもどる。 */
   function cancelPlacing(): void {
     closePop();
@@ -849,6 +862,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (mamaScaredT > 0 && !paused && !holding) mamaScaredT -= dt;
     if (!paused) {
       input.move = readMove();
+      if (autoOn && !holding && !battle.result) {
+        if (battle.time >= autoThink) { pilot.decide(); autoThink = battle.time + 0.5; }
+        if (input.move.x === 0 && input.move.y === 0) input.move = pilot.steer();
+      }
       battle.step(dt * speed, input);
       onEvents(battle.events);
       if (ghostAt) refreshGhost();
@@ -862,6 +879,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     }
     updateHud();
   }
+  setAuto(loadPref("bt-auto") === "1");
   const sp = Number(loadPref("bt-speed"));
   if (sp === 2 || sp === 3) setSpeed(sp);
   updateMode();

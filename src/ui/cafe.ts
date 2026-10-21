@@ -455,7 +455,9 @@ function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap:
   const walk = async (c: CatEl, x: number, left: string, b: number, u: string) => {
     setPose(c, "walk");
     c.wrap.style.zIndex = "30";
-    c.wrap.classList.toggle("flip", x > c.x + 0.5);
+    // PNG の絵は右向き、SVG の絵は左向き。進む方へ体を向ける
+    const right = x > c.x + 0.5;
+    c.wrap.classList.toggle("flip", hasCatSprite(c.look, "walk") ? !right : right);
     c.wrap.style.setProperty("--u", uAt(c, u));
     const cur = parseFloat(c.wrap.style.bottom) || b;
     const ms = Math.round(700 + Math.abs(x - c.x) * 26 + Math.abs(b - cur) * 22);

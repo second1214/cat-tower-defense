@@ -129,6 +129,9 @@
 }
 .bt-speed.fast { background: #8fd0ff; }
 .bt-speed.faster { background: #ff9ad0; }
+.bt-auto { min-width: 58px; font-size: 13px !important; }
+.bt-auto + .bt-speed { margin-left: 6px; }
+.bt-auto.on { background: #7be08a; }
 .bt-speed:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--bt-ink); }
 .bt-speed + .bt-pause { margin-left: 6px; }
 .bt-pause span { width: 5px; height: 14px; background: var(--bt-ink); border-radius: 2px; }

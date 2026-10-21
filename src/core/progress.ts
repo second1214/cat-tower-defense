@@ -1142,12 +1142,24 @@ export function rollDropRarity(g: number, rng: Rng): EquipRarity {
 }
 
 /** クリアした数に合わせて、オブジェクトを手に入れる。新しく増えた id を返す。 */
+/** 持っているオブジェクトのレベルの真ん中。 */
+function medianObjectLevel(save: SaveData): number {
+  const lv = Object.values(save.objects).map((o) => o.level).sort((a, b) => a - b);
+  return lv.length ? lv[lv.length >> 1] : 1;
+}
+
+/** 新しく手に入ったオブジェクトのはじめのレベル。 */
+export function catchUpLevel(save: SaveData): number {
+  return Math.max(1, Math.floor(medianObjectLevel(save) * 0.6));
+}
+
 export function syncUnlocks(save: SaveData): { newObjects: string[] } {
   const n = save.cleared + 1; // クリアしたステージの数（通し番号＝この数まで）
   const newObjects: string[] = [];
   for (const o of OBJECTS) {
     if (o.unlockStage <= n && !save.objects[o.id]) {
-      save.objects[o.id] = { level: 1, shards: 0 };
+      // 新しいオブジェクトは、持っているものの真ん中くらいのレベルから（古いものだけ強いままにならないように）
+      save.objects[o.id] = { level: catchUpLevel(save), shards: 0 };
       newObjects.push(o.id);
       if (save.loadout.length < MAX_LOADOUT) save.loadout.push(o.id);
     }
@@ -1199,8 +1211,12 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   const shardMap = new Map<string, number>();
   const owned = OBJECTS.filter((o) => save.objects[o.id]);
   const nSh = rollCount(rw.objectDrops * (1 + rel.drop), rng);
+  const lvs = save.loadout.map((id) => save.objects[id]?.level ?? 1).sort((a, b) => a - b);
+  const mid = lvs.length ? lvs[lvs.length >> 1] : 1;
   for (let i = 0; i < nSh && owned.length; i++) {
-    const o = pickWeighted(rng, owned, (x) => OBJ_RARITY_DROP[x.rarity] * (save.loadout.includes(x.id) ? 2 : 1));
+    // 持っていくオブジェクトの中で、レベルが真ん中より高いものほど出にくい（1つだけ育ちすぎないように）
+    const o = pickWeighted(rng, owned, (x) => OBJ_RARITY_DROP[x.rarity] * (save.loadout.includes(x.id)
+      ? 2 * Math.pow(0.7, Math.max(0, save.objects[x.id].level - mid)) : 1));
     const cnt = 5 + g * 2 + randInt(rng, 3);
     shardMap.set(o.id, (shardMap.get(o.id) ?? 0) + cnt);
   }
