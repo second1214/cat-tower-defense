@@ -1,5 +1,5 @@
-// 猫の定義（近所の猫たち）。猫そのものにはレアリティも役割もない（戦い方はメインの「わざ」で決まる。waza.ts）。
-// ここの 20 匹は「近所の猫」のひな形。ステージを進めると譲渡会に来て、無料でお迎えできる。
+// 猫の見た目のひな形。猫そのものにはレアリティも役割もない（戦い方はメインの「わざ」で決まる。waza.ts）。
+// ここの 20 匹は、うちの子の見た目（look）のひな形と、古いセーブを引きつぐためのデータ。
 // id は絵（sprites）の id でもある（うちの子の見た目 look もこの id から選ぶ）。
 import type { CharRole, Personality } from "../core/types";
 
@@ -7,7 +7,7 @@ export interface CharDef {
   id: string;
   name: string;
   desc: string;
-  /** はじめの性格（お迎えしたあとで変えられる）。 */
+  /** はじめの性格（古いセーブから引きついだ猫に使う。あとで変えられる）。 */
   personality: Personality;
   /** その猫らしいメインのわざ（古いセーブの特技を引きつぐのに使う。waza.ts の id）。 */
   waza: string;
@@ -52,18 +52,6 @@ export const CHAR_MAP: Record<string, CharDef> = Object.fromEntries(CHARS.map((c
 
 /** 見た目（look）に選べる絵の id。絵が増えたらここも増える。 */
 export const CAT_LOOKS: string[] = CHARS.map((c) => c.id);
-
-/**
- * 近所の猫が譲渡会に来るステージ（通し番号 g。そのステージをクリアしたら来る）。
- * 1匹目は 1-3 クリア（g = 2）、そのあとはだいたい5ステージごと。
- * ノルウェージャン（chatora）は、はじめの1匹のひな形でもあるので、いちばん最後。
- */
-export const NEIGHBOR_UNLOCK: Record<string, number> = Object.fromEntries(
-  [
-    "mike", "kuro", "shiro", "kijitora", "hachiware", "sabatora", "komugi", "omochi", "sabi", "leo",
-    "luna", "chibi", "kuma", "sora", "purin", "kotetsu", "hime", "taisho", "tama", "chatora",
-  ].map((id, i) => [id, 2 + i * 5]),
-);
 
 /** 名前の長さの上限（文字）。 */
 export const MAX_CAT_NAME = 12;

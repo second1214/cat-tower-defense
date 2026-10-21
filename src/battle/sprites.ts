@@ -13,10 +13,18 @@
 //     bug      … 虫の id（例 "ari"）
 //     projectile … "shot_<kind>"（kind は "cat" または ObjectKind）
 //     pickup   … "kibble"
-//     mama     … "mama"（ふつう）/ "mama_scared"（びっくり）
+//     mama     … "mama"（ふつう）/ "mama_scared"（びっくり）。正方形でなくてもよい（描く側が縦横比そのままで収める）
+//     家具     … "furn_<kind>"（例 "furn_sofa"。drawFurniture が箱に収めて描く）
 //   コードから直接差しかえるときは registerSprite(kind, id, img)。
+// v5: 家具は drawFurniture(g, kind, l, t, w, h, u) で、どの大きさ（1×1〜4×2・1×4 など）にも描ける（FURNITURE_KINDS すべて）。
+//   相棒のひと休みの絵は sprites/cats/manifest.json（カフェと同じ）の "<id>_sit" / "<id>_groom" を loadCatIdlePoses() で読む。
+// v5: くせのある虫の絵（シロアリ termite・ハエ fly・ダンゴムシ pillbug・クワガタ stag・ゲジ geji）。id の一部で形を決める（bugShapeOf）。
 
+import { FURNITURE_KINDS } from "../core/types";
 import type { CharRole, ObjectKind } from "../core/types";
+
+/** 一覧用（FURNITURE_KINDS ＋ 古いデータの "shoes"）。 */
+const FURNITURE_KINDS_LIST: readonly string[] = [...FURNITURE_KINDS, "shoes"];
 
 export type SpriteKind = "cat" | "catRest" | "object" | "bug" | "projectile" | "pickup" | "mama";
 export type SpriteImage = HTMLCanvasElement | HTMLImageElement;
@@ -890,7 +898,9 @@ function drawTrap(g: G): void {
 
 export type BugShape =
   | "ant" | "mosquito" | "roach" | "stinkbug" | "spider"
-  | "caterpillar" | "centipede" | "beetle" | "horned" | "hornet";
+  | "caterpillar" | "centipede" | "beetle" | "horned" | "hornet"
+  // v5: くせのある虫（難関で出る）
+  | "termite" | "fly" | "pillbug" | "stag" | "geji";
 
 /** id の一部から形を決める（長いものから順に調べる）。 */
 export function bugShapeOf(id: string): BugShape {
@@ -902,13 +912,17 @@ export function bugShapeOf(id: string): BugShape {
     ["gokiburi", "roach"], ["roach", "roach"],
     ["imomushi", "caterpillar"], ["caterpillar", "caterpillar"], ["kemushi", "caterpillar"],
     ["kumo", "spider"], ["spider", "spider"],
-    ["kabuto", "horned"], ["kuwagata", "horned"],
+    ["kabuto", "horned"], ["kuwagata", "stag"], ["stag", "stag"],
+    ["shiroari", "termite"], ["termite", "termite"],
+    ["dangomushi", "pillbug"], ["dango", "pillbug"], ["pillbug", "pillbug"],
+    ["gejigeji", "geji"], ["geji", "geji"],
     ["kogane", "beetle"], ["beetle", "beetle"], ["tentou", "beetle"],
     ["mosquito", "mosquito"],
     ["ari", "ant"], ["ant", "ant"],
   ];
   for (const [k, v] of t) if (s.includes(k)) return v;
   if (s === "ka" || s.startsWith("ka_") || s.endsWith("_ka")) return "mosquito";
+  if (s === "hae" || s.startsWith("hae") || s.endsWith("_hae") || s.includes("fly")) return "fly";
   return "ant";
 }
 
@@ -1089,6 +1103,99 @@ function drawBug(shape: BugShape, id: string): HTMLCanvasElement {
       bugEyes(g, 96, 9, 5, horned);
       break;
     }
+    case "termite": {
+      // シロアリ: 白っぽいクリーム色・大きな頭とあご（かじる）
+      legs(g, [[8, 56, 34, 44], [9, 62, 38, 64], [8, 68, 32, 86]], 4);
+      antennae(g, 102, 20, 16, 3.5);
+      ell(g, 64, 34, 17, 26);
+      fs(g, "#f1e3c4", () => {
+        for (const y of [22, 32, 42]) line(g, [52, y, 76, y], 2.5, "rgba(150,120,80,0.45)");
+      });
+      ell(g, 64, 62, 10, 9);
+      fs(g, "#ead7b0");
+      ell(g, 64, 88, 17, 15);
+      fs(g, "#e2a85a");
+      // あご（ぎざぎざ）
+      for (const sx of [-1, 1]) {
+        curve(g, 64 + sx * 6, 100, 64 + sx * 14, 112, 64 + sx * 4, 120, 4.5);
+      }
+      bugEyes(g, 88, 7, 4);
+      break;
+    }
+    case "fly": {
+      // ハエ: まるい黒い体・大きな赤い目・すきとおった羽
+      for (const [a, b, c, d] of [[10, 62, 40, 48], [12, 68, 44, 72], [10, 74, 36, 98]]) {
+        line(g, [64 + a, b, 64 + c, d], 3.5);
+        line(g, [64 - a, b, 64 - c, d], 3.5);
+      }
+      for (const sx of [-1, 1]) {
+        ell(g, 64 + sx * 26, 46, 24, 14, sx * -0.35);
+        fs(g, "rgba(215,230,240,0.7)", () => line(g, [64 + sx * 10, 48, 64 + sx * 44, 40], 2, "rgba(120,140,160,0.6)"), 4);
+      }
+      ell(g, 64, 50, 20, 24);
+      fs(g, "#3c3f48", () => {
+        for (const y of [38, 50]) line(g, [48, y, 80, y], 3, "rgba(140,200,160,0.55)");
+      });
+      ell(g, 64, 84, 18, 15);
+      fs(g, "#4a4d58");
+      for (const sx of [-1, 1]) { ell(g, 64 + sx * 13, 92, 10, 11); fs(g, "#c8392f", () => dot(g, 64 + sx * 15, 88, 3, "rgba(255,255,255,0.8)"), 3.5); }
+      break;
+    }
+    case "pillbug": {
+      // ダンゴムシ: 灰色のかたいからが何枚も重なる
+      legs(g, [[22, 44, 40, 40], [24, 58, 44, 58], [24, 72, 44, 76], [22, 86, 40, 92]], 3.5);
+      antennae(g, 104, 22, 12, 3.5);
+      ell(g, 64, 62, 30, 44);
+      fs(g, "#7d8794", () => {
+        for (let k = 0; k < 6; k++) {
+          const y = 28 + k * 12;
+          curve(g, 36, y + 4, 64, y - 6, 92, y + 4, 3, "rgba(40,45,55,0.55)");
+        }
+        ell(g, 52, 40, 8, 16, 0.2);
+        g.fillStyle = "rgba(255,255,255,0.28)";
+        g.fill();
+      });
+      ell(g, 64, 102, 16, 9);
+      fs(g, "#69727e");
+      bugEyes(g, 101, 7, 3.8);
+      break;
+    }
+    case "stag": {
+      // クワガタ: こげ茶のつやつや・大きなはさみのあご
+      legs(g, [[16, 50, 46, 36], [18, 64, 50, 66], [16, 76, 44, 100]]);
+      for (const sx of [-1, 1]) {
+        curve(g, 64 + sx * 10, 96, 64 + sx * 30, 112, 64 + sx * 10, 126, 8);
+        curve(g, 64 + sx * 10, 96, 64 + sx * 30, 112, 64 + sx * 10, 126, 4, "#3a1e10");
+        line(g, [64 + sx * 24, 110, 64 + sx * 16, 112], 3);
+      }
+      ell(g, 64, 48, 28, 34);
+      fs(g, "#4a2a18", () => {
+        line(g, [64, 16, 64, 80], 3.5, "rgba(0,0,0,0.5)");
+        ell(g, 50, 36, 7, 15, 0.2);
+        g.fillStyle = "rgba(255,210,170,0.35)";
+        g.fill();
+      });
+      rr(g, 42, 80, 44, 18, 8);
+      fs(g, "#3a1e10");
+      bugEyes(g, 90, 14, 4.5, true);
+      break;
+    }
+    case "geji": {
+      // ゲジ: うすい黄土色・とても長い足がたくさん
+      for (let k = 0; k < 7; k++) {
+        const y = 30 + k * 11, len = 46 + (k % 2) * 6;
+        for (const sx of [-1, 1]) curve(g, 64 + sx * 8, y, 64 + sx * (len * 0.6), y - 12, 64 + sx * len, y + 14, 2.5);
+      }
+      for (let k = 0; k < 6; k++) {
+        ell(g, 64, 32 + k * 12, 9, 7);
+        fs(g, k % 2 ? "#c9a46a" : "#b8925a", () => dot(g, 64, 30 + k * 12, 2.2, "#6b4a2a"), 3);
+      }
+      ell(g, 64, 102, 10, 9);
+      fs(g, "#c9a46a");
+      antennae(g, 108, 30, 16, 2.5);
+      bugEyes(g, 102, 5, 3.2);
+      break;
+    }
     case "hornet": {
       wings(g, "rgba(220,235,255,0.8)");
       legs(g, [[8, 70, 30, 60], [9, 74, 32, 84], [8, 78, 26, 100]], 4);
@@ -1173,6 +1280,534 @@ function drawKibble(): HTMLCanvasElement {
   return cv;
 }
 
+// ---------------------------------------------------------------------------
+// 家具（ステージの障害物）。大きさ（w×h マス）がいろいろなので、キャッシュの絵ではなく、渡された箱にそのまま描く。
+// 上から少しななめに見た形（上の面＋手前の面）。PNG の差しかえは "furn_<kind>"（箱に収まるように、縦横比はそのまま）。
+// ---------------------------------------------------------------------------
+
+/** 向きのある家具（縦長の箱のときは 90 度まわして描く）。 */
+const FURN_ORIENTED = new Set([
+  "sofa", "bed", "counter", "tv", "desk", "shelf", "bookshelf", "partition", "piano", "bathtub", "tansu", "stove", "sink", "table",
+]);
+
+/** 家具の PNG（"furn_<kind>"）があれば返す。 */
+export function getFurnitureOverride(kind: string): HTMLImageElement | null {
+  return overrides.get(`furn_${kind}`) ?? null;
+}
+
+/** 決まった乱数（家具の模様が毎回同じになるように）。 */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * 家具を、箱 (l, t, w, h)（CSS px）に描く。u はマスの大きさ（px）。faceLeft なら、縦長のときに手前を左へ向ける。
+ * 影は呼ぶ側で描く。g の状態（transform など）は元に戻す。
+ */
+export function drawFurniture(g: G, kind: string, l: number, t: number, w: number, h: number, u: number, faceLeft = false, seed = 1): void {
+  const ov = getFurnitureOverride(kind);
+  if (ov && ov.naturalWidth > 0) {
+    const k = Math.min(w / ov.naturalWidth, h / ov.naturalHeight);
+    const iw = ov.naturalWidth * k, ih = ov.naturalHeight * k;
+    g.drawImage(ov, l + (w - iw) / 2, t + (h - ih) / 2, iw, ih);
+    return;
+  }
+  g.save();
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  let W = w, H = h;
+  if (FURN_ORIENTED.has(kind) && h > w * 1.2) {
+    // 縦長: まわして、横長として描く
+    g.translate(l + w / 2, t + h / 2);
+    g.rotate(faceLeft ? Math.PI / 2 : -Math.PI / 2);
+    W = h; H = w;
+    g.translate(-W / 2, -H / 2);
+  } else {
+    g.translate(l, t);
+  }
+  furnitureBody(g, kind, W, H, u, seeded(seed * 7919 + kind.length * 31));
+  g.restore();
+}
+
+const FOL = "#3a2214";
+
+function furnitureBody(g: G, kind: string, w: number, h: number, u: number, rnd: () => number): void {
+  const lw = Math.max(1.2, u * 0.055);
+  const m = Math.min(w, h);
+  const rad = Math.max(2, u * 0.12);
+  const R = (x: number, y: number, ww: number, hh: number, fill: string, r = rad) => {
+    g.beginPath(); g.roundRect(x, y, Math.max(0.5, ww), Math.max(0.5, hh), Math.min(r, ww / 2, hh / 2)); g.fillStyle = fill; g.fill();
+    g.lineWidth = lw; g.strokeStyle = FOL; g.stroke();
+  };
+  const F = (x: number, y: number, ww: number, hh: number, fill: string, r = 0) => {
+    g.beginPath(); g.roundRect(x, y, Math.max(0.5, ww), Math.max(0.5, hh), Math.min(r, ww / 2, hh / 2)); g.fillStyle = fill; g.fill();
+  };
+  const E = (x: number, y: number, rx: number, ry: number, fill: string, stroke = true) => {
+    g.beginPath(); g.ellipse(x, y, Math.max(0.5, rx), Math.max(0.5, ry), 0, 0, Math.PI * 2); g.fillStyle = fill; g.fill();
+    if (stroke) { g.lineWidth = lw; g.strokeStyle = FOL; g.stroke(); }
+  };
+  const Ln = (x0: number, y0: number, x1: number, y1: number, color: string, width = lw) => {
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.strokeStyle = color; g.lineWidth = width; g.stroke();
+  };
+  /** 上の面＋手前の面（fh = 手前の面の高さ）。 */
+  const slab = (x: number, y: number, ww: number, hh: number, fh: number, top: string, front: string, r = rad) => {
+    R(x, y + hh - fh - r, ww, fh + r, front, r);
+    R(x, y, ww, hh - fh, top, r);
+  };
+  const shine = (x: number, y: number, ww: number, hh: number) => F(x, y, ww, hh, "rgba(255,255,255,0.28)", hh / 2);
+  const cellsW = Math.max(1, Math.round(w / u)), cellsH = Math.max(1, Math.round(h / u));
+
+  switch (kind) {
+    case "table": {
+      const fh = Math.min(h * 0.16, u * 0.2);
+      // 脚
+      for (const x of [w * 0.1, w * 0.86]) F(x, h - fh * 1.2, w * 0.05, fh * 1.2, "#5a3418");
+      slab(0, 0, w, h - fh * 0.2, fh, "#b97a46", "#7f4c26");
+      for (let k = 1; k < 4; k++) Ln(w * 0.06, (h - fh) * (k / 4), w * 0.94, (h - fh) * (k / 4) + (rnd() - 0.5) * 2, "rgba(90,50,20,0.25)", lw * 0.8);
+      // テーブルクロスのランナー
+      F(w * 0.08, (h - fh) * 0.36, w * 0.84, (h - fh) * 0.26, "rgba(255,240,220,0.55)");
+      const n = Math.max(1, Math.min(4, cellsW));
+      for (let k = 0; k < n; k++) {
+        const cx = w * ((k + 0.5) / n), cy = (h - fh) * (k % 2 ? 0.62 : 0.36);
+        E(cx, cy, m * 0.13, m * 0.1, "#fff8ec");
+        E(cx, cy, m * 0.07, m * 0.05, k % 2 ? "#f2a65a" : "#e86a6a", false);
+      }
+      E(w * 0.82, (h - fh) * 0.25, m * 0.06, m * 0.06, "#7cc3f0");
+      break;
+    }
+    case "plant": {
+      const nx = Math.min(3, cellsW), ny = Math.min(2, cellsH);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const cw = w / nx, ch = h / ny;
+        const cx = cw * (i + 0.5), cy = ch * (j + 0.5);
+        const s = Math.min(cw, ch);
+        // 鉢
+        g.beginPath();
+        g.moveTo(cx - s * 0.24, cy + s * 0.08); g.lineTo(cx + s * 0.24, cy + s * 0.08);
+        g.lineTo(cx + s * 0.18, cy + s * 0.44); g.lineTo(cx - s * 0.18, cy + s * 0.44); g.closePath();
+        g.fillStyle = (i + j) % 2 ? "#d88a55" : "#c8794a"; g.fill(); g.lineWidth = lw; g.strokeStyle = FOL; g.stroke();
+        F(cx - s * 0.26, cy + s * 0.04, s * 0.52, s * 0.08, "#e09a66", 2);
+        // 葉
+        const leaves: [number, number, number, string][] = [[0, -0.16, 0.25, "#5fa85a"], [-0.2, -0.02, 0.19, "#4f9a4c"], [0.2, -0.03, 0.19, "#6ab866"], [0, -0.36, 0.16, "#7cc576"], [-0.12, -0.28, 0.13, "#5fa85a"]];
+        for (const [dx, dy, r, c] of leaves) E(cx + dx * s, cy + dy * s, r * s, r * s * 0.9, c);
+        Ln(cx, cy - s * 0.3, cx, cy + s * 0.05, "rgba(40,80,30,0.5)", lw);
+      }
+      break;
+    }
+    case "shelf": {
+      const fh = h * 0.55;
+      slab(0, 0, w, h, fh, "#93603a", "#7a4a2a");
+      // 上の面の小物
+      const n = Math.max(2, cellsW * 2);
+      for (let k = 0; k < n; k++) {
+        const x = w * ((k + 0.5) / n), y = (h - fh) * 0.5;
+        if (k % 3 === 0) E(x, y, m * 0.09, m * 0.09, "#7cc576");
+        else if (k % 3 === 1) R(x - m * 0.08, y - m * 0.1, m * 0.16, m * 0.18, "#fff3d6", 2);
+        else E(x, y, m * 0.07, m * 0.05, "#f7d34a");
+      }
+      // 手前: 2段の本
+      const y0 = h - fh + fh * 0.12;
+      for (let row = 0; row < 2; row++) {
+        const yy = y0 + row * fh * 0.42, bh = fh * 0.34;
+        F(w * 0.05, yy - 1, w * 0.9, bh + 2, "#4f2c16");
+        const nb = Math.max(4, Math.round(w / (u * 0.2)));
+        for (let j = 0; j < nb; j++) {
+          const bw = (w * 0.9) / nb;
+          const hh = bh * (0.7 + rnd() * 0.3);
+          F(w * 0.05 + j * bw + 0.5, yy + bh - hh, bw - 1.2, hh, ["#e86a6a", "#6ab0e8", "#f2c14e", "#7cc576", "#c08af0"][(j + row * 2) % 5]);
+        }
+      }
+      break;
+    }
+    case "sofa": {
+      const fh = Math.min(h * 0.2, u * 0.25), arm = Math.min(w * 0.14, m * 0.24);
+      slab(0, 0, w, h, fh, "#5a74a8", "#3f5788");
+      // 背もたれ
+      R(arm * 0.4, h * 0.02, w - arm * 0.8, h * 0.3, "#4a6398");
+      // ひじかけ
+      R(0, h * 0.08, arm, h - fh - h * 0.06, "#6680b8");
+      R(w - arm, h * 0.08, arm, h - fh - h * 0.06, "#6680b8");
+      // 座るところ
+      const n = Math.max(1, cellsW);
+      const sx = arm, sw = (w - arm * 2) / n;
+      for (let k = 0; k < n; k++) {
+        R(sx + k * sw + 1, h * 0.3, sw - 2, h * 0.62 - fh, "#7390c8");
+        shine(sx + k * sw + sw * 0.15, h * 0.36, sw * 0.5, Math.max(2, h * 0.06));
+      }
+      // クッション
+      E(arm + m * 0.3, h * 0.24, m * 0.2, m * 0.14, "#f5a6c0");
+      if (n > 1) E(w - arm - m * 0.3, h * 0.24, m * 0.2, m * 0.14, "#f7d34a");
+      break;
+    }
+    case "basket": {
+      // 大きい箱には、かごをいくつか（横は2つ・縦は2つまで）
+      const nx = Math.min(2, cellsW), ny = Math.min(2, cellsH);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const bw = w / nx, bh = h / ny, x0 = bw * i, y0 = bh * j, bm = Math.min(bw, bh);
+        const cx = x0 + bw / 2, cy = y0 + bh / 2;
+        R(x0 + bw * 0.08, y0 + bh * 0.16, bw * 0.84, bh * 0.76, "#d9a85e", bm * 0.2);
+        // あみめ
+        g.save();
+        g.beginPath(); g.roundRect(x0 + bw * 0.08, y0 + bh * 0.16, bw * 0.84, bh * 0.76, bm * 0.2); g.clip();
+        for (let y = y0 + bh * 0.2; y < y0 + bh; y += bm * 0.12) Ln(x0, y, x0 + bw, y, "rgba(120,70,20,0.45)", lw * 0.8);
+        for (let x = x0 + bw * 0.1; x < x0 + bw; x += bm * 0.14) Ln(x, y0 + bh * 0.16, x, y0 + bh, "rgba(255,230,170,0.35)", lw * 0.7);
+        g.restore();
+        // ふち
+        R(x0 + bw * 0.04, y0 + bh * 0.1, bw * 0.92, bh * 0.16, "#c8904a", bm * 0.08);
+        // 洗たく物
+        E(cx - bm * 0.16, cy - bm * 0.12, bm * 0.2, bm * 0.13, (i + j) % 2 ? "#c9f0a0" : "#8fd0ff");
+        E(cx + bm * 0.14, cy - bm * 0.16, bm * 0.17, bm * 0.12, "#ffb3c8");
+      }
+      break;
+    }
+    case "bed": {
+      const fh = Math.min(h * 0.12, u * 0.18);
+      slab(0, 0, w, h, fh, "#a86b3c", "#7a4a26");
+      // ヘッドボード
+      R(0, 0, w, h * 0.14, "#8a5530");
+      // マットレス
+      R(w * 0.05, h * 0.12, w * 0.9, h * 0.82 - fh, "#fbf6ee");
+      // まくら
+      const np = w > u * 1.6 ? 2 : 1;
+      for (let k = 0; k < np; k++) {
+        const pw = (w * 0.8) / np;
+        R(w * 0.1 + k * pw + pw * 0.06, h * 0.16, pw * 0.88, h * 0.18, "#ffffff", m * 0.1);
+      }
+      // 掛けぶとん（水玉）
+      const by = h * 0.4;
+      g.save();
+      g.beginPath(); g.roundRect(w * 0.04, by, w * 0.92, h - by - fh * 0.8, rad); g.closePath();
+      g.fillStyle = "#f39bb0"; g.fill(); g.lineWidth = lw; g.strokeStyle = FOL; g.stroke();
+      g.clip();
+      for (let y = by + m * 0.12; y < h; y += m * 0.22) for (let x = w * 0.08 + ((y / (m * 0.22)) % 2) * m * 0.11; x < w; x += m * 0.22) E(x, y, m * 0.04, m * 0.04, "rgba(255,255,255,0.7)", false);
+      g.restore();
+      F(w * 0.04, by, w * 0.92, Math.max(2, h * 0.07), "#ffd0dc", 2);
+      break;
+    }
+    case "counter":
+    case "sink":
+    case "stove": {
+      const fh = h * 0.42;
+      slab(0, 0, w, h, fh, kind === "stove" ? "#d9dde3" : "#ece6da", "#c9a27a");
+      // 手前のとびら
+      const nd = Math.max(1, cellsW);
+      for (let k = 0; k < nd; k++) {
+        const dw = w / nd;
+        R(k * dw + dw * 0.08, h - fh + fh * 0.12, dw * 0.84, fh * 0.72, "#d8b48a", 3);
+        E(k * dw + dw * (k % 2 ? 0.2 : 0.8), h - fh * 0.5, m * 0.035, m * 0.035, "#f2e2c0");
+      }
+      const th = h - fh;
+      if (kind === "sink") {
+        const bw = Math.min(w * 0.6, u * 1.2), bx = (w - bw) / 2;
+        R(bx, th * 0.18, bw, th * 0.66, "#b9c3cc", m * 0.12);
+        F(bx + bw * 0.1, th * 0.26, bw * 0.8, th * 0.5, "#9aa8b4", m * 0.08);
+        E(bx + bw / 2, th * 0.5, m * 0.04, m * 0.04, "#5a6470", false);
+        // 蛇口
+        g.beginPath(); g.moveTo(bx + bw / 2, th * 0.12); g.quadraticCurveTo(bx + bw / 2, -th * 0.05, bx + bw / 2 + m * 0.14, th * 0.08);
+        g.lineWidth = lw * 3; g.strokeStyle = FOL; g.stroke(); g.lineWidth = lw * 1.6; g.strokeStyle = "#dfe6ec"; g.stroke();
+        // スポンジ
+        R(bx + bw + m * 0.06, th * 0.3, m * 0.18, m * 0.12, "#f7d34a", 2);
+        F(bx + bw + m * 0.06, th * 0.3, m * 0.18, m * 0.05, "#7cc576");
+      } else if (kind === "stove") {
+        const nb = Math.min(4, Math.max(2, cellsW * cellsH));
+        const cols = nb > 2 ? 2 : nb, rows = nb > 2 ? 2 : 1;
+        for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+          const cx = w * ((i + 0.5) / cols), cy = th * ((j + 0.5) / rows);
+          const r = Math.min(w / cols, th / rows) * 0.32;
+          E(cx, cy, r, r * 0.8, "#3a3e46");
+          g.beginPath(); g.ellipse(cx, cy, r * 0.6, r * 0.48, 0, 0, Math.PI * 2); g.strokeStyle = "#7a808a"; g.lineWidth = lw; g.stroke();
+          if (i === 0 && j === 0) {
+            // おなべ
+            E(cx, cy - r * 0.15, r * 0.95, r * 0.75, "#e8524a");
+            E(cx, cy - r * 0.3, r * 0.65, r * 0.42, "#c2403a", false);
+            E(cx, cy - r * 0.35, r * 0.15, r * 0.12, "#f2e2c0");
+          }
+        }
+        for (let k = 0; k < Math.min(4, nd * 2); k++) E(w * ((k + 0.5) / Math.min(4, nd * 2)), h - fh * 0.92, m * 0.04, m * 0.04, "#5a5f6a");
+      } else {
+        // まな板とやかん
+        R(w * 0.12, th * 0.25, Math.min(w * 0.35, u * 0.7), th * 0.5, "#e8c48c", 3);
+        E(w * 0.18 + Math.min(w * 0.35, u * 0.7) * 0.6, th * 0.5, m * 0.06, m * 0.04, "#7cc576", false);
+        if (w > u * 1.4) { E(w * 0.75, th * 0.5, m * 0.16, m * 0.14, "#bcd4ea"); E(w * 0.75, th * 0.42, m * 0.05, m * 0.04, FOL, false); }
+      }
+      break;
+    }
+    case "fridge": {
+      const fh = h * 0.62;
+      slab(w * 0.04, 0, w * 0.92, h, fh, "#f4f6f8", "#e2e8ee");
+      // 冷凍庫とのさかい
+      Ln(w * 0.06, h - fh * 0.66, w * 0.94, h - fh * 0.66, FOL, lw);
+      // とって
+      R(w * 0.78, h - fh * 0.92, Math.max(2, w * 0.06), fh * 0.2, "#b9c3cc", 2);
+      R(w * 0.78, h - fh * 0.56, Math.max(2, w * 0.06), fh * 0.3, "#b9c3cc", 2);
+      // マグネット・メモ
+      R(w * 0.2, h - fh * 0.5, m * 0.22, m * 0.18, "#fff6c8", 1);
+      E(w * 0.31, h - fh * 0.5, m * 0.04, m * 0.04, "#e86a6a", false);
+      E(w * 0.35, h - fh * 0.86, m * 0.05, m * 0.05, "#7cc3f0");
+      shine(w * 0.12, h * 0.04, w * 0.5, Math.max(2, (h - fh) * 0.3));
+      break;
+    }
+    case "tv": {
+      const fh = Math.min(h * 0.3, u * 0.32);
+      slab(0, h * 0.35, w, h * 0.65, fh, "#93603a", "#6b4228");
+      // 引き出し
+      const nd = Math.max(2, cellsW);
+      for (let k = 0; k < nd; k++) E(w * ((k + 0.5) / nd), h - fh * 0.5, m * 0.035, m * 0.035, "#e2c79c");
+      // テレビ（奥に立っている）
+      const tw = w * 0.8, tx = (w - tw) / 2, ty = 0, thh = h * 0.5;
+      F(w / 2 - w * 0.06, ty + thh - 2, w * 0.12, h * 0.1, "#2b2430");
+      R(tx, ty, tw, thh, "#2b2430", 3);
+      F(tx + tw * 0.05, ty + thh * 0.12, tw * 0.9, thh * 0.72, "#3d5a80", 2);
+      g.beginPath(); g.moveTo(tx + tw * 0.12, ty + thh * 0.2); g.lineTo(tx + tw * 0.3, ty + thh * 0.2); g.lineTo(tx + tw * 0.16, ty + thh * 0.72); g.lineTo(tx + tw * 0.08, ty + thh * 0.72); g.closePath();
+      g.fillStyle = "rgba(255,255,255,0.18)"; g.fill();
+      break;
+    }
+    case "desk": {
+      const fh = Math.min(h * 0.22, u * 0.28);
+      slab(0, 0, w, h, fh, "#b98a56", "#8a5a34");
+      // 引き出し
+      R(w * 0.62, h - fh * 0.92, w * 0.32, fh * 0.75, "#9a6a40", 2);
+      E(w * 0.78, h - fh * 0.55, m * 0.03, m * 0.03, "#f2e2c0", false);
+      const th = h - fh;
+      // ノートパソコン
+      const lw2 = Math.min(w * 0.36, u * 0.75);
+      R(w * 0.1, th * 0.12, lw2, th * 0.36, "#5a6470", 2);
+      F(w * 0.1 + lw2 * 0.08, th * 0.16, lw2 * 0.84, th * 0.26, "#8fd0ff", 1);
+      R(w * 0.08, th * 0.48, lw2 + w * 0.04, th * 0.22, "#c9ced6", 2);
+      // ノート・えんぴつ立て
+      R(w * 0.55, th * 0.3, Math.min(w * 0.18, u * 0.4), th * 0.45, "#fff8ec", 1);
+      Ln(w * 0.57, th * 0.42, w * 0.55 + Math.min(w * 0.18, u * 0.4) * 0.8, th * 0.42, "rgba(90,140,200,0.6)", lw * 0.7);
+      E(w * 0.86, th * 0.32, m * 0.08, m * 0.08, "#e86a6a");
+      Ln(w * 0.84, th * 0.32, w * 0.82, th * 0.1, "#f7d34a", lw * 1.4);
+      Ln(w * 0.88, th * 0.32, w * 0.9, th * 0.12, "#6ab0e8", lw * 1.4);
+      break;
+    }
+    case "chair": {
+      const nx = Math.min(3, cellsW), ny = Math.min(3, cellsH);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const cw = w / nx, ch = h / ny, x = cw * i, y = ch * j;
+        const s = Math.min(cw, ch);
+        const ox = x + (cw - s) / 2, oy = y + (ch - s) / 2;
+        for (const lx of [0.2, 0.74]) F(ox + s * lx, oy + s * 0.7, s * 0.07, s * 0.24, "#6b4228");
+        R(ox + s * 0.14, oy + s * 0.36, s * 0.72, s * 0.42, "#c98e5a");
+        F(ox + s * 0.2, oy + s * 0.42, s * 0.6, s * 0.12, "rgba(255,255,255,0.25)", 3);
+        R(ox + s * 0.16, oy + s * 0.06, s * 0.68, s * 0.3, "#b07a4a");
+        Ln(ox + s * 0.36, oy + s * 0.1, ox + s * 0.36, oy + s * 0.32, "rgba(60,30,10,0.4)");
+        Ln(ox + s * 0.64, oy + s * 0.1, ox + s * 0.64, oy + s * 0.32, "rgba(60,30,10,0.4)");
+      }
+      break;
+    }
+    case "bookshelf":
+    case "tansu": {
+      const fh = h * 0.68;
+      const tansu = kind === "tansu";
+      slab(0, 0, w, h, fh, tansu ? "#a8703e" : "#8a5530", tansu ? "#8f5a2e" : "#6b3f20");
+      const top = h - fh;
+      if (tansu) {
+        const cols = Math.max(1, Math.min(3, cellsW)), rows = Math.max(2, Math.min(4, Math.round(fh / (u * 0.28))));
+        for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+          const dw = w / cols, dh = (fh * 0.9) / rows;
+          const x = i * dw + dw * 0.06, y = top + fh * 0.04 + j * dh + dh * 0.08;
+          R(x, y, dw * 0.88, dh * 0.84, "#b57e48", 2);
+          g.beginPath(); g.arc(x + dw * 0.44, y + dh * 0.42, Math.max(1.5, m * 0.05), 0, Math.PI); g.strokeStyle = "#3a2a1a"; g.lineWidth = lw * 1.2; g.stroke();
+        }
+        // 上の面の小物（ねこの置物）
+        E(w * 0.25, top * 0.55, m * 0.08, m * 0.07, "#fffaf2");
+      } else {
+        const rows = Math.max(2, Math.min(5, Math.round(fh / (u * 0.32))));
+        const sh = (fh * 0.92) / rows;
+        for (let j = 0; j < rows; j++) {
+          const yy = top + fh * 0.04 + j * sh;
+          F(w * 0.05, yy, w * 0.9, sh - 2, "#3e2312");
+          const nb = Math.max(4, Math.round(w / (u * 0.16)));
+          const bw = (w * 0.9) / nb;
+          for (let k = 0; k < nb; k++) {
+            if (rnd() < 0.12) continue;
+            const hh = (sh - 3) * (0.62 + rnd() * 0.36);
+            F(w * 0.05 + k * bw + 0.4, yy + sh - 2 - hh, bw - 1, hh, ["#e86a6a", "#6ab0e8", "#f2c14e", "#7cc576", "#c08af0", "#f4a24c", "#fffaf2"][Math.floor(rnd() * 7)]);
+          }
+          F(w * 0.04, yy + sh - 2.5, w * 0.92, 2.5, "#8a5530");
+        }
+      }
+      break;
+    }
+    case "partition": {
+      const n = Math.max(2, Math.round(w / (u * 0.7)));
+      const pw = w / n;
+      for (let k = 0; k < n; k++) {
+        const x = k * pw;
+        const dy = k % 2 ? h * 0.12 : 0;
+        R(x + 0.5, dy + h * 0.04, pw - 1, h * 0.84, k % 2 ? "#e9dcc4" : "#f6eedd", 2);
+        // しょうじのます目
+        g.strokeStyle = "rgba(120,80,40,0.45)"; g.lineWidth = Math.max(0.8, lw * 0.6);
+        g.beginPath();
+        for (let i = 1; i < 3; i++) { g.moveTo(x + (pw * i) / 3, dy + h * 0.08); g.lineTo(x + (pw * i) / 3, dy + h * 0.84); }
+        for (let i = 1; i < 4; i++) { g.moveTo(x + 2, dy + h * 0.04 + (h * 0.84 * i) / 4); g.lineTo(x + pw - 2, dy + h * 0.04 + (h * 0.84 * i) / 4); }
+        g.stroke();
+        F(x + 0.5, dy + h * 0.8, pw - 1, h * 0.08, "#8a5530");
+      }
+      break;
+    }
+    case "piano": {
+      const fh = h * 0.36;
+      slab(0, 0, w, h, fh, "#2b2430", "#1e1a22");
+      shine(w * 0.08, h * 0.06, w * 0.5, Math.max(2, (h - fh) * 0.16));
+      // けんばん
+      const ky = h - fh - h * 0.12, kh = h * 0.2;
+      R(w * 0.06, ky, w * 0.88, kh, "#fffdf6", 2);
+      const nk = Math.max(7, Math.round(w / (u * 0.13)));
+      const kw = (w * 0.88) / nk;
+      for (let k = 1; k < nk; k++) Ln(w * 0.06 + k * kw, ky + 1, w * 0.06 + k * kw, ky + kh - 1, "rgba(40,30,30,0.35)", Math.max(0.6, lw * 0.5));
+      for (let k = 0; k < nk - 1; k++) if (k % 7 !== 2 && k % 7 !== 6) F(w * 0.06 + (k + 0.65) * kw, ky + 1, kw * 0.7, kh * 0.58, "#1e1a22");
+      // 楽ふ
+      R(w * 0.36, h * 0.08, w * 0.28, (h - fh) * 0.4, "#fffaf0", 1);
+      Ln(w * 0.39, h * 0.14, w * 0.6, h * 0.14, "rgba(40,30,30,0.5)", lw * 0.6);
+      E(w * 0.48, h * 0.18, m * 0.025, m * 0.02, "#2b2430", false);
+      break;
+    }
+    case "bathtub": {
+      R(0, 0, w, h * 0.96, "#fbfbf8", m * 0.3);
+      F(w * 0.02, h * 0.7, w * 0.96, h * 0.24, "rgba(0,0,0,0.06)", m * 0.2);
+      R(w * 0.08, h * 0.12, w * 0.84, h * 0.66, "#8fd0ff", m * 0.24);
+      // 波・あわ
+      g.save();
+      g.beginPath(); g.roundRect(w * 0.08, h * 0.12, w * 0.84, h * 0.66, m * 0.24); g.clip();
+      for (let k = 0; k < 3; k++) { g.beginPath(); for (let x = 0; x <= w; x += m * 0.12) { const y = h * (0.3 + k * 0.16) + Math.sin(x / (m * 0.12)) * m * 0.03; if (x === 0) g.moveTo(x, y); else g.lineTo(x, y); } g.strokeStyle = "rgba(255,255,255,0.55)"; g.lineWidth = lw; g.stroke(); }
+      for (let k = 0; k < 6; k++) E(w * (0.2 + rnd() * 0.6), h * (0.2 + rnd() * 0.5), m * (0.03 + rnd() * 0.04), m * (0.03 + rnd() * 0.04), "rgba(255,255,255,0.85)", false);
+      g.restore();
+      // アヒル
+      const dx = w * 0.66, dy = h * 0.45, ds = m * 0.12;
+      E(dx, dy, ds * 1.1, ds * 0.8, "#f7d34a");
+      E(dx + ds * 0.6, dy - ds * 0.6, ds * 0.55, ds * 0.5, "#f7d34a");
+      E(dx + ds * 1.1, dy - ds * 0.5, ds * 0.3, ds * 0.15, "#f2783a", false);
+      // 蛇口
+      R(w * 0.02, h * 0.36, w * 0.06, h * 0.2, "#b9c3cc", 2);
+      break;
+    }
+    case "washer": {
+      const fh = h * 0.6;
+      slab(w * 0.04, 0, w * 0.92, h, fh, "#f4f6f8", "#e6ebf0");
+      // ボタン
+      for (let k = 0; k < 3; k++) E(w * (0.25 + k * 0.14), (h - fh) * 0.5, m * 0.04, m * 0.04, ["#7cc576", "#f7d34a", "#e86a6a"][k], false);
+      R(w * 0.62, (h - fh) * 0.25, w * 0.26, (h - fh) * 0.5, "#9fd8ff", 2);
+      // まるいとびら
+      const cx = w / 2, cy = h - fh / 2, r = Math.min(w * 0.36, fh * 0.42);
+      E(cx, cy, r, r, "#c9ced6");
+      E(cx, cy, r * 0.76, r * 0.76, "#6ab0e8");
+      g.beginPath(); g.arc(cx, cy, r * 0.5, 0.3, 2.4); g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = lw * 1.3; g.stroke();
+      E(cx - r * 0.2, cy + r * 0.25, r * 0.22, r * 0.14, "#ffb3c8", false);
+      break;
+    }
+    case "kotatsu": {
+      // ふとん
+      R(0, 0, w, h, "#e0703e", m * 0.3);
+      g.save();
+      g.beginPath(); g.roundRect(0, 0, w, h, m * 0.3); g.clip();
+      for (let y = m * 0.14; y < h; y += m * 0.28) for (let x = ((y / (m * 0.28)) % 2) * m * 0.14 + m * 0.1; x < w; x += m * 0.28) {
+        E(x, y, m * 0.05, m * 0.05, "rgba(255,230,180,0.6)", false);
+      }
+      g.restore();
+      // 天板
+      const iw = w * 0.66, ih = h * 0.62;
+      R((w - iw) / 2, (h - ih) / 2 - h * 0.03, iw, ih, "#b97a46", m * 0.08);
+      F((w - iw) / 2 + iw * 0.06, (h - ih) / 2 + ih * 0.06 - h * 0.03, iw * 0.88, Math.max(2, ih * 0.1), "rgba(255,255,255,0.2)", 2);
+      // みかん
+      const cx = w / 2, cy = h / 2 - h * 0.03;
+      R(cx - m * 0.2, cy - m * 0.1, m * 0.4, m * 0.24, "#d9a85e", m * 0.1);
+      for (const [dx, dy] of [[-0.1, -0.04], [0.1, -0.05], [0, -0.13]]) {
+        E(cx + dx * m, cy + dy * m, m * 0.08, m * 0.075, "#ff9a2a");
+        E(cx + dx * m, cy + dy * m - m * 0.06, m * 0.02, m * 0.015, "#5fa85a", false);
+      }
+      break;
+    }
+    case "boxes": {
+      const cols = Math.min(4, cellsW);
+      const rows = cols * Math.min(3, cellsH) === 1 ? 2 : Math.min(3, cellsH);
+      const bw = w / cols, bh = h / rows;
+      const skip = cols * rows > 3 ? Math.floor(rnd() * cols * rows) : -1;
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        if (j * cols + i === skip) continue;
+        const jx = (rnd() - 0.5) * bw * 0.1, jy = (rnd() - 0.5) * bh * 0.08;
+        const x = i * bw + bw * 0.05 + jx, y = j * bh + bh * 0.05 + jy, ww = bw * 0.9, hh = bh * 0.88;
+        const fh = hh * 0.36;
+        slab(x, y, ww, hh, fh, (i + j) % 2 ? "#e8bd82" : "#f0cb93", "#c78f4f", 2);
+        F(x + ww * 0.42, y + 1, ww * 0.16, hh - fh - 1, "#efdca6");
+        Ln(x + 2, y + (hh - fh) / 2, x + ww - 2, y + (hh - fh) / 2, "rgba(120,70,30,0.35)", lw * 0.7);
+      }
+      break;
+    }
+    case "pillar": {
+      const s = Math.min(w, h);
+      const nx = Math.max(1, Math.round(w / Math.max(1, h))), ny = Math.max(1, Math.round(h / Math.max(1, w)));
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const cx = (w / nx) * (i + 0.5), cy = (h / ny) * (j + 0.5);
+        const pw = s * 0.72;
+        slab(cx - pw / 2, cy - pw / 2, pw, pw, pw * 0.3, "#c08a58", "#8a5a34", 2);
+        for (let k = 1; k < 4; k++) Ln(cx - pw / 2 + (pw * k) / 4, cy - pw / 2 + 2, cx - pw / 2 + (pw * k) / 4 + (rnd() - 0.5) * 2, cy + pw * 0.15, "rgba(90,50,20,0.3)", lw * 0.7);
+      }
+      break;
+    }
+    case "shoes": {
+      R(w * 0.08, h * 0.3, w * 0.38, h * 0.5, "#5b6b8a", u * 0.18);
+      R(w * 0.54, h * 0.25, w * 0.38, h * 0.5, "#5b6b8a", u * 0.18);
+      F(w * 0.12, h * 0.34, w * 0.28, h * 0.1, "rgba(255,255,255,0.4)", 2);
+      F(w * 0.58, h * 0.29, w * 0.28, h * 0.1, "rgba(255,255,255,0.4)", 2);
+      break;
+    }
+    default: {
+      R(w * 0.08, h * 0.2, w * 0.84, h * 0.65, "#d9b06a", u * 0.2);
+      g.beginPath();
+      for (let k = 1; k < 4; k++) { g.moveTo(w * (0.08 + k * 0.21), h * 0.22); g.lineTo(w * (0.08 + k * 0.21), h * 0.83); }
+      g.strokeStyle = "rgba(74,44,29,0.5)"; g.lineWidth = lw; g.stroke();
+    }
+  }
+}
+
+/** 戦闘でひと休みしている猫の絵（sprites/cats/<id>_<pose>.png。カフェの絵と同じもの）。無ければ null。 */
+export function getCatIdlePose(id: string, pose: "sit" | "groom"): HTMLImageElement | null {
+  return idlePoses.get(`${id}_${pose}`) ?? null;
+}
+
+const idlePoses = new Map<string, HTMLImageElement>();
+let idleStarted = false;
+/** sprites/cats/manifest.json（["chatora_sit", …] か { "chatora": ["sit", …] }）から、座る・毛づくろいの絵を読む。 */
+export function loadCatIdlePoses(base = "sprites/cats/"): void {
+  if (idleStarted) return;
+  idleStarted = true;
+  fetch(base + "manifest.json")
+    .then((r) => (r.ok ? r.json() : []))
+    .then((m: unknown) => {
+      const ids: string[] = [];
+      if (Array.isArray(m)) { for (const v of m) if (typeof v === "string") ids.push(v); }
+      else if (m && typeof m === "object") {
+        for (const [id, poses] of Object.entries(m as Record<string, unknown>)) {
+          if (Array.isArray(poses)) for (const p of poses) if (typeof p === "string") ids.push(`${id}_${p}`);
+        }
+      }
+      for (const id of ids) {
+        if (!/_(sit|groom)$/.test(id)) continue;
+        const img = new Image();
+        img.onload = () => { idlePoses.set(id, img); version++; };
+        img.src = `${base}${id}.png`;
+      }
+    })
+    .catch(() => { /* 無ければコードの絵のまま */ });
+}
+
+/** 絵の縦横の大きさ（PNG は元の大きさ、コードの絵は SPRITE_SIZE）。 */
+export function imageSize(img: CanvasImageSource): { w: number; h: number } {
+  if (img instanceof HTMLImageElement) return { w: img.naturalWidth || img.width || S, h: img.naturalHeight || img.height || S };
+  if (img instanceof HTMLCanvasElement) return { w: img.width || S, h: img.height || S };
+  return { w: S, h: S };
+}
+
 /** 開発用: すべての絵を並べた一覧（絵の差しかえ確認用）。 */
 export function debugSpriteSheet(): HTMLCanvasElement {
   const items: [SpriteKind, string, SpriteHint?][] = [
@@ -1183,12 +1818,18 @@ export function debugSpriteSheet(): HTMLCanvasElement {
     ["object", "shitajiki"], ["object", "moufu"], ["object", "katorisenko"], ["object", "spray"],
     ["bug", "ari"], ["bug", "ka"], ["bug", "gokiburi"], ["bug", "kamemushi"], ["bug", "kumo"], ["bug", "imomushi"],
     ["bug", "kogane"], ["bug", "kabuto"], ["bug", "suzumebachi"], ["bug", "mukade"], ["bug", "unknown"], ["pickup", "kibble"],
+    ["bug", "shiroari"], ["bug", "hae"], ["bug", "dangomushi"], ["bug", "kuwagata"], ["bug", "gejigeji"],
     ["projectile", "cat"], ["projectile", "shooter"], ["projectile", "slow"],
   ];
   const cols = 6, cell = 100;
+  // 家具（いろいろな大きさ）: 1行に 1 種類
+  const fu = 30;
+  const sizes: [number, number][] = [[1, 1], [2, 1], [2, 2], [3, 1], [4, 2], [1, 3], [1, 4]];
+  const furnRowH = fu * 4 + 22;
+  const top = Math.ceil(items.length / cols) * cell;
   const c = document.createElement("canvas");
-  c.width = cols * cell;
-  c.height = Math.ceil(items.length / cols) * cell;
+  c.width = Math.max(cols * cell, 20 + sizes.reduce((a, [w]) => a + w * fu + 14, 0) + 80);
+  c.height = top + FURNITURE_KINDS_LIST.length * furnRowH;
   const g = c.getContext("2d")!;
   g.fillStyle = "#f3e6d0";
   g.fillRect(0, 0, c.width, c.height);
@@ -1198,6 +1839,22 @@ export function debugSpriteSheet(): HTMLCanvasElement {
     g.fillStyle = "#4a2c1d";
     g.font = "10px sans-serif";
     g.fillText(`${k}:${id}`, x + 4, y + 96);
+  });
+  FURNITURE_KINDS_LIST.forEach((kind, r) => {
+    const y = top + r * furnRowH;
+    g.fillStyle = "#4a2d1e";
+    g.fillRect(0, y, c.width, furnRowH - 4);
+    g.fillStyle = "#fff";
+    g.font = "bold 11px sans-serif";
+    g.fillText(kind, 6, y + 14);
+    let x = 80;
+    for (const [w, h] of sizes) {
+      const l = x, t = y + 18, bw = w * fu - 3, bh = h * fu - 3;
+      g.fillStyle = "rgba(10,5,2,0.45)";
+      g.beginPath(); g.roundRect(l + 3, t + 4, bw, bh, 4); g.fill();
+      drawFurniture(g, kind, l, t, bw, bh, fu, false, r + 1);
+      x += w * fu + 14;
+    }
   });
   return c;
 }

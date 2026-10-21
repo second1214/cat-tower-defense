@@ -6,8 +6,6 @@ import { ICONS } from "./icons";
 
 export type Tab = "gacha" | "grow" | "main" | "relic";
 export type GrowSub = "char" | "skill" | "obj" | "equip";
-/** 福袋タブのサブタブ（ねこ福袋・譲渡会）。 */
-export type GachaSub = "bag" | "adopt";
 export type EquipFilter = "all" | "head" | "neck" | "body";
 
 /** 画面だけの状態（保存しない）。 */
@@ -17,7 +15,6 @@ export interface UiState {
   fuseMode: boolean;
   fuseSel: string[];
   equipFilter: EquipFilter;
-  gachaSub: GachaSub;
   /** スキルツリーで見ている役割（null なら主人公の役割）。 */
   skillRole: import("../core/types").CharRole | null;
 }
@@ -35,7 +32,7 @@ export interface Ctx {
   modals: Modals;
   toast(msg: string, kind?: "ok" | "ng"): void;
   confirm(msg: string, okLabel?: string, danger?: boolean): Promise<boolean>;
-  goTab(tab: Tab, sub?: GrowSub | GachaSub): void;
+  goTab(tab: Tab, sub?: GrowSub): void;
   play(stageId: string): void;
 }
 

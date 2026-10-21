@@ -18,7 +18,7 @@ export const SAVE_KEY = "cat-tower-defense/save";
 export const MAX_LOADOUT = 5;
 /** はじめにもらえるちゅ〜る（すぐにねこ福袋を1回ためせる）。 */
 export const START_CHURU = 30;
-/** うちの子の最大数（うちの子と、お迎えした近所の猫の合計）。 */
+/** うちの子の最大数（古いセーブから引きついだ猫もふくむ）。 */
 export const MAX_CATS = 30;
 /** パーティの枠（主人公・相棒1・相棒2）。 */
 export const PARTY_SIZE = 3;
@@ -29,7 +29,7 @@ export interface CatSave {
   name: string;
   look: string;                 // 見た目（絵の id）
   personality: Personality;
-  preset?: string;              // 近所の猫なら、そのひな形の id（data/chars.ts）
+  preset?: string;              // 古いセーブから引きついだ猫なら、そのひな形の id（data/chars.ts）
   level: number;
   exp: number;                  // いまのレベルでたまっている経験値
   bond: number;                 // なかよし度（0〜5）
@@ -235,7 +235,7 @@ function cleanCat(uid: string, raw: unknown, wazas: Record<string, WazaSave>): C
   return c;
 }
 
-/** v1・v2 の猫たちを、近所の猫として cats に入れる。特技は同じレアリティのメインのわざとして手に入れる。 */
+/** v1・v2 の猫たちを、うちの子として cats に入れる。特技は同じレアリティのメインのわざとして手に入れる。 */
 function migrateOldChars(out: SaveData, rawChars: unknown, selected: unknown): number {
   let refund = 0;
   out.cats = {};
@@ -282,7 +282,7 @@ export function migrate(raw: unknown): SaveData {
   const oldVersion = Math.floor(num(r.version, 0));
   const isOld = oldVersion < 3 && !obj(r.cats);
   if (isOld) {
-    // v2 → v3: 猫は近所の猫として、スキルは消して使ったちゅ〜るを返す。初回の登録はすんだものとする
+    // v2 → v3: 猫はうちの子として、スキルは消して使ったちゅ〜るを返す。初回の登録はすんだものとする
     out.churu += migrateOldChars(out, r.chars, r.selectedChar);
     out.skills = emptySkills();
     out.setupDone = obj(r.chars) || oldVersion > 0;

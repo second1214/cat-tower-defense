@@ -1,7 +1,7 @@
 // 戦闘エンジンのテスト（src/data は使わず、手で作った定義で確かめる）。v3: 14×18 の盤面・大きさのあるオブジェクト・特殊効果。
 import { describe, expect, it } from "vitest";
 import {
-  Battle, COMPANION_FOLLOW, COMPANION_LEASH, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, GOAL_Y, idleInput, isGoal,
+  Battle, CHEW_COST, COMPANION_GIVEUP, COMPANION_ROAM, COMPANION_SIGHT, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, GOAL_Y, idleInput, isGoal,
   type BattleEvent, type BugState, type CatState,
 } from "../src/battle/engine";
 import { COLS, ROWS } from "../src/core/types";
@@ -20,6 +20,14 @@ const biter: BugDef = { id: "biter", name: "かみむし", hp: 1e9, atk: 5, spee
 /** ほどほどに倒れる虫（重さのテスト用。倒れるたびに連鎖が起きる）。 */
 const mid: BugDef = { id: "mid", name: "ふつうむし", hp: 6, atk: 0.1, speed: 0.6, atkInterval: 1, drop: 1 };
 const bossPost: BugDef = { id: "bossPost", name: "おやぶん", hp: 1000, atk: 0, speed: 0, atkInterval: 1, drop: 0, boss: true };
+/** v5: 猫の攻撃が 1/4 しか効かない、動かない虫。 */
+const armored: BugDef = { id: "armored", name: "かたむし", hp: 100, atk: 0, speed: 0, atkInterval: 1, drop: 0, catResist: 0.25 };
+/** v5: 通れるものの上で、よくかじる虫（すり減らすテスト用）。 */
+const nibbler: BugDef = { id: "nibbler", name: "かじりアリ", hp: 1e9, atk: 1, speed: 1, atkInterval: 0.2, drop: 0 };
+/** v5: 通れないオブジェクトをかじって進む虫。 */
+const chewer: BugDef = { id: "chewer", name: "シロアリ", hp: 1e9, atk: 2, speed: 1, atkInterval: 0.5, drop: 0, chew: 1 };
+/** v5: 4匹ずつ横にならんで出る虫。 */
+const swarm: BugDef = { id: "swarm", name: "ハエの大群", hp: 1, atk: 0, speed: 0.5, atkInterval: 1, drop: 0, pack: 4 };
 
 function char(over: Partial<ResolvedChar> = {}): ResolvedChar {
   return {
@@ -57,7 +65,7 @@ function loadout(opts: { waves?: WaveDef[]; objects?: ResolvedObject[]; char?: R
     companions: opts.companions ?? [],
     objects: opts.objects ?? [],
     stage: stage(opts.waves ?? [], opts.stage),
-    bugs: { ant, fly, boss, tank, post, weak, biter, bossPost, mid },
+    bugs: { ant, fly, boss, tank, post, weak, biter, bossPost, mid, armored, nibbler, chewer, swarm },
     global: { kibbleMul: 1, startKibbleAdd: 0, mamaHp: opts.mamaHp ?? 10 },
   };
 }
@@ -635,34 +643,68 @@ const catOf = (b: Battle, i = 0) => b.cats[i] as CatState;
 const NEAR: [number, number] = [7.3, 14.8];
 const dmgOf = (g: BugState) => g.maxHp - g.hp;
 
-describe("相棒（v4）", () => {
-  it("cats は [主人公, 相棒…]。cat は cats[0]。相棒は主人公についていく", () => {
+describe("相棒（v4・v5 で歩き回る）", () => {
+  it("cats は [主人公, 相棒…]。cat は cats[0]", () => {
     const b = new Battle(loadout({ companions: [mate(), mate({ id: "c3", look: "kuro" })], waves: later(100, [{ bug: "ant", count: 1, every: 1 }]) }));
     expect(b.cats.length).toBe(3);
     expect(b.cats[0]).toBe(b.cat);
     expect(b.cats[1].companion).toBe(true);
     expect(b.cats[2].char.look).toBe("kuro");
-    moveCatTo(b, 3, 5);
-    run(b, 3, idle, 0.05);
-    for (const c of b.cats.slice(1)) {
-      expect(Math.hypot(c.x - b.cat.x, c.y - b.cat.y)).toBeLessThan(COMPANION_FOLLOW);
-    }
-    // 2匹は別の位置にいる
-    expect(Math.hypot(b.cats[1].x - b.cats[2].x, b.cats[1].y - b.cats[2].y)).toBeGreaterThan(1);
+    expect(b.cats[1].idle).toBe("none");
   });
 
-  it("相棒は主人公の近くの虫へ向かって攻撃する（遠すぎる虫へは行かない）", () => {
-    const { b, bugs } = frozen([[8.5, 12.8], [2, 3]], { companions: [mate({ atk: 3 })] });
+  it("相棒は主人公にくっつかず歩き回る（ROAM 以内・出口の近くは行かない・ときどき座る／毛づくろい）", () => {
+    const b = new Battle(loadout({ companions: [mate(), mate({ id: "c3", look: "kuro" })], waves: later(100, [{ bug: "ant", count: 1, every: 1 }]) }), 3);
+    moveCatTo(b, 7, 12);
+    let maxFromP = 0, minY = Infinity, idleSeen = 0, far = 0;
+    const moved = [0, 0];
+    const last = b.cats.slice(1).map((c) => ({ x: c.x, y: c.y }));
+    for (let i = 0; i < 40 * 20; i++) {
+      b.step(0.05, idle);
+      b.cats.slice(1).forEach((c, k) => {
+        const d = Math.hypot(c.x - b.cat.x, c.y - b.cat.y);
+        maxFromP = Math.max(maxFromP, d);
+        if (d > 2.5) far++;
+        minY = Math.min(minY, c.y);
+        if (c.idle !== "none") idleSeen++;
+        moved[k] += Math.hypot(c.x - last[k].x, c.y - last[k].y);
+        last[k] = { x: c.x, y: c.y };
+      });
+    }
+    expect(maxFromP).toBeLessThanOrEqual(COMPANION_ROAM + 0.6);
+    expect(far).toBeGreaterThan(100);      // 主人公のそばにくっついていない
+    expect(minY).toBeGreaterThan(2);       // 上の端（出口）のすぐそばへは行かない
+    expect(idleSeen).toBeGreaterThan(20);  // ひと休みもする
+    for (const m of moved) expect(m).toBeGreaterThan(5);
+  });
+
+  it("相棒は、主人公から離れていても自分から見える虫と戦う（主人公から遠すぎる虫へは行かない）", () => {
+    const { b, bugs } = frozen([[8.5, 9], [2, 2.5]], { companions: [mate({ atk: 3 })] });
+    const m = catOf(b, 1);
+    m.x = 7; m.y = 10.5;
+    expect(Math.hypot(bugs[0].x - b.cat.x, bugs[0].y - b.cat.y)).toBeGreaterThan(COMPANION_SIGHT + 1);
     run(b, 4, idle, 0.05);
-    const m = b.cats[1];
     expect(dmgOf(bugs[0])).toBeGreaterThan(0);
     expect(Math.hypot(m.x - bugs[0].x, m.y - bugs[0].y)).toBeLessThan(1);
     expect(dmgOf(bugs[1])).toBe(0);
-    expect(Math.hypot(m.x - b.cat.x, m.y - b.cat.y)).toBeLessThan(COMPANION_LEASH + 1);
+  });
+
+  it("追いかけている虫が COMPANION_GIVEUP より離れたら、あきらめる", () => {
+    const { b, bugs } = frozen([[4, 12]], { companions: [mate({ atk: 0, moveSpeed: 3 })] });
+    const m = catOf(b, 1);
+    m.x = 4; m.y = 13;
+    moveCatTo(b, 7, 13);
+    run(b, 0.3, idle, 0.05);
+    // 遠くへ動かす（主人公からは近いまま）
+    bugs[0].x = m.x + COMPANION_GIVEUP + 0.8; bugs[0].y = m.y; bugs[0].nextCol = Math.floor(bugs[0].x); bugs[0].nextRow = Math.floor(bugs[0].y);
+    const x0 = m.x;
+    run(b, 0.5, idle, 0.05);
+    // 追いかけていれば 0.5 秒で 1.5 マス近づくはず（ぶらぶら歩きより遅い）
+    expect(m.x - x0).toBeLessThan(1.2);
   });
 
   it("遠距離の相棒は自分の弾を撃つ（弾の owner が相棒）", () => {
-    const { b, bugs } = frozen([[8, 12.5]], { companions: [mate({ role: "ranged", atk: 2, range: 3, atkInterval: 0.5 })] });
+    const { b, bugs } = frozen([[8, 13.2]], { companions: [mate({ role: "ranged", atk: 2, range: 3, atkInterval: 0.5 })] });
     let owner = -1;
     for (let i = 0; i < 60 && owner < 0; i++) {
       b.step(0.05, idle);
@@ -917,6 +959,159 @@ describe("複合効果（ComboId）", () => {
     expect(b.kills).toBe(1);
     expect(b.cats[1].frenzy).toBe(1);
     expect(b.cat.frenzy).toBe(0);
+  });
+});
+
+describe("置くあいだは止まる（v5）", () => {
+  it("setHold のあいだは、虫・猫・オブジェクト・出てくる時間がすべて止まる。置く・強化はできる", () => {
+    const b = new Battle(loadout({
+      objects: [obj({ atk: 1, range: 4, cost: 0 }), freeWall()],
+      companions: [mate()],
+      waves: [{ at: 0.5, bugs: [{ bug: "ant", count: 30, every: 0.3 }] }],
+    }));
+    expect(b.place(0, 6, 10).ok).toBe(true);
+    run(b, 3, idle, 0.05);
+    const snap = () => JSON.stringify({
+      t: b.time, k: b.kibble, n: b.bugs.length,
+      bugs: b.bugs.map((g) => [g.x, g.y, g.hp]),
+      cats: b.cats.map((c) => [c.x, c.y, c.atkTimer]),
+      objs: b.objects.map((o) => [o.timer, o.hp]),
+      ps: b.projectiles.map((p) => [p.x, p.y]),
+    });
+    b.setHold(true);
+    expect(b.held).toBe(true);
+    const before = snap();
+    const move: BattleInput = { move: { x: 1, y: 0 }, place: null, upgrade: false };
+    run(b, 3, move, 0.05);
+    expect(snap()).toBe(before);
+    // 止めているあいだも置ける（イベントも次の step で渡る）
+    expect(b.place(1, 2, 12).ok).toBe(true);
+    const evs = stepEvents(b, 0.05);
+    expect(evs.some((e) => e.type === "place")).toBe(true);
+    const t0 = b.time;
+    b.setHold(false);
+    run(b, 1, idle, 0.05);
+    expect(b.time).toBeCloseTo(t0 + 1);
+  });
+});
+
+describe("オブジェクトの耐久（v5）", () => {
+  it("通れるオブジェクトは、上を歩く虫にすり減らされる（虫は止まらない）。HP 0 でこわれる", () => {
+    const tape = obj({ id: "tape", kind: "slow", block: false, atk: 0, slow: 1, maxHp: 6, cost: 0, range: 0 });
+    const mk = (withTape: boolean) => {
+      const b = new Battle(loadout({ objects: [tape], waves: later(0, [{ bug: "nibbler", count: 6, every: 1.5, lanes: [3] }]) }));
+      if (withTape) expect(b.place(0, 3, 0).ok).toBe(true);
+      parkCat(b);
+      const evs: BattleEvent[] = [];
+      const arrive: number[] = [];
+      for (let i = 0; i < 600; i++) {
+        const e = stepEvents(b, 0.05);
+        evs.push(...e);
+        if (e.some((x) => x.type === "mamaHit")) arrive.push(Math.round(b.time * 10));
+      }
+      return { b, evs, arrive };
+    };
+    const base = mk(false);
+    const { b, evs, arrive } = mk(true);
+    const hits = evs.filter((e) => e.type === "objectHit");
+    expect(hits.length).toBeGreaterThan(2);
+    expect(hits[0].value).toBeCloseTo(0.5); // 攻撃力 × WEAR_MUL
+    expect(evs.some((e) => e.type === "objectBroken")).toBe(true);
+    expect(b.objectAt(3, 0)).toBeNull();
+    // すり減らしても、虫の進みは変わらない
+    expect(b.mamaHp).toBe(base.b.mamaHp);
+    expect(arrive.length).toBe(6);
+    expect(arrive).toEqual(base.arrive);
+  });
+
+  it("通れないオブジェクトは、ふつうの虫にはかじられない", () => {
+    const b = new Battle(loadout({ objects: [freeWall({ maxHp: 5 })], waves: later(0, [{ bug: "nibbler", count: 5, every: 1, lanes: [3] }]) }));
+    for (let c = 0; c < 13; c++) expect(b.place(0, c, 8).ok).toBe(true);
+    parkCat(b);
+    const evs = collect(b, 40, 0.05);
+    expect(evs.some((e) => e.type === "objectHit")).toBe(false);
+    expect(b.objects.length).toBe(13);
+  });
+
+  it("かじる虫は、かじる道（chewFlowField）で通れないオブジェクトを通りぬけようとし、止まってかじってこわす", () => {
+    const b = new Battle(loadout({ objects: [freeWall({ maxHp: 10 })], waves: later(1, [{ bug: "chewer", count: 1, every: 1, lanes: [0] }]) }));
+    // 8 行目に、右はしだけ空けて壁をならべる（ふつうの道は大きく遠回り）
+    for (let c = 0; c < 13; c++) expect(b.place(0, c, 8).ok).toBe(true);
+    expect(b.hasChewers).toBe(true);
+    expect(b.chewPathDist(0, 0)).toBeLessThan(b.pathDist(0, 0));
+    expect(b.chewPathDist(0, 0)).toBeGreaterThan(b.pathDist(0, 0) - 20);
+    const chewRoute = b.routeFrom(0, 0, true);
+    const through = chewRoute.find((c) => c.row === 8);
+    expect(through && b.isBlocked(through.col, through.row)).toBe(true);
+    expect(b.routeFrom(0, 0).some((c) => c.row === 8 && c.col !== 13)).toBe(false);
+    // 壁の 1 マスは、ふつうの距離 + CHEW_COST くらい
+    expect(Number.isFinite(b.chewPathDist(6, 8))).toBe(true);
+    expect(Number.isFinite(b.pathDist(6, 8))).toBe(false);
+    parkCat(b);
+    let chewing = false;
+    const evs: BattleEvent[] = [];
+    for (let i = 0; i < 600 && b.mamaHp === 10; i++) {
+      evs.push(...stepEvents(b, 0.05));
+      if (b.bugs[0]?.mode === "chew") { chewing = true; expect(b.bugs[0].chewObj).not.toBeNull(); }
+    }
+    expect(chewing).toBe(true);
+    const hits = evs.filter((e) => e.type === "objectHit");
+    expect(hits.length).toBeGreaterThanOrEqual(5);     // 10 ÷ (2 × chew 1)
+    expect(hits[0].value).toBeCloseTo(2);
+    expect(evs.some((e) => e.type === "objectBroken")).toBe(true);
+    expect(b.objects.length).toBe(12);
+    expect(b.mamaHp).toBe(9);                           // こわしたあとママへ
+    expect(b.isBlocked(through!.col, 8)).toBe(false);
+    void CHEW_COST;
+  });
+
+  it("ボスは chew が無くても、かじる虫（chew 1）。ふつうの虫は 0", () => {
+    const b = new Battle(loadout({ waves: later(0, [{ bug: "boss", count: 1, every: 1, lanes: [0] }, { bug: "ant", count: 1, every: 1, lanes: [1] }]) }));
+    b.step(0.05, idle);
+    const boss = b.bugs.find((g) => g.def.id === "boss")!;
+    const a = b.bugs.find((g) => g.def.id === "ant")!;
+    expect(boss.chew).toBe(1);
+    expect(a.chew).toBe(0);
+  });
+});
+
+describe("かたい虫・群れ（v5）", () => {
+  it("catResist: 猫からのダメージだけ減る（オブジェクトはそのまま）", () => {
+    const hit = (bug: string) => {
+      const { b, bugs } = frozen([NEAR], { bug, char: char({ atk: 4, atkInterval: 100 }) });
+      const evs = collect(b, 0.2);
+      return { d: dmgOf(bugs[0]), evs, b };
+    };
+    expect(hit("post").d).toBeCloseTo(4);
+    const r = hit("armored");
+    expect(r.d).toBeCloseTo(1);
+    expect(r.evs.some((e) => e.type === "resist")).toBe(true);
+    expect(r.b.floats.some((f) => f.kind === "resist")).toBe(true);
+    // 相棒の攻撃・猫の毒にも効く
+    const { b: b2, bugs: g2 } = frozen([NEAR], { bug: "armored", char: char({ atk: 0 }), companions: [mate({ atk: 4, atkInterval: 100, poison: 1 })] });
+    catOf(b2, 1).x = NEAR[0] + 0.3; catOf(b2, 1).y = NEAR[1] + 0.3;
+    run(b2, 1.05, idle, 0.05);
+    expect(dmgOf(g2[0])).toBeCloseTo((4 + 4 * 1) * 0.25, 1);
+    // オブジェクトは減らない
+    const { b: b3, bugs: g3 } = frozen([[7.5, 4.5]], { bug: "armored", objects: [obj({ atk: 5, interval: 100, range: 3, cost: 0 })] });
+    parkCat(b3);
+    const before = dmgOf(g3[0]);
+    expect(b3.place(0, 7, 6).ok).toBe(true);
+    run(b3, 1, idle, 0.05);
+    expect(dmgOf(g3[0]) - before).toBeCloseTo(5);
+  });
+
+  it("pack: 1回に pack 匹が、となりの列にならんで出る（波の数も pack 倍）", () => {
+    const b = new Battle(loadout({ waves: later(0, [{ bug: "swarm", count: 2, every: 5, lanes: [5] }]) }));
+    b.step(0.05, idle);
+    expect(b.bugs.length).toBe(4);
+    expect(new Set(b.bugs.map((g) => g.lane))).toEqual(new Set([5, 6, 4, 7]));
+    run(b, 5, idle, 0.05);
+    expect(b.bugs.length + (10 - b.mamaHp)).toBe(8);
+    // はしの列でも盤面からはみ出さない
+    const c = new Battle(loadout({ waves: later(0, [{ bug: "swarm", count: 1, every: 5, lanes: [0] }]) }));
+    c.step(0.05, idle);
+    expect(c.bugs.map((g) => g.lane).sort((x, y) => x - y)).toEqual([0, 1, 2, 3]);
   });
 });
 

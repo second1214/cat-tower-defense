@@ -80,6 +80,21 @@
 .bt-mamabar-text { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; font-weight: 900; color: #fff; text-shadow: 0 0 2px var(--bt-ink), 0 0 2px var(--bt-ink); }
 
 .bt-mid { flex: none; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.bt-waverow { display: flex; align-items: center; gap: 4px; }
+/* 難関・大難関のしるし */
+.bt-wall {
+  flex: none;
+  padding: 1px 5px;
+  border: 2px solid var(--bt-ink);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 900;
+  line-height: 1.2;
+  color: #fff;
+  background: #ff8a3a;
+  text-shadow: 0 1px 0 rgba(74, 44, 29, 0.6);
+}
+.bt-wall.w2 { background: linear-gradient(#e0405a, #a8285a); }
 .bt-wave { font-size: 15px; font-weight: 900; }
 .bt-time { font-size: 12px; font-weight: 700; opacity: 0.75; font-variant-numeric: tabular-nums; }
 
@@ -156,35 +171,51 @@
   border: 3px solid var(--bt-ink);
   box-shadow: 0 3px 0 rgba(74, 44, 29, 0.4);
 }
-.bt-pathbtn {
+/* 置いている・強化の窓を出しているあいだ（戦闘は止まっている）。押すとやめる */
+.bt-hold {
   position: absolute;
-  left: 6px;
-  top: 4px;
+  left: 50%;
+  top: 6px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   height: 26px;
-  padding: 0 9px 0 22px;
-  border: 2.5px solid var(--bt-ink);
+  padding: 0 4px 0 10px;
+  border: 2px solid rgba(74, 44, 29, 0.9);
   border-radius: 999px;
-  background: rgba(255, 246, 232, 0.85);
+  background: rgba(255, 246, 232, 0.9);
+  box-shadow: 0 2px 0 rgba(74, 44, 29, 0.6);
   font-size: 12px !important;
   font-weight: 900 !important;
+  white-space: nowrap;
   cursor: pointer;
-  opacity: 0.75;
+  z-index: 2;
+  animation: bt-holdin 0.15s ease-out;
 }
-.bt-pathbtn::before {
+.bt-hold[hidden] { display: none; }
+.bt-hold::before {
   content: "";
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border-radius: 50%;
-  border: 2px solid var(--bt-ink);
-  background: #d9c6b0;
+  width: 9px;
+  height: 10px;
+  border-left: 3px solid var(--bt-ink);
+  border-right: 3px solid var(--bt-ink);
   box-sizing: border-box;
+  opacity: 0.8;
 }
-.bt-pathbtn.on { opacity: 1; }
-.bt-pathbtn.on::before { background: #e05060; }
+.bt-hold-x {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bt-ink);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+}
+@keyframes bt-holdin { from { opacity: 0; transform: translate(-50%, -4px); } }
+.bt-root.holding .bt-board { box-shadow: inset 0 0 0 2px rgba(255, 216, 74, 0.45); }
 .bt-toast {
   position: absolute;
   left: 50%;

@@ -17,7 +17,7 @@
 // - 強化は置いたオブジェクトを指定して行う（upgrade(obj)）。猫の位置とは関係ない。
 // - 出口: 波の lanes があればその列の一番上のマス（必ず空けておく）。lanes が無い虫は、いま通れる一番上のマスから
 //   ばらばらに出る（一番上のマスのうち、少なくとも1つは空けておく）。章 3 以上では、ときどき左右の上の方（0〜SIDE_SPAWN_ROWS-1 行）から出る。
-// - 虫はオブジェクトをかじらない。猫に触れている間（距離 0.5 未満）は止まって猫をかじる（dodge でよけることがある）。
+// - 虫は猫に触れている間（距離 0.5 未満）は止まって猫をかじる（dodge でよけることがある）。オブジェクトもかじる（v5 を見る）。
 // - 虫がママに着くと mamaHp が 1 減る。ボスが着いたら、その場で負け（mamaHp = 0）。
 // - カリカリは、虫を倒した瞬間に手に入る（drop × global.kibbleMul × (1 + char.kibbleBonus)）。producer も直接増やす。
 // - オブジェクトの種類:
@@ -51,9 +51,7 @@
 // v4（相棒・複合効果）:
 // - 猫は cats 配列（[0] = 主人公、[1]〜 = 相棒。Loadout.companions の順）。cat は cats[0] と同じ（互換のため残す）。
 //   どの猫も同じ攻撃のしくみ（役割・特殊技能・複合効果）で戦い、HP 0 で休けい・restTime で復活する。虫はどの猫にもかじりつく。
-// - 相棒は AI で動く: ふだんは主人公のまわりの決まった位置（COMPANION_SLOTS）へついていき、
-//   主人公から COMPANION_LEASH マス以内の虫がいれば、いちばん近い虫へ向かって自分の役割で攻撃する。
-//   主人公から COMPANION_FOLLOW マスより離れたら、少し急いで戻る。
+// - 相棒は AI で動く（v5 で、主人公についていくのをやめて自分で歩き回るようにした。下の v5 を見る）。
 // - 複合効果（ResolvedChar.combos。意味は core/types.ts の ComboId）はすべての猫に効く。
 //   「攻撃 +v」は足し算でまとめる（攻撃力 × (1 + lastStand + kibbleFever×重ね + partyLink + mamaGuard)）。
 //   「攻撃の速さ」は間隔を (1 + frenzy×重ね + partyLink) で割る（wakeUp 中はさらに半分）。
@@ -64,6 +62,23 @@
 //   poisonBurst は、毒がかかった虫が（だれに倒されても）倒れたとき、poisonBurst を持つ猫のうち いちばん強い猫が爆発させる。
 //   爆発・overkill はつながる（倒れた虫がさらに爆発する）ので、順番待ちの列（fxQ）で1つずつ処理する。
 // - objectAura・kibbleBonus は、いちばん大きい猫の値を使う（足し算はしない）。
+//
+// v5（置くあいだは止まる・相棒は歩き回る・オブジェクトの耐久）:
+// - setHold(true) のあいだ、step() は何も進めない（虫・猫・オブジェクト・弾・出てくる時間すべて止まる）。
+//   イベントの入れかえ（place・upgrade のイベントを渡す）と、ダメージの数字が消えていくのだけは進む。画面は置くあいだ・強化の窓を出すあいだに使う。
+// - 相棒は主人公にくっつかず、自分で歩き回る（猫らしく、ときどき座る・毛づくろいする。CatState.idle）。
+//   歩く先は、虫が多い所・虫の道の上・ほかの猫やオブジェクトが守っていない所を好む（主人公から COMPANION_ROAM マス以内、出口の近くは少しさける）。
+//   自分から COMPANION_SIGHT マス以内の虫を見つけると追いかけて戦う。COMPANION_GIVEUP マスより離れたらあきらめる。
+//   partyLink は、たまたま近くにいるときだけ効く。
+// - 虫はオブジェクトもかじる:
+//   ・通れるオブジェクト（block = false。mine は除く）の上を歩く虫は、止まらずに 攻撃力×WEAR_MUL を atkInterval ごとに与える（すり減る）。
+//   ・かじる虫（def.chew > 0。ボスは chew が最低 1）は、別の道（chewFlowField）を使う。通れないオブジェクトのマスも、
+//     CHEW_COST 歩ぶん遠いだけで通れるものとして数える（家具は通れない）。次のマスに通れないオブジェクトがあれば、
+//     止まって 攻撃力×chew を atkInterval ごとに与え、こわれたら進む（BugState.chewObj・mode "chew"）。
+//   ・HP が 0 になったオブジェクトは消える（"objectBroken"）。ダメージのたびに "objectHit"。
+// - catResist: 猫から（主人公・相棒。猫の毒・爆発・電撃・反撃・弾・overkill も）のダメージに def.catResist を掛ける。
+//   ダメージの数字は "resist"（灰色）になり、虫ごとにときどき "resist" イベント（「かたい」の表示用）。
+// - pack: def.pack > 1 の虫は、1回に pack 匹が横にならんで出る（となりの列・行。波の虫の数も pack 倍）。
 
 import { COLS, ROWS } from "../core/types";
 import type {
@@ -109,16 +124,37 @@ const MAX_EVENTS = 2500;              // 1 回の step で出すイベントの�
 const EVENT_POOL = 8192;
 const SQRT2 = Math.SQRT2;
 
+// ---- オブジェクトの耐久 ----
+/** 通れるオブジェクトの上を歩く虫が与えるダメージの倍率（攻撃力 × これ を atkInterval ごと）。 */
+export const WEAR_MUL = 0.5;
+/** かじる虫の道で、通れないオブジェクトのマスに入るときに足す長さ（歩数）。 */
+export const CHEW_COST = 6;
+/** 同じ虫の「かたい」イベントの間隔（秒）。 */
+const RESIST_HINT_GAP = 2.5;
+
 // ---- 相棒・複合効果 ----
-/** 相棒が主人公からこれより離れたら、急いで戻る（マス）。 */
-export const COMPANION_FOLLOW = 2.5;
-/** 相棒が攻撃しに行く虫は、主人公からこのマス以内。 */
-export const COMPANION_LEASH = 3.5;
+/** 相棒が自分で見つけて戦いに行く虫の距離（相棒から。マス）。 */
+export const COMPANION_SIGHT = 3.5;
+/** 互換のため残す（= COMPANION_SIGHT）。 */
+export const COMPANION_LEASH = COMPANION_SIGHT;
+/** 追いかけている虫がこれより離れたら、あきらめる（マス）。 */
+export const COMPANION_GIVEUP = 5;
+/** 相棒が主人公から離れてよい距離の目安（マス）。これより遠いと戻ってくる。 */
+export const COMPANION_ROAM = 7;
+/** 相棒が歩く先にしない、上の端の行（虫の出口のそば）。左右の端もこのマス数はさける。 */
+const ROAM_EDGE_TOP = 2.5;
+const ROAM_EDGE_SIDE = 1.1;
 /** 相棒が狙う虫を選びなおす間隔（秒）。 */
 const COMPANION_RETARGET = 0.25;
-/** 相棒の決まった位置（主人公からのずれ。マス）。 */
+/** 相棒の初めの位置（主人公からのずれ。マス）。 */
 export const COMPANION_SLOTS: readonly [number, number][] = [[-1.0, 0.7], [1.0, 0.7], [0, 1.2], [-1.6, -0.3], [1.6, -0.3]];
 const CATCH_UP = 1.3;                 // 離れすぎたときの速さの倍率
+const STROLL = 0.6;                   // ぶらぶら歩くときの速さの倍率
+const IDLE_MIN = 1;                   // 座る・毛づくろいの秒数（IDLE_MIN〜IDLE_MAX）
+const IDLE_MAX = 3;
+const IDLE_CHANCE = 0.65;             // 歩く先に着いたとき、ひと休みする確率
+const WANDER_TIMEOUT = 6;             // 歩く先へ、これだけかかったら選びなおす（秒）
+const WANDER_TRIES = 10;              // 歩く先の候補の数
 export const LAST_STAND_HP = 0.3;
 export const FRENZY_TIME = 4;
 export const FRENZY_MAX = 10;
@@ -138,7 +174,8 @@ const MAX_CHAIN = 800;                // 1回の連鎖（爆発・overkill）の
 
 // ---- 描画に渡す状態の型 ----
 
-export type BugMode = "walk" | "bite";
+/** walk: 歩く / bite: 猫をかじる / chew: 行く手のオブジェクトをかじる。 */
+export type BugMode = "walk" | "bite" | "chew";
 
 export interface BugState {
   uid: number;
@@ -182,6 +219,16 @@ export interface BugState {
   mark: number;
   /** 毒をかけた猫（cats の添字。オブジェクトの毒・毒なしは -1）。 */
   poisonSrc: number;
+  /** かじる強さ（def.chew。ボスは最低 1。0 ならかじらない虫）。 */
+  chew: number;
+  /** 猫からのダメージの倍率（def.catResist。なければ 1）。 */
+  resist: number;
+  /** いまかじっている、行く手のオブジェクト（無ければ null）。 */
+  chewObj: ObjState | null;
+  /** 通れるオブジェクトの上で、すり減らすまでのたまり具合（秒）。 */
+  wear: number;
+  /** 内部用（「かたい」イベントを最後に出した時刻）。 */
+  resistAt: number;
 }
 
 export interface ObjState {
@@ -228,7 +275,11 @@ export interface CatState {
   linked: boolean;     // partyLink が効いている（ほかの猫が近い）
   guarded: boolean;    // ママの近く（mamaGuard が効く位置）
   desperate: boolean;  // 体力が LAST_STAND_HP 以下（lastStand が効く）
+  /** 相棒がひと休みしているときのしぐさ（"sit" 座る・"groom" 毛づくろい。動いている・主人公は "none"）。 */
+  idle: CatIdle;
 }
+
+export type CatIdle = "none" | "sit" | "groom";
 
 /** 猫ごとの内部の状態（描画には出さない）。 */
 interface CatRt {
@@ -236,8 +287,13 @@ interface CatRt {
   pendLast: boolean[]; // その一撃が連続攻撃の最後か（multiEcho）
   target: BugState | null; // 相棒が狙っている虫
   retarget: number;
-  slotX: number;
-  slotY: number;
+  /** 相棒の歩く先（マス座標）と、そこへ向かっている時間。 */
+  wx: number;
+  wy: number;
+  wanderT: number;
+  hasGoal: boolean;
+  /** ひと休みの残り秒数（0 なら歩く）。 */
+  idleT: number;
 }
 
 export interface Projectile {
@@ -267,7 +323,8 @@ export interface Projectile {
   alive: boolean;
 }
 
-export type FloatKind = "bug" | "crit" | "poison" | "cat" | "heal" | "object";
+/** resist: catResist で減った猫のダメージ（灰色）。object: オブジェクトが受けたダメージ。 */
+export type FloatKind = "bug" | "crit" | "poison" | "cat" | "heal" | "object" | "resist";
 
 export interface FloatText {
   value: number;
@@ -295,7 +352,9 @@ export type BattleEventType =
   | "knockback"    // 虫を押し戻した
   | "push"         // 置いたオブジェクトの下の虫を押し出した（x, y = 新しい位置、x2, y2 = 元の位置）
   | "bite"         // （使わない。互換のため残す）
-  | "objectBroken" // オブジェクトがこわれた
+  | "objectBroken" // オブジェクトがこわれた（x, y は中心。value = 大きさ max(w, h)）
+  | "objectHit"    // 虫がオブジェクトをかじった（value = ダメージ。x, y はかじった虫、x2, y2 はオブジェクトの中心）
+  | "resist"       // 猫の攻撃が「かたい」虫に減らされた（x, y は虫。同じ虫ではときどきだけ）
   | "catHit"       // 猫がかじられた（value = ダメージ）
   | "dodge"        // 猫が虫の攻撃をよけた
   | "catDown"      // 猫が休けいに入った
@@ -425,7 +484,12 @@ export class Battle {
   private readonly queues: SpawnQueue[];
   private readonly waveAlive: number[];   // 波ごとの、まだ出ていない虫＋生きている虫の数
   private readonly dist = new Float64Array(N);
+  private readonly chewDist = new Float64Array(N); // かじる虫の道（通れないオブジェクトも遠回りとして通れる）
   private readonly done = new Uint8Array(N);
+  private readonly routeMask = new Uint8Array(N);  // 虫の道の上のマス（相棒の歩く先えらび用）
+  private routeVer = -1;
+  private readonly chewers: boolean;       // かじる虫が出るステージか
+  private hold = false;                    // true のあいだ step() は進めない
   private readonly sealMask = new Uint8Array(N);
   private readonly reach = new Uint8Array(N);
   private readonly bfsQ = new Int32Array(N);
@@ -474,7 +538,7 @@ export class Battle {
     const chars = [loadout.char, ...(loadout.companions ?? [])];
     const cats: CatState[] = chars.map((ch, i) => {
       const slot = i === 0 ? [0, 0] : COMPANION_SLOTS[(i - 1) % COMPANION_SLOTS.length];
-      this.rt.push({ pend: [], pendLast: [], target: null, retarget: 0, slotX: slot[0], slotY: slot[1] });
+      this.rt.push({ pend: [], pendLast: [], target: null, retarget: 0, wx: 0, wy: 0, wanderT: 0, hasGoal: false, idleT: 0 });
       return {
         index: i,
         char: ch,
@@ -499,6 +563,7 @@ export class Battle {
         linked: false,
         guarded: false,
         desperate: false,
+        idle: "none",
       };
     });
     this.kibbleBonus = Math.max(0, ...chars.map((ch) => ch.kibbleBonus || 0));
@@ -527,6 +592,7 @@ export class Battle {
     this.waveAlive = st.waves.map(() => 0);
     const lanes = new Set<number>();
     let anyTop = false;
+    let chewers = false;
     st.waves.forEach((w, wi) => {
       for (const e of w.bugs) {
         const def = loadout.bugs[e.bug];
@@ -535,9 +601,11 @@ export class Battle {
         if (ls) ls.forEach((l) => lanes.add(l));
         else anyTop = true;
         this.queues.push({ wave: wi, def, count: e.count, every: e.every, lanes: ls, start: w.at, spawned: 0 });
-        this.waveAlive[wi] += e.count;
+        this.waveAlive[wi] += e.count * packOf(def);
+        if (chewOf(def) > 0) chewers = true;
       }
     });
+    this.chewers = chewers;
     this.lanesNeeded = [...lanes].sort((a, b) => a - b);
     this.anyTopNeeded = anyTop || lanes.size === 0;
     this.sideSpawns = st.chapter >= SIDE_SPAWN_CHAPTER;
@@ -569,6 +637,24 @@ export class Battle {
   get flowField(): Readonly<Float64Array> { return this.dist; }
   /** 道が変わるたびに 1 増える（描画のキャッシュ用）。 */
   get flowVersion(): number { return this.flowVer; }
+  /** かじる虫の、マスごとのママまでの距離（通れないオブジェクトのマスは CHEW_COST 遠い。家具は Infinity）。 */
+  get chewFlowField(): Readonly<Float64Array> { return this.chewDist; }
+  /** このステージに、かじる虫（chew > 0 かボス）が出るか。 */
+  get hasChewers(): boolean { return this.chewers; }
+  /** step() を止めているか（setHold）。 */
+  get held(): boolean { return this.hold; }
+
+  /**
+   * true のあいだ step() は戦闘を進めない（虫・猫・オブジェクト・弾・出てくる時間が止まる）。
+   * 画面は、カードを持っている・選んでいる・強化の窓を出しているあいだに使う。place・upgrade はそのまま使える。
+   */
+  setHold(on: boolean): void { this.hold = !!on; }
+
+  /** かじる虫の、マスのママまでの距離。 */
+  chewPathDist(col: number, row: number): number {
+    if (!inside(col, row)) return Infinity;
+    return this.chewDist[row * COLS + col];
+  }
 
   /** マスのママまでの距離（外・通れないマスは Infinity）。 */
   pathDist(col: number, row: number): number {
@@ -652,13 +738,13 @@ export class Battle {
     return out;
   }
 
-  /** マスからママまでの道（いまの距離で。最初のマスとママのマスを含む）。たどり着けなければ空。 */
-  routeFrom(col: number, row: number): Cell[] {
-    if (!Number.isFinite(this.pathDist(col, row))) return [];
+  /** マスからママまでの道（いまの距離で。最初のマスとママのマスを含む）。たどり着けなければ空。chew なら、かじる虫の道。 */
+  routeFrom(col: number, row: number, chew = false): Cell[] {
+    if (!Number.isFinite(chew ? this.chewPathDist(col, row) : this.pathDist(col, row))) return [];
     const out: Cell[] = [{ col, row }];
     let c = col, r = row, sx = 0, sy = 0;
     for (let k = 0; k < N && !isGoal(c, r); k++) {
-      const n = this.nextStep(c, r, sx, sy);
+      const n = this.nextStep(c, r, sx, sy, chew);
       if (n < 0) break;
       const nc = n % COLS, nr = (n - nc) / COLS;
       sx = nc - c; sy = nr - r;
@@ -823,7 +909,8 @@ export class Battle {
     this.inStep = true;
     try {
       if (!(dt > 0)) return;
-      if (s.result) {
+      if (s.result || this.hold) {
+        // 終わったあと・止めているあいだは、ダメージの数字が消えていくだけ
         this.ageFloats(dt);
         return;
       }
@@ -865,30 +952,10 @@ export class Battle {
 
   // ---- 道 ----
   private recomputeFlow(): void {
-    const out = this.dist, done = this.done, blocked = this.blockMask;
-    out.fill(Infinity);
-    done.fill(0);
-    for (const g of GOAL_CELLS) out[g] = 0;
-    // マスが少ない（252）ので、素朴なダイクストラで十分
-    for (;;) {
-      let u = -1, best = Infinity;
-      for (let i = 0; i < N; i++) if (!done[i] && out[i] < best) { best = out[i]; u = i; }
-      if (u < 0) break;
-      done[u] = 1;
-      const uc = u % COLS, ur = (u - uc) / COLS;
-      for (let k = 0; k < 8; k++) {
-        const dx = DX[k], dy = DY[k];
-        const c = uc + dx, r = ur + dy;
-        if (!inside(c, r)) continue;
-        const i = r * COLS + c;
-        if (done[i] || blocked[i]) continue;
-        const diag = dx !== 0 && dy !== 0;
-        if (diag && (blocked[ur * COLS + c] || blocked[r * COLS + uc])) continue;
-        const nd = best + (diag ? SQRT2 : 1);
-        if (nd < out[i]) out[i] = nd;
-      }
-    }
+    this.dijkstra(this.dist, false);
+    this.dijkstra(this.chewDist, true);
     this.flowVer++;
+    const blocked = this.blockMask;
     // 向かっていたマスがふさがった虫は、いまいるマスの中心へ戻ってから選びなおす
     for (const b of this.s.bugs) {
       if (!b.alive) continue;
@@ -898,6 +965,65 @@ export class Battle {
         b.stepX = 0; b.stepY = 0;
       }
     }
+  }
+
+  /**
+   * ママからの距離をダイクストラで（マスが少ない（252）ので素朴なもので十分）。
+   * chew なら、通れないオブジェクトのマスも「入るのに CHEW_COST 余分にかかる」として通れる（家具は通れない）。
+   * ななめは、となりの2マスがどちらも空いているときだけ（かじる道でも同じ）。
+   */
+  private dijkstra(out: Float64Array, chew: boolean): void {
+    const done = this.done, blocked = this.blockMask, terrain = this.terrain;
+    out.fill(Infinity);
+    done.fill(0);
+    for (const g of GOAL_CELLS) out[g] = 0;
+    for (;;) {
+      let u = -1, best = Infinity;
+      for (let i = 0; i < N; i++) if (!done[i] && out[i] < best) { best = out[i]; u = i; }
+      if (u < 0) break;
+      done[u] = 1;
+      // u に入るときの余分（虫は i → u と進む）
+      const extra = chew && blocked[u] ? CHEW_COST : 0;
+      const uc = u % COLS, ur = (u - uc) / COLS;
+      for (let k = 0; k < 8; k++) {
+        const dx = DX[k], dy = DY[k];
+        const c = uc + dx, r = ur + dy;
+        if (!inside(c, r)) continue;
+        const i = r * COLS + c;
+        if (done[i]) continue;
+        if (chew ? terrain[i] : blocked[i]) continue;
+        const diag = dx !== 0 && dy !== 0;
+        if (diag) {
+          if (blocked[ur * COLS + c] || blocked[r * COLS + uc]) continue;
+          // かじる道で、オブジェクトのマスへ（から）のななめは使わない（まっすぐ入ってかじる）
+          if (chew && (blocked[u] || blocked[i])) continue;
+        }
+        const nd = best + extra + (diag ? SQRT2 : 1);
+        if (nd < out[i]) out[i] = nd;
+      }
+    }
+  }
+
+  /** 虫の道の上のマス（出口からママまで。相棒の歩く先えらび用）。道が変わったときだけ作りなおす。 */
+  private routeCells(): Uint8Array {
+    if (this.routeVer === this.flowVer) return this.routeMask;
+    this.routeVer = this.flowVer;
+    const m = this.routeMask;
+    m.fill(0);
+    for (const sc of this.spawnCells()) {
+      let c = sc.col, r = sc.row, sx = 0, sy = 0;
+      for (let k = 0; k < N && !isGoal(c, r); k++) {
+        const i = r * COLS + c;
+        if (m[i] && k > 0) break;
+        m[i] = 1;
+        const n = this.nextStep(c, r, sx, sy);
+        if (n < 0) break;
+        const nc = n % COLS, nr = (n - nc) / COLS;
+        sx = nc - c; sy = nr - r;
+        c = nc; r = nr;
+      }
+    }
+    return m;
   }
 
   /** 置いたオブジェクトの下にいる虫を、いちばん近い空いた（ママへ行ける）マスへ押し出す。 */
@@ -922,14 +1048,15 @@ export class Battle {
       b.y = r + 0.5 + b.offY;
       b.nextCol = c; b.nextRow = r;
       b.stepX = 0; b.stepY = 0;
+      b.chewObj = null;
       b.knockX = x0 - b.x; b.knockY = y0 - b.y; b.knock = KNOCK_TIME;
       this.emit("push", b.x, b.y, 0, x0, y0);
     }
   }
 
-  /** (col, row) から次に進むマスの添字。同じ長さならまっすぐ（sx, sy）を選ぶ。行けなければ -1。 */
-  private nextStep(col: number, row: number, sx: number, sy: number): number {
-    const d = this.dist, blocked = this.blockMask;
+  /** (col, row) から次に進むマスの添字。同じ長さならまっすぐ（sx, sy）を選ぶ。行けなければ -1。chew なら、かじる虫の道で。 */
+  private nextStep(col: number, row: number, sx: number, sy: number, chew = false): number {
+    const d = chew ? this.chewDist : this.dist, blocked = this.blockMask;
     let best = -1, bv = Infinity, straight = false;
     for (let k = 0; k < 8; k++) {
       const dx = DX[k], dy = DY[k];
@@ -939,8 +1066,8 @@ export class Battle {
       const di = d[i];
       if (di === Infinity) continue;
       const diag = dx !== 0 && dy !== 0;
-      if (diag && (blocked[row * COLS + c] || blocked[r * COLS + col])) continue;
-      const v = di + (diag ? SQRT2 : 1);
+      if (diag && (blocked[row * COLS + c] || blocked[r * COLS + col] || (chew && blocked[i]))) continue;
+      const v = di + (diag ? SQRT2 : 1) + (chew && blocked[i] ? CHEW_COST : 0);
       const isStraight = dx === sx && dy === sy;
       if (v < bv - 1e-6 || (Math.abs(v - bv) <= 1e-6 && isStraight && !straight)) {
         bv = v; best = i; straight = isStraight;
@@ -980,7 +1107,7 @@ export class Battle {
       while (q.spawned < q.count && s.time >= q.start + q.spawned * q.every) {
         const lane = q.lanes ? q.lanes[q.spawned % q.lanes.length] : -1;
         q.spawned++;
-        this.spawnBug(q.def, lane, q.wave);
+        this.spawnPack(q.def, lane, q.wave);
       }
     }
   }
@@ -1010,14 +1137,39 @@ export class Battle {
     return { col: GOAL_COL, row: 0, side: 0 };
   }
 
-  private spawnBug(def: BugDef, lane: number, wave: number): void {
+  /** 虫を出す（pack > 1 なら、となりの列・行に横ならびで pack 匹）。 */
+  private spawnPack(def: BugDef, lane: number, wave: number): void {
+    const n = packOf(def);
+    const sp = this.pickSpawn(lane);
+    if (n <= 1) { this.spawnBug(def, sp, wave); return; }
+    const d = this.dist;
+    // 0, +1, -1, +2, -2 … の順に、出られるマスへ。足りなければ同じマスに少しずらして重ねる
+    const used: number[] = [];
+    for (let j = 0; used.length < n && j < 2 * Math.max(COLS, ROWS); j++) {
+      const off = j === 0 ? 0 : (j % 2 === 1 ? 1 : -1) * Math.ceil(j / 2);
+      const col = sp.side === 0 ? sp.col + off : sp.col;
+      const row = sp.side === 0 ? sp.row : sp.row + off;
+      if (!inside(col, row)) continue;
+      if (sp.side !== 0 && row >= SIDE_SPAWN_ROWS + 2) continue;
+      if (!Number.isFinite(d[row * COLS + col])) continue;
+      used.push(row * COLS + col);
+    }
+    if (used.length === 0) used.push(sp.row * COLS + sp.col);
+    for (let k = 0; k < n; k++) {
+      const i = used[k % used.length];
+      const col = i % COLS, row = (i - col) / COLS;
+      this.spawnBug(def, { col, row, side: sp.side }, wave, k >= used.length ? 0.28 * (1 + Math.floor(k / used.length)) : 0);
+    }
+  }
+
+  private spawnBug(def: BugDef, sp: { col: number; row: number; side: -1 | 0 | 1 }, wave: number, back = 0): void {
     const st = this.loadout.stage;
     const hp = def.hp * st.hpMul;
-    const sp = this.pickSpawn(lane);
     const offX = (this.rng() * 2 - 1) * BUG_SPREAD;
     const offY = (this.rng() * 2 - 1) * BUG_SPREAD;
-    const x = sp.side === 0 ? sp.col + 0.5 + offX : sp.side < 0 ? -0.5 : COLS + 0.5;
-    const y = sp.side === 0 ? SPAWN_Y : sp.row + 0.5 + offY;
+    // back: 同じマスに重なるときは、少しうしろ（外側）から出す
+    const x = sp.side === 0 ? sp.col + 0.5 + offX : sp.side < 0 ? -0.5 - back : COLS + 0.5 + back;
+    const y = sp.side === 0 ? SPAWN_Y - back : sp.row + 0.5 + offY;
     const b: BugState = {
       uid: this.nextUid++,
       def,
@@ -1052,6 +1204,11 @@ export class Battle {
       knock: 0,
       mark: 0,
       poisonSrc: -1,
+      chew: chewOf(def),
+      resist: resistOf(def),
+      chewObj: null,
+      wear: 0,
+      resistAt: -99,
     };
     this.s.bugs.push(b);
     this.emit("spawn", b.x, b.y, 0);
@@ -1156,60 +1313,169 @@ export class Battle {
         this.aiMul = 1;
       } else if (!c.resting) {
         this.companionSteer(c, this.rt[i], h);
+      } else {
+        c.idle = "none";
+        this.rt[i].idleT = 0;
+        this.rt[i].hasGoal = false;
       }
       this.updateCat(c, this.rt[i], h);
     }
   }
 
-  /** 相棒の動き（aiX・aiY・aiMul に入れる）。近くの虫へ向かうか、主人公についていく。 */
+  /**
+   * 相棒の動き（aiX・aiY・aiMul に入れる）。自分から見える虫と戦うか、自分で歩き回る（ときどき座る・毛づくろい）。
+   * 主人公から COMPANION_ROAM マスより離れたら、少し急いで戻ってくる。
+   */
   private companionSteer(c: CatState, rt: CatRt, h: number): void {
     const p = this.s.cats[0];
     const ch = c.char;
     rt.retarget -= h;
     let t = rt.target;
-    if (t) {
-      const dx = t.x - p.x, dy = t.y - p.y;
-      if (!t.alive || dx * dx + dy * dy > COMPANION_LEASH * COMPANION_LEASH) t = null;
-    }
+    if (t && (!t.alive || this.giveUp(c, p, t))) t = null;
     if (!t || rt.retarget <= 0) {
       rt.retarget = COMPANION_RETARGET;
-      t = this.companionTarget(c, p);
+      const nt = this.companionTarget(c, p);
+      if (nt) t = nt;
     }
     rt.target = t;
-    let tx: number, ty: number, stop: number;
+    this.aiMul = 1;
+    const pdx = c.x - p.x, pdy = c.y - p.y;
+    const fromP = Math.hypot(pdx, pdy);
     if (t) {
-      tx = t.x; ty = t.y;
-      stop = Math.max(0.2, ch.range * 0.75);
-    } else {
-      tx = clamp(p.x + rt.slotX, CAT_MARGIN, COLS - CAT_MARGIN);
-      ty = clamp(p.y + rt.slotY, CAT_MARGIN, ROWS - CAT_MARGIN);
-      stop = 0.12;
+      // 戦う（ひと休みはやめる）
+      c.idle = "none";
+      rt.idleT = 0;
+      rt.hasGoal = false;
+      this.steerTo(c, t.x, t.y, Math.max(0.2, ch.range * 0.75), h);
+      return;
     }
-    const dx = tx - c.x, dy = ty - c.y;
-    const d = Math.hypot(dx, dy);
-    const px = c.x - p.x, py = c.y - p.y;
-    this.aiMul = px * px + py * py > COMPANION_FOLLOW * COMPANION_FOLLOW && !t ? CATCH_UP : 1;
-    if (d <= stop) { this.aiX = 0; this.aiY = 0; return; }
-    // 行きすぎないように（1コマで進める分より近ければ、ゆっくり）
-    const k = Math.min(1, (d - stop) / Math.max(1e-6, ch.moveSpeed * this.aiMul * h));
-    this.aiX = (dx / d) * k;
-    this.aiY = (dy / d) * k;
+    // ひと休み（座る・毛づくろい）。主人公が遠くへ行ったら切り上げる
+    if (rt.idleT > 0) {
+      rt.idleT -= h;
+      if (fromP <= COMPANION_ROAM + 0.5) { this.aiX = 0; this.aiY = 0; return; }
+      rt.idleT = 0;
+    }
+    c.idle = "none";
+    rt.wanderT += h;
+    if (!rt.hasGoal || rt.wanderT > WANDER_TIMEOUT || Math.hypot(rt.wx - p.x, rt.wy - p.y) > COMPANION_ROAM) this.pickWander(c, rt, p);
+    const far = fromP > COMPANION_ROAM;
+    this.aiMul = far ? CATCH_UP : STROLL;
+    if (this.steerTo(c, rt.wx, rt.wy, 0.15, h)) {
+      // 着いた: ひと休みするか、次の場所へ
+      rt.hasGoal = false;
+      if (this.rng() < IDLE_CHANCE) {
+        rt.idleT = IDLE_MIN + this.rng() * (IDLE_MAX - IDLE_MIN);
+        c.idle = this.rng() < 0.5 ? "sit" : "groom";
+      }
+    }
   }
 
-  /** 主人公から COMPANION_LEASH 以内の虫のうち、相棒にいちばん近い虫。 */
+  /** (tx, ty) へ向かう動きを aiX・aiY に入れる。stop 以内なら止まって true。 */
+  private steerTo(c: CatState, tx: number, ty: number, stop: number, h: number): boolean {
+    const dx = tx - c.x, dy = ty - c.y;
+    const d = Math.hypot(dx, dy);
+    if (d <= stop) { this.aiX = 0; this.aiY = 0; return true; }
+    // 行きすぎないように（1コマで進める分より近ければ、ゆっくり）
+    const k = Math.min(1, (d - stop) / Math.max(1e-6, c.char.moveSpeed * this.aiMul * h));
+    this.aiX = (dx / d) * k;
+    this.aiY = (dy / d) * k;
+    return false;
+  }
+
+  /** 追いかけるのをやめるか（相棒から遠すぎる・主人公から遠すぎる）。 */
+  private giveUp(c: CatState, p: CatState, t: BugState): boolean {
+    const dx = t.x - c.x, dy = t.y - c.y;
+    const g = Math.max(COMPANION_GIVEUP, c.char.range + 1.5);
+    if (dx * dx + dy * dy > g * g) return true;
+    const px = t.x - p.x, py = t.y - p.y;
+    return px * px + py * py > (COMPANION_ROAM + 1) * (COMPANION_ROAM + 1);
+  }
+
+  /** 相棒から COMPANION_SIGHT（射程が長い猫は 射程+0.8）以内の虫のうち、いちばん近い虫（主人公から遠すぎる虫・まだ穴の中の虫はとばす）。 */
   private companionTarget(c: CatState, p: CatState): BugState | null {
     const start = this.qtop;
-    const n = this.queryBugs(p.x, p.y, COMPANION_LEASH);
+    const n = this.queryBugs(c.x, c.y, Math.max(COMPANION_SIGHT, c.char.range + 0.8));
+    const lim = (COMPANION_ROAM + 1) * (COMPANION_ROAM + 1);
     let best: BugState | null = null, bd = Infinity;
     for (let k = start; k < start + n; k++) {
       const b = this.s.bugs[this.qbuf[k]];
       if (b.y < 0) continue;
+      const px = b.x - p.x, py = b.y - p.y;
+      if (px * px + py * py > lim) continue;
       const dx = b.x - c.x, dy = b.y - c.y;
       const d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = b; }
     }
     this.qtop = start;
     return best;
+  }
+
+  /**
+   * 相棒の次の歩く先を選ぶ。主人公のまわり（COMPANION_ROAM 以内）からいくつか候補を出して、
+   * 虫が多い・虫の道の上・ほかの猫やオブジェクトが守っていない所ほど高い点。出口のそばは少しさける。気まぐれも少し。
+   */
+  private pickWander(c: CatState, rt: CatRt, p: CatState): void {
+    const route = this.routeCells();
+    const cats = this.s.cats, objs = this.s.objects, bugs = this.s.bugs;
+    const reach = COMPANION_ROAM - 1.2;
+    let bx = p.x, by = p.y, best = -Infinity;
+    for (let k = 0; k < WANDER_TRIES; k++) {
+      let x: number, y: number;
+      if (k % 3 === 2 && bugs.length > 0) {
+        // 虫のそば（候補の 1/3）
+        const b = bugs[Math.floor(this.rng() * bugs.length)];
+        x = b.x + (this.rng() - 0.5) * 2;
+        y = b.y + 0.5 + this.rng() * 1.5;
+      } else {
+        const a = this.rng() * Math.PI * 2, r = Math.sqrt(this.rng()) * reach;
+        x = p.x + Math.cos(a) * r;
+        y = p.y + Math.sin(a) * r;
+      }
+      x = clamp(x, ROAM_EDGE_SIDE, COLS - ROAM_EDGE_SIDE);
+      y = clamp(y, ROAM_EDGE_TOP, ROWS - CAT_MARGIN - 0.2);
+      const px = x - p.x, py = y - p.y;
+      if (px * px + py * py > COMPANION_ROAM * COMPANION_ROAM) {
+        const d = Math.hypot(px, py), m = reach / d;
+        x = p.x + px * m; y = p.y + py * m;
+        x = clamp(x, ROAM_EDGE_SIDE, COLS - ROAM_EDGE_SIDE);
+        y = clamp(y, ROAM_EDGE_TOP, ROWS - CAT_MARGIN - 0.2);
+      }
+      let score = this.rng() * 0.6;
+      // 虫が多い
+      const start = this.qtop;
+      const nb = this.queryBugs(x, y, 3);
+      this.qtop = start;
+      score += 1.6 * Math.min(nb, 8) / 8;
+      // 虫の道の上
+      const ci = clamp(Math.floor(y), 0, ROWS - 1) * COLS + clamp(Math.floor(x), 0, COLS - 1);
+      if (route[ci]) score += 0.8;
+      // ほかの猫から離れている（守りが手うすな所）
+      let near = 4;
+      for (let i = 0; i < cats.length; i++) {
+        const o = cats[i];
+        if (o === c || o.resting) continue;
+        near = Math.min(near, Math.hypot(o.x - x, o.y - y));
+        const ort = this.rt[i];
+        if (o.companion && ort.hasGoal) near = Math.min(near, Math.hypot(ort.wx - x, ort.wy - y));
+      }
+      score += 0.3 * near;
+      // オブジェクトが届く所は、もう守られている
+      let cov = 0;
+      for (let i = 0; i < objs.length && cov < 2; i++) {
+        const o = objs[i];
+        if (o.hp <= 0 || !(o.def.range > 0) || o.def.kind === "wall" || o.def.kind === "producer") continue;
+        if (Math.hypot(o.cx - x, o.cy - y) <= o.def.range) cov++;
+      }
+      score -= 0.4 * cov;
+      // 遠すぎる所へは行きたがらない・出口のそばはさける
+      score -= 0.08 * Math.hypot(x - c.x, y - c.y);
+      if (y < ROAM_EDGE_TOP + 1.5) score -= 0.5;
+      if (this.sideSpawns && y < SIDE_SPAWN_ROWS + 1 && (x < 2 || x > COLS - 2)) score -= 0.5;
+      if (score > best) { best = score; bx = x; by = y; }
+    }
+    rt.wx = bx; rt.wy = by;
+    rt.wanderT = 0;
+    rt.hasGoal = true;
   }
 
   /** 1匹の猫を進める（移動は aiX・aiY・aiMul。主人公はスティックの入力）。 */
@@ -1788,7 +2054,7 @@ export class Battle {
       }
     }
     if (changed) this.recomputeFlow();
-    if (broken) this.emit("objectBroken", o.cx, o.cy, 0);
+    if (broken) this.emit("objectBroken", o.cx, o.cy, Math.max(o.w, o.h));
   }
 
   // ---- 弾 ----
@@ -1947,10 +2213,48 @@ export class Battle {
         }
         continue;
       }
+      // 行く手のオブジェクトをかじる（かじる虫）
+      const co = b.chewObj;
+      if (co) {
+        if (co.hp > 0) {
+          if (b.mode !== "chew") { b.mode = "chew"; b.atkTimer = 0; }
+          b.atkTimer += h;
+          if (b.atkTimer >= b.def.atkInterval) {
+            b.atkTimer -= b.def.atkInterval;
+            this.damageObject(co, b.atk * b.chew, b);
+          }
+          if (co.hp > 0) continue;
+        }
+        b.chewObj = null;
+      }
       b.mode = "walk";
       this.moveGround(b, b.speed * b.slowMul * h);
       if (s.result) return;
+      if (!b.alive) continue;
+      // 通れるオブジェクトの上を歩くと、すり減らす（止まらない）
+      if (b.y >= 0 && b.x >= 0 && b.x < COLS) {
+        const o = this.grid[clamp(Math.floor(b.y), 0, ROWS - 1) * COLS + clamp(Math.floor(b.x), 0, COLS - 1)];
+        if (o && o.hp > 0 && !o.def.block && o.def.kind !== "mine") {
+          b.wear += h;
+          if (b.wear >= b.def.atkInterval) {
+            b.wear -= b.def.atkInterval;
+            this.damageObject(o, b.atk * WEAR_MUL, b);
+          }
+        } else if (b.wear > 0) {
+          b.wear = 0;
+        }
+      }
     }
+  }
+
+  /** オブジェクトが虫にかじられた。HP が 0 になったら消える（"objectBroken"）。 */
+  private damageObject(o: ObjState, dmg: number, by: BugState | null): void {
+    if (o.hp <= 0 || !(dmg > 0)) return;
+    o.hp -= dmg;
+    o.hurt = 0.15;
+    this.addFloat(dmg, o.cx, o.cy - 0.2, "object");
+    this.emit("objectHit", by ? by.x : o.cx, by ? by.y : o.cy, dmg, o.cx, o.cy);
+    if (o.hp <= 0) this.removeObject(o, true);
   }
 
   private moveGround(b: BugState, step: number): void {
@@ -1969,7 +2273,19 @@ export class Battle {
       b.x = tx; b.y = ty;
       rem -= d;
       if (goal) { this.reachMama(b); return; }
-      const n = this.nextStep(b.nextCol, b.nextRow, b.stepX, b.stepY);
+      const chew = b.chew > 0;
+      const n = this.nextStep(b.nextCol, b.nextRow, b.stepX, b.stepY, chew);
+      if (chew && n >= 0) {
+        // 次のマスに通れないオブジェクト: 止まってかじる
+        const o = this.grid[n];
+        if (o && o.hp > 0 && o.def.block) {
+          b.chewObj = o;
+          const nc = n % COLS, nr = (n - nc) / COLS;
+          const dx = nc - b.nextCol, dy = nr - b.nextRow, l = Math.hypot(dx, dy) || 1;
+          b.dirX = dx / l; b.dirY = dy / l;
+          return;
+        }
+      }
       if (n < 0) {
         // ありえないはず（閉じこめる置き方はできない）。念のためママへまっすぐ向かう
         b.nextCol = GOAL_COL; b.nextRow = GOAL_ROW;
@@ -2012,15 +2328,27 @@ export class Battle {
     b.nextRow = clamp(Math.floor(b.y), 0, ROWS - 1);
     b.stepX = sx; b.stepY = sy;
     if (b.x !== x0 || b.y !== y0) {
+      b.chewObj = null;
       b.knockX = x0 - b.x; b.knockY = y0 - b.y; b.knock = KNOCK_TIME;
       this.emit("knockback", b.x, b.y, Math.hypot(b.knockX, b.knockY));
     }
     return amt;
   }
 
-  /** 虫にダメージ。実際に減った HP を返す。倒したらカリカリがすぐ手に入る。毒で倒れたら、まわりに毒がうつる。 */
+  /**
+   * 虫にダメージ。実際に減った HP を返す。倒したらカリカリがすぐ手に入る。毒で倒れたら、まわりに毒がうつる。
+   * 猫の攻撃（curCat があるとき）には、虫の catResist を掛ける。
+   */
   private damageBug(b: BugState, dmg: number, kind: FloatKind): number {
     if (!b.alive || !(dmg > 0)) return 0;
+    if (this.curCat && b.resist !== 1) {
+      dmg *= b.resist;
+      if (b.resist < 1) {
+        if (kind !== "crit") kind = "resist";
+        if (this.s.time - b.resistAt >= RESIST_HINT_GAP) { b.resistAt = this.s.time; this.emit("resist", b.x, b.y, b.resist); }
+      }
+      if (!(dmg > 0)) return 0;
+    }
     const before = b.hp;
     const dealt = Math.min(dmg, b.hp);
     b.hp -= dmg;
@@ -2147,6 +2475,24 @@ export class Battle {
     s.result = { win: true, stageId: this.loadout.stage.id, kills: s.kills, time: s.time, wavesCleared: s.waveTotal };
     this.emit("win", COLS / 2, ROWS / 2, 0);
   }
+}
+
+/** 虫の群れの数（1 以上）。 */
+function packOf(def: BugDef): number {
+  const p = Math.floor(def.pack ?? 1);
+  return p > 1 ? Math.min(p, 12) : 1;
+}
+
+/** 虫のかじる強さ（ボスは最低 1）。 */
+function chewOf(def: BugDef): number {
+  const c = def.chew ?? 0;
+  return Math.max(c > 0 ? c : 0, def.boss ? 1 : 0);
+}
+
+/** 猫からのダメージの倍率（0〜。なければ 1）。 */
+function resistOf(def: BugDef): number {
+  const r = def.catResist;
+  return r !== undefined && r >= 0 && Number.isFinite(r) ? r : 1;
 }
 
 /** 猫の複合効果の値（無ければ 0）。 */

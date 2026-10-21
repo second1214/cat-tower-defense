@@ -3,7 +3,7 @@
 import type { BugDef, CharRole, ComboId, Loadout, ObjectKind, Personality, ResolvedChar, ResolvedObject, StageDef } from "./types";
 import { type Rng, pickWeighted, randInt } from "./rng";
 import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
-import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, NEIGHBOR_UNLOCK, bondToNext } from "../data/chars";
+import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bondToNext } from "../data/chars";
 import {
   SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
   modsFromTotals, nodeCost, nodeTotalCost,
@@ -22,7 +22,7 @@ import {
   equipBaseStats, rollEquip,
 } from "../data/equips";
 import { RELICS, RELIC_MAP, type RelicStat } from "../data/relics";
-import { STAGES, STAGE_MAP, stageIndexOf } from "../data/stages";
+import { STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
 import { bugDefs } from "../data/bugs";
 
 export type Result<T = undefined> = { ok: true; value: T } | { ok: false; reason: string };
@@ -35,7 +35,7 @@ export const BASE_MAMA_HP = 10;
 export const IDLE_EXP_RATE = 0.3;
 export const MAX_CHAR_LEVEL = 999;
 /** 相棒の強さ（攻撃・体力に掛ける）。 */
-export const COMPANION_POWER = 0.6;
+export const COMPANION_POWER = 0.45;
 
 // ================= ステージ =================
 
@@ -264,25 +264,6 @@ export function equipWaza(save: SaveData, uid: string, slot: "main" | 0 | 1, waz
   else subs.push(w.id);
   c.waza.subs = subs.slice(0, MAX_SUBS);
   return ok(undefined);
-}
-
-/** 譲渡会に来ている近所の猫（まだお迎えしていないもの）のひな形 id。 */
-export function adoptableNeighbors(save: SaveData): string[] {
-  const have = new Set(Object.values(save.cats).map((c) => c.preset).filter(Boolean));
-  return CHARS.filter((d) => (NEIGHBOR_UNLOCK[d.id] ?? Infinity) <= save.cleared && !have.has(d.id)).map((d) => d.id);
-}
-
-/** 近所の猫をお迎えする（無料）。その猫らしいわざを覚えていればそれを、なければ「ねこパンチ」か「ちょいちょい」をつける。 */
-export function adoptNeighbor(save: SaveData, presetId: string): Result<string> {
-  const def = CHAR_MAP[presetId];
-  if (!def) return ng("猫が見つかりません");
-  if (!adoptableNeighbors(save).includes(presetId)) return ng("まだ譲渡会に来ていません");
-  if (Object.keys(save.cats).length >= MAX_CATS) return ng(`猫は ${MAX_CATS} 匹までです`);
-  const sig = WAZA_MAP[def.waza];
-  const main = save.wazas[def.waza] ? def.waza : (sig?.role === "ranged" || sig?.role === "aoe" ? "choichoi" : DEFAULT_MAIN_WAZA);
-  const uid = newCatUid(save);
-  save.cats[uid] = newCatSave(uid, def.name, def.id, def.personality, main, def.id);
-  return ok(uid);
 }
 
 /** その猫のメインのわざ（なければ「ねこパンチ」）。 */
@@ -876,32 +857,214 @@ export function charDps(c: ResolvedChar): number {
 /**
  * オブジェクト1つのだいたいの DPS（虫の群れに対して。拡散・貫通・爆発・連鎖・毒・範囲をならしたもの）。
  * 群れは次々に来るが、いつも全部に当たるわけではないので、まとめて当たる数は控えめに見る。
+ * crowd: 虫のこみ具合（1 がふつう）。こんでいるほど、範囲・拡散・貫通・連鎖がたくさんの虫に当たる。
  */
-export function objectDps(o: ResolvedObject): number {
+export function objectDps(o: ResolvedObject, crowd = 1): number {
   const critF = 1 + (o.crit ?? 0) * Math.max(0, (o.critMul ?? 1.5) - 1);
   const base = (o.atk / Math.max(0.1, o.interval)) * critF;
-  const poisonF = 1 + Math.min(4, (o.poison ?? 0) * 1.5) * (1 + 0.5 * (o.poisonSpread ?? 0));
-  const area = (r: number) => 1 + 0.6 * r;  // 半径 r の範囲で、だいたい何匹に当たるか
+  const poisonF = 1 + Math.min(4, (o.poison ?? 0) * 1.5) * (1 + 0.5 * (o.poisonSpread ?? 0) * crowd);
+  const area = (r: number) => 1 + 0.6 * r * crowd;  // 半径 r の範囲で、だいたい何匹に当たるか
+  const cap = 8 * Math.max(1, crowd);
   switch (o.kind) {
     case "shooter": {
-      const f = (1 + 0.4 * (o.multishot ?? 0)) * (1 + 0.3 * (o.pierce ?? 0)) * (1 + 0.8 * (o.splash ?? 0));
-      return base * Math.min(8, f) * poisonF;
+      const f = (1 + 0.4 * (o.multishot ?? 0) * Math.sqrt(crowd)) * (1 + 0.3 * (o.pierce ?? 0) * crowd) * (1 + 0.8 * (o.splash ?? 0) * crowd);
+      return base * Math.min(cap, f) * poisonF;
     }
     case "aoe": return base * area(o.range) * poisonF;
-    case "zap": return base * Math.min(8, 1 + 0.5 * (o.chain ?? 0)) * poisonF;
+    case "zap": return base * Math.min(cap, 1 + 0.5 * (o.chain ?? 0) * Math.min(1.5, crowd)) * poisonF;
     case "poison": return base * area(o.range) * poisonF;
     case "slow": return base * area(Math.max(0, o.range - 0.5)) * poisonF;
     // わなは1回きり。だいたい数秒に1つ置きなおすとして
-    case "mine": return (o.atk / 6) * critF * (1 + 1.2 * (o.splash ?? 0));
+    case "mine": return (o.atk / 6) * critF * (1 + 1.2 * (o.splash ?? 0) * crowd);
     default: return 0;
   }
 }
 
-/** だいたいの DPS（1秒あたりのダメージ）。char は主人公、companions は相棒の合計。 */
+/** 虫のこみ具合のふつう（道 1 マスあたりの虫の数の目安 = 1秒に出てくる数 ÷ 速さ）。 */
+export const CROWD_BASE = 2.7;
+/**
+ * ステージの虫のこみ具合（objectDps の crowd）と、オブジェクトが虫をねらえる割合（util）。
+ * 虫がたくさん・ゆっくり来るほど、道にぎっしり並ぶ。虫が少ないと、オブジェクトは届く所に虫がいなくて休んでいる時間が長い。
+ */
+export function stageCrowd(stage: StageDef): { crowd: number; util: number } {
+  const { count, duration } = stageLoad(stage);
+  const bugs = bugDefs();
+  let sp = 0, n = 0;
+  for (const w of stage.waves) for (const g of w.bugs) { const b = bugs[g.bug]; if (b) { sp += b.speed * g.count; n += g.count; } }
+  const speed = n > 0 ? Math.max(0.2, sp / n) : 0.45;
+  const dense = duration > 0 ? count / duration / speed : 0;
+  return { crowd: Math.max(0.5, dense / CROWD_BASE), util: dense / (dense + UTIL_HALF) };
+}
+/** util が半分になる、こみ具合（道 1 マスあたりの虫の数 × 速さの逆数）。 */
+const UTIL_HALF = 1.3;
+
+/** 戦闘中に置くオブジェクトの数の目安の上限（盤面の広さ・道ぞいの場所）。 */
+export const MAX_PLACED = 40;
+/** 戦闘で手に入るカリカリのうち、置くのに使う割合（残りは強化）。 */
+const PLACE_SHARE = 0.45;
+/** 戦闘中の強化は途中から効くので、時間でならした効き目の割合。 */
+const UPGRADE_TIME_AVG = 0.7;
+/** 餌皿などのカリカリは、置いてから効く（時間でならした割合）。 */
+const PRODUCE_TIME_AVG = 0.6;
+
+/** 1回の戦闘で手に入るカリカリの目安（はじめの分＋虫が落とす分）。餌皿の分は入れない。 */
+export function stageKibble(stage: StageDef, kibbleMul = 1, startAdd = 0): number {
+  const bugs = bugDefs();
+  let k = stage.startKibble + startAdd;
+  for (const w of stage.waves) {
+    for (const g of w.bugs) {
+      const b = bugs[g.bug];
+      if (b) k += g.count * Math.max(1, Math.floor(b.pack ?? 1)) * b.drop * kibbleMul;
+    }
+  }
+  return k;
+}
+
+/**
+ * 戦闘中のオブジェクトのだいたいの強さ（カリカリで、いくつ置けて、どれだけ強化できるか）。
+ * 強化は1回ごとに upgradeMul 倍・コストは 1.5 倍なので、カリカリが多いステージ（虫が多い）ほど強くなる。
+ * dps は、置いた全部の合計（攻撃するものだけ）。
+ */
+export function inBattleObjects(objs: ResolvedObject[], kibble: number, crowd = 1): { placed: number; upMul: number; dps: number } {
+  const atk = objs.filter((o) => o.kind !== "producer" && o.kind !== "wall").map((o) => ({ o, d: objectDps(o, crowd) })).filter((x) => x.d > 0);
+  if (!atk.length || !(kibble > 0)) return { placed: 0, upMul: 1, dps: 0 };
+  // 強いものほどたくさん置く（DPS の重みでならす）
+  const sum = atk.reduce((a, x) => a + x.d, 0);
+  const avg = (f: (o: ResolvedObject) => number) => atk.reduce((a, x) => a + f(x.o) * x.d, 0) / sum;
+  const dps = atk.reduce((a, x) => a + x.d * x.d, 0) / sum;
+  const cost = Math.max(1, avg((o) => o.cost));
+  const upCost = Math.max(1, avg((o) => o.upgradeCost));
+  const upMul = Math.max(1, avg((o) => o.upgradeMul));
+  const placed = Math.min(MAX_PLACED, Math.max(1, (kibble * PLACE_SHARE) / cost));
+  const rest = Math.max(0, kibble - placed * cost);
+  const n = Math.log(1 + (0.5 * rest) / placed / upCost) / Math.log(1.5);
+  const up = 1 + (Math.pow(upMul, n) - 1) * UPGRADE_TIME_AVG;
+  return { placed, upMul: up, dps: dps * placed * up };
+}
+
+/** ステージの虫の、猫からのダメージの倍率（かたい虫 catResist を、体力の重みでならしたもの）。 */
+export function stageCatResist(stage: StageDef): number {
+  const bugs = bugDefs();
+  let hp = 0, eff = 0;
+  for (const w of stage.waves) {
+    for (const g of w.bugs) {
+      const b = bugs[g.bug];
+      if (!b) continue;
+      const x = b.hp * g.count * Math.max(1, Math.floor(b.pack ?? 1));
+      hp += x;
+      eff += x * (b.catResist ?? 1);
+    }
+  }
+  return hp > 0 ? eff / hp : 1;
+}
+
+/**
+ * 猫が戦闘で出せる、だいたいの DPS（かたい虫・1匹ずつしか叩けないことを入れたもの）。
+ * 猫は1回に1匹（範囲・貫通・連続攻撃で少し増える）なので、虫が多くて1匹が弱いほど、DPS を使いきれない。
+ */
+export function catEffDps(c: ResolvedChar, stage: StageDef): number {
+  const { totalHp, count } = stageLoad(stage);
+  const avgHp = count > 0 ? totalHp / count : 0;
+  const hits = (1 / Math.max(0.1, c.atkInterval)) * (1 + (c.multiHit ?? 0)) * (c.aoe > 0 ? 1 + 1.5 * c.aoe : 1) * (1 + 0.5 * (c.pierce ?? 0));
+  return Math.min(charDps(c) * stageCatResist(stage), hits * avgHp * CAT_KILL_CAP);
+}
+/** 1回の攻撃で倒せる数の上限の目安（移動・ねらう虫えらびのむだもある）。 */
+const CAT_KILL_CAP = 0.6;
+
+/**
+ * 群れへのまとめ当たりの伸び（1ステージごとに e^STAGE_MULTI 倍）。
+ * 先のステージほど、虫がこんで迷路にならび、オブジェクトの特殊効果（拡散・貫通・爆発・連鎖・毒の伝染）も増えて、
+ * 1回でたくさんの虫に当たる。本物の戦闘（tests/bot.ts のボット）に合わせた値。
+ * （特殊効果の数そのもので見ると、回して育てたときに目安だけが急に伸びすぎるので、ステージで見る）
+ */
+export const STAGE_MULTI = 0.068;
+/** 目安の全体の倍率（群れ・ぬし）。本物の戦闘に合わせた値。 */
+const EST_SCALE = 2;
+const EST_SCALE_BOSS = 0.35;
+
+/** ステージの虫を、ふつうの虫（群れ）とぬし（ボス）に分けたもの。 */
+export function stageParts(stage: StageDef): {
+  regHp: number; regCount: number; regSpeed: number; bossHp: number; bossCount: number; bossSpeed: number; path: number;
+} {
+  const bugs = bugDefs();
+  let regHp = 0, regCount = 0, sp = 0, bossHp = 0, bossCount = 0, bossSpeed = 0.25;
+  for (const w of stage.waves) {
+    for (const g of w.bugs) {
+      const b = bugs[g.bug];
+      if (!b) continue;
+      const n = g.count * Math.max(1, Math.floor(b.pack ?? 1));
+      if (b.boss) { bossHp = Math.max(bossHp, b.hp * stage.hpMul); bossCount += n; bossSpeed = b.speed; continue; }
+      regHp += b.hp * stage.hpMul * n;
+      regCount += n;
+      sp += b.speed * n;
+    }
+  }
+  const path = stage.obstacles ? Math.max(18, mazeLength(stage.obstacles)) : PATH_TILES;
+  return { regHp, regCount, regSpeed: regCount > 0 ? Math.max(0.2, sp / regCount) : 0.45, bossHp, bossCount, bossSpeed, path };
+}
+
+/**
+ * ステージでの戦力の余裕（1 をこえると勝てそう）。ステージがわかるときの目安（powerRatio・estimateDps が使う）。
+ * - 群れ: 1匹の虫がママまで歩くあいだ（迷路の長さ ÷ 速さ）に、道ぞいのオブジェクトと猫が削れる量 と、虫の体力の合計をくらべる。
+ *   オブジェクトは、カリカリで置ける数と強化（inBattleObjects）、こみ具合と特殊効果で、まとめて当たる数がふえる。
+ *   猫は、かたい虫・1匹ずつしか叩けないことを入れる（catEffDps）
+ * - ぬし（ボス）: 1匹ずつなので、まとめて当たる効果はない。ぬしが歩くあいだに倒せるか（いちばん強い1匹に当てる強さ × 置いた数）
+ * どちらも足りないと勝てない（小さい方）。parts は、群れのダメージのうちわけ（猫・相棒・オブジェクト）。
+ */
+export function stageRatio(lo: Pick<Loadout, "char" | "objects" | "stage"> & Partial<Pick<Loadout, "companions" | "global">>): {
+  ratio: number; swarm: number; boss: number; parts: { char: number; companions: number; objects: number };
+} {
+  const c = lo.char, st = lo.stage;
+  const comps = lo.companions ?? [];
+  const char = catEffDps(c, st);
+  let companions = 0;
+  for (const m of comps) companions += catEffDps(m, st) * COMPANION_UPTIME;
+  const kMul = (lo.global?.kibbleMul ?? 1) * (1 + Math.max(0, ...[c, ...comps].map((x) => x.kibbleBonus ?? 0)));
+  let kibble = stageKibble(st, kMul, lo.global?.startKibbleAdd ?? 0);
+  // 餌皿（producer）を1つ置いたぶん
+  const prod = lo.objects.filter((o) => o.kind === "producer" && o.produce > 0);
+  if (prod.length) {
+    const best = Math.max(...prod.map((o) => o.produce / Math.max(0.5, o.interval)));
+    kibble += best * stageLoad(st).duration * PRODUCE_TIME_AVG * (lo.global?.kibbleMul ?? 1);
+  }
+  const { crowd, util } = stageCrowd(st);
+  const one = inBattleObjects(lo.objects, kibble, 1);
+  const many = inBattleObjects(lo.objects, kibble, crowd);
+  const attackers = lo.objects.filter((o) => o.kind !== "producer" && o.kind !== "wall" && o.atk > 0);
+  const multi = Math.exp(STAGE_MULTI * Math.max(0, stageIndexOf(st.id)));
+  const aura = 1 + (c.objectAura ?? 0) * 0.5;
+  const objects = one.dps * util * multi * aura;
+  const p = stageParts(st);
+  const walk = p.path / p.regSpeed;
+  const swarm = p.regHp > 0 ? (EST_SCALE * (char + companions + objects) * walk) / p.regHp : Infinity;
+  let boss = Infinity;
+  if (p.bossCount > 0 && p.bossHp > 0) {
+    const single = Math.max(0, ...attackers.map((o) => (o.atk / Math.max(0.1, o.interval)) * (1 + (o.crit ?? 0) * Math.max(0, (o.critMul ?? 1.5) - 1))));
+    const catBoss = [c, ...comps].reduce((a, x, i) => a + charDps(x) * (1 + (x.combos?.bossHunter ?? 0)) * (i === 0 ? 1 : COMPANION_UPTIME), 0);
+    const dps = catBoss + many.placed * single * many.upMul * aura;
+    boss = (EST_SCALE_BOSS * dps * (p.path / p.bossSpeed)) / p.bossHp;
+  }
+  return { ratio: Math.min(swarm, boss), swarm, boss, parts: { char, companions, objects } };
+}
+
+/**
+ * だいたいの DPS（1秒あたりのダメージ）。char は主人公、companions は相棒の合計。
+ * lo.stage があれば、そのステージで（stageRatio）。total は「total × 長さ ÷ 体力の合計 = 余裕」になるようにならした値
+ * （画面は stageLoad と total で余裕を出す）。char・companions・objects は、そのうちわけ。
+ * なければ、ならした目安。
+ */
 export function estimateDps(
-  lo: Pick<Loadout, "char" | "objects"> & Partial<Pick<Loadout, "companions">>,
+  lo: Pick<Loadout, "char" | "objects"> & Partial<Pick<Loadout, "companions" | "stage" | "global">>,
 ): { char: number; companions: number; objects: number; total: number } {
   const c = lo.char;
+  if (lo.stage) {
+    const r = stageRatio({ ...lo, stage: lo.stage });
+    const { totalHp, duration } = stageLoad(lo.stage);
+    const total = duration > 0 ? (r.ratio * totalHp) / duration : 0;
+    const sum = r.parts.char + r.parts.companions + r.parts.objects;
+    const f = sum > 0 ? total / sum : 0;
+    return { char: r.parts.char * f, companions: r.parts.companions * f, objects: r.parts.objects * f, total };
+  }
   const char = charDps(c);
   let companions = 0;
   for (const m of lo.companions ?? []) companions += charDps(m) * COMPANION_UPTIME;
@@ -911,19 +1074,22 @@ export function estimateDps(
   return { char, companions, objects, total: char + companions + objects };
 }
 
-/** 虫がママまで歩く道のりの目安（マス）。14×18 の盤面で、家具やオブジェクトをよけて遠回りする。 */
+/** 虫がママまで歩く道のりの目安（マス。家具の迷路がないとき）。ステージがあれば mazeLength で測る。 */
 export const PATH_TILES = 30;
 
 /** ステージの虫の体力の合計と、だいたいの長さ（秒。最後の虫がママに着くまで）。 */
 export function stageLoad(stage: StageDef): { totalHp: number; duration: number; count: number } {
   const bugs = bugDefs();
+  // 道のり: 家具の迷路が長いほど、虫は長く歩く（オブジェクトが長く当てられる）
+  const path = stage.obstacles ? Math.max(18, mazeLength(stage.obstacles)) * 1.25 : PATH_TILES;
   let totalHp = 0, count = 0, end = 0;
   for (const w of stage.waves) {
     for (const g of w.bugs) {
       const b = bugs[g.bug];
-      totalHp += (b?.hp ?? 0) * stage.hpMul * g.count;
-      count += g.count;
-      const walk = PATH_TILES / Math.max(0.1, b?.speed ?? 0.5);
+      const n = g.count * Math.max(1, Math.floor(b?.pack ?? 1));
+      totalHp += (b?.hp ?? 0) * stage.hpMul * n;
+      count += n;
+      const walk = path / Math.max(0.1, b?.speed ?? 0.5);
       end = Math.max(end, w.at + g.count * g.every + walk * 0.5);
     }
   }
@@ -953,8 +1119,6 @@ export interface RewardResult {
   equips: EquipItem[];
   shards: { id: string; count: number }[];
   newObjects: string[];
-  /** 新しく譲渡会に来た近所の猫（ひな形 id）。 */
-  newNeighbors: string[];
   levelUps: Record<string, number>;   // 猫の uid → 上がったレベル数
   bondUps: Record<string, number>;    // 猫の uid → 上がったあとのなかよし度（上がった猫だけ）
 }
@@ -965,10 +1129,13 @@ function rollCount(n: number, rng: Rng): number {
   return f + (rng() < n - f ? 1 : 0);
 }
 
-/** ステージ（通し番号 g）で落ちる装備のレアリティ。 */
+/**
+ * ステージ（通し番号 g）で落ちる装備のレアリティ。
+ * 上のレアリティは早めに出はじめるが、とても出にくい（step の何乗か）。急に強くなりすぎない（戦力の山がなめらか）ように。
+ */
 export function rollDropRarity(g: number, rng: Rng): EquipRarity {
   const step = Math.min(0.35, 0.05 + g * 0.003);
-  const cap = Math.min(MAX_EQUIP_RARITY, Math.floor(g / 30));
+  const cap = Math.min(MAX_EQUIP_RARITY, Math.floor((g + 6) / 18));
   let r = 0;
   while (r < cap && rng() < step) r++;
   return r as EquipRarity;
@@ -1040,16 +1207,14 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   for (const [id, cnt] of shardMap) save.objects[id].shards += cnt;
 
   // クリアの記録
-  const before = new Set(adoptableNeighbors(save));
   save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + 1;
   if (firstClear) save.cleared = g;
   const { newObjects } = syncUnlocks(save);
-  const newNeighbors = adoptableNeighbors(save).filter((id) => !before.has(id));
 
   return {
     stageId: stage.id, firstClear, exp, coins, relicPoints, churu, churuFromLevels, equips,
     shards: [...shardMap].map(([id, count]) => ({ id, count })),
-    newObjects, newNeighbors, levelUps, bondUps,
+    newObjects, levelUps, bondUps,
   };
 }
 

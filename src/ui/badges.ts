@@ -1,7 +1,7 @@
 // 赤いバッジ（なにかできることがあるとき）の判定。
 import type { SaveData } from "../core/save";
 import type { CharRole } from "../core/types";
-import { adoptableNeighbors, canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTreeOf } from "../core/progress";
+import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTreeOf } from "../core/progress";
 import { canPull } from "../core/gacha";
 import { MAX_CATS } from "../core/save";
 import { EQUIP_SLOTS, MAX_EQUIP_RARITY } from "../data/equips";
@@ -63,12 +63,7 @@ export function bagBadge(save: SaveData): boolean {
   return canPull(save, 1).ok;
 }
 
-/** 譲渡会に、お迎えできる近所の猫が来ているか。 */
-export function adoptBadge(save: SaveData): boolean {
-  return Object.keys(save.cats).length < MAX_CATS && adoptableNeighbors(save).length > 0;
-}
-
 /** 下のタブ「福袋」。 */
 export function gachaBadge(save: SaveData): boolean {
-  return bagBadge(save) || adoptBadge(save);
+  return bagBadge(save);
 }
