@@ -49,3 +49,74 @@
 - src/data/: 猫・オブジェクト・虫・装備・レリック・ステージの定義
 - src/battle/: 戦闘の計算（DOM 非依存・テストあり）と描画（Canvas 2D）
 - src/ui/: メニュー画面（DOM）
+
+## v4: うちの子・わざ（福袋）・相棒2匹・大きなスキルツリー
+
+### ねらい
+自分の飼っている猫（多頭飼いなら何匹でも）を主人公・相棒にして、最後まで最強に育てられるようにする。
+**猫そのものにはレアリティを付けない**。レアリティはガチャ（ねこ福袋）で引く「わざ」と装備にだけ付ける。
+
+### 猫（うちの子・近所の猫）
+- セーブの `cats` に、登録した猫が uid（"c1" "c2" …）で入る。どの猫も同じ式で強くなる（レアリティ倍率なし）
+- うちの子: 名前・見た目（look = 絵の id。今の20匹の絵から選ぶ。絵は増やしていく）・性格をプレイヤーが決める。最大 30 匹
+- 初回起動で1匹目を登録する（名前・見た目・性格）。あとから成長タブで追加・変更できる
+- 近所の猫（data/chars.ts の 20 匹。レアリティ・役割は消す）: ステージを進めると譲渡会に来て、無料でお迎えできる（`NEIGHBOR_UNLOCK`: 1匹目は 1-3 クリア、その後おおむね5ステージごと）。お迎えすると cats に入り、うちの子と同じように使える
+- 性格（data/personality.ts）: 6種。どれも合計の価値は同じ（例: やんちゃ 攻撃+15%・体力-10%）。強弱ではなく個性
+- なかよし度（0〜5、1つにつき基本の体力・攻撃 +20%）: 戦闘に出るたびに少しずつ上がる（主人公も相棒も）。ガチャのかぶりでは上がらない
+- 経験値: 主人公・相棒は全部、控えの猫は 30%
+
+### わざ（ねこ福袋で引く）
+- data/waza.ts。レアリティ N〜UR。`slot: "main" | "sub"`
+- メインのわざ（1匹に1つ・必須）: 戦い方（role）と基本の形・倍率（N 1.0 / R 1.2 / SR 1.45 / SSR 1.75 / UR 2.1）・特技を決める。今の20匹の特技（passive）はメインのわざに移す（例: 「ねこパンチ」N 近接・押しもどし）。メインは役割ごとに5つ以上・全部で20以上
+- サブのわざ（1匹に2つまで）: 特殊効果（スキルと同じステータス）や複合効果（ComboId）。12以上
+- わざは「覚えたもの」: 持っていれば、何匹にでも同時につけられる（同じ猫に同じわざは不可）
+- かぶったら、わざのレベル +1（最大5、1つにつき効果 +20%）。最大のあとは、ちゅ〜るに換える
+- はじめから持っている: 「ねこパンチ」（N 近接）・「ちょいちょい」（N 遠距離）
+- ねこ福袋: 1回 10 ちゅ〜る・10回 90（SR 以上1つ確定）。確率 N50/R30/SR14/SSR5/UR1。SSR 以上が 50 回来なければ確定
+
+### パーティ
+- `party`: [主人公, 相棒1, 相棒2]（uid。相棒は空きでもよい）。同じ猫は1つの枠だけ
+- 相棒は戦闘で AI で動く（主人公のそばにいて、近くの虫へ自分の役割で攻撃。HP 0 で休けい）。強さは `COMPANION_POWER = 0.6`（攻撃・体力に掛ける）
+- 主人公・相棒、それぞれのメインのわざの役割のスキルツリーが効く
+
+### スキルツリー（家族で共有・役割ごと）
+- `skills[role][nodeId] = level`。1匹で取れば、その役割で戦う全員に効く
+- 1つの役割に 170 ノード以上（今の約3倍）。段 0〜11（`TIER_MIN_LEVEL` は家族の一番高いレベルで判定）。レアリティの条件は無くす
+- 複合効果のノード（ComboId）を各役割に 10 以上。深い段ほど強い・派手。役割に合ったもの（近接: knockSlam・multiEcho・lastStand、遠距離: pierceGrow・critChain、範囲: shockwave・poisonBurst、すばやい: frenzy・dodgeCounter …）
+- 古いセーブのスキルは消して、使ったちゅ〜るを返す
+
+### 古いセーブ（v2 → v3）
+- 持っていた猫は、近所の猫として cats に入る（look = 元の id、名前もそのまま、レベル・経験値・なかよし度も引き継ぐ）
+- その猫のレアリティ・特技は、同じレアリティのメインのわざとして手に入れ、その猫につける
+- selectedChar → party[0]。初回登録はすんだものとする（setupDone = true）
+
+### core の約束（UI・戦闘はこれを使う）
+```ts
+// save.ts
+interface CatSave { uid: string; name: string; look: string; personality: Personality; preset?: string;
+  level: number; exp: number; bond: number; bondExp: number; waza: { main: string; subs: string[] } }
+interface WazaSave { level: number; count: number }
+SaveData に: cats, party: string[], wazas: Record<string, WazaSave>, skills: Record<CharRole, Record<string, number>>, setupDone: boolean, gachaPity, totalPulls
+（chars・selectedChar は無くす）
+MAX_CATS = 30
+
+// progress.ts
+registerCat(save, { name, look, personality }): Result<string>      // uid を返す
+updateCat(save, uid, patch: Partial<Pick<CatSave,"name"|"look"|"personality">>): Result
+removeCat(save, uid): Result                                         // 主人公は外せない
+setParty(save, slot: 0|1|2, uid: string | null): Result
+equipWaza(save, uid, slot: "main" | 0 | 1, wazaId: string | null): Result
+adoptableNeighbors(save): string[]                                   // 来ている近所の猫（まだお迎えしていない）
+adoptNeighbor(save, presetId): Result<string>
+familyLevel(save): number
+resolveCat(save, uid, companion = false): ResolvedChar
+catPower(save, uid): number
+partyRoles(save): CharRole[]
+nodeLevel(save, role, nodeId) / nextNodeCost(save, role, nodeId) / isNodeOpen(save, role, nodeId) / canLearn / learnSkill(save, role, nodeId) / resetSkills(save, role) / skillSpent(save, role)
+buildLoadout(save, stageId): Loadout | null                          // companions も入る
+grantRewards(...)                                                    // 経験値・なかよし度を配る
+
+// gacha.ts
+pull(save, rng, 1 | 10): Result<{ wazaId: string; rarity: Rarity; isNew: boolean; level: number; refund: number }[]>
+canPull / pullCost / pullsToPity / pullRates()                       // pullRates は わざ の一覧
+```

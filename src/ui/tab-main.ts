@@ -1,17 +1,17 @@
 // メイン（ステージを選ぶ）。
 import {
-  FIRST_CLEAR_CHURU_MUL, buildLoadout, selectChar, estimateDps, isStageUnlocked, nextStageId, relicBonus, stageById, stageIndexOf, stageLoad, STAGES,
+  FIRST_CLEAR_CHURU_MUL, buildLoadout, catRole, estimateDps, heroUid, isStageUnlocked, mainWazaOf, nextStageId, partyUids,
+  relicBonus, setParty, stageById, stageIndexOf, stageLoad, STAGES,
 } from "../core/progress";
 import { fmt } from "../core/num";
-import { CHAR_MAP, ROLE_NAMES } from "../data/chars";
 import { OBJECT_MAP } from "../data/objects";
 import { CHAPTER_NAMES, stageIdOf } from "../data/stages";
-import { MAX_LOADOUT, writeSave } from "../core/save";
+import { MAX_LOADOUT, PARTY_SIZE, writeSave } from "../core/save";
 import type { Ctx } from "./ctx";
 import { h, svgIcon } from "./dom";
-import { ICONS, objectSvg } from "./icons";
-import { rarityPill } from "./gacha";
-import { openCharDetail } from "./grow-char";
+import { ICONS, PLUS_ICON, objectSvg } from "./icons";
+import { rarityPill, roleTag } from "./parts";
+import { openCatDetail } from "./grow-char";
 import { renderCafe, catIcon } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
@@ -58,8 +58,9 @@ export function renderMain(ctx: Ctx): HTMLElement {
   const boss = stage.index === 10;
   const clears = save.clearCounts[id] ?? 0;
 
-  const charDef = CHAR_MAP[save.selectedChar];
-  const cs = save.chars[save.selectedChar];
+  const party = partyUids(save);
+  const hero = heroUid(save);
+  const cs = save.cats[hero];
   const ch = ((stage.chapter - 1) % 5) + 1;
 
   // ---- 上: ステージ ----
@@ -101,8 +102,16 @@ export function renderMain(ctx: Ctx): HTMLElement {
       ? h("span", { class: `mn-obj r-${def.rarity}` }, svgIcon(objectSvg(def.id, def.kind)), h("span", { class: "mn-obj-lv" }, `${save.objects[def.id]?.level ?? 1}`))
       : h("span", { class: "mn-obj empty" }));
   }
-  const party = h("div", { class: "mn-party" },
-    h("button", { class: "mn-party-cat", "aria-label": "猫を選ぶ", onclick: () => ctx.goTab("grow", "char") }, catIcon(save.selectedChar, "mn-party-cat-ico")),
+  const catSlots: HTMLElement[] = [];
+  for (let i = 0; i < PARTY_SIZE; i++) {
+    const c = party[i] ? save.cats[party[i]] : undefined;
+    catSlots.push(c
+      ? h("button", { class: `mn-party-cat ${i === 0 ? "hero" : "mate"}`, "aria-label": i === 0 ? `主人公 ${c.name}` : `相棒 ${c.name}`, onclick: () => openCatDetail(ctx, c.uid) },
+        catIcon(c.look, "mn-party-cat-ico"), i === 0 ? h("span", { class: "mn-hero-crown" }, svgIcon(ICONS.crown)) : null)
+      : h("button", { class: "mn-party-cat empty", "aria-label": "相棒をえらぶ", onclick: () => ctx.goTab("grow", "char") }, svgIcon(PLUS_ICON, "mn-plus")));
+  }
+  const partyBox = h("div", { class: "mn-party" },
+    h("div", { class: "mn-party-cats" }, catSlots),
     h("button", { class: "mn-party-objs", "aria-label": "オブジェクトを選ぶ", onclick: () => ctx.goTab("grow", "obj") },
       h("span", { class: "mn-party-k" }, "もちもの"), slots));
 
@@ -112,46 +121,61 @@ export function renderMain(ctx: Ctx): HTMLElement {
   }, unlocked ? "プレイ" : "まだ遊べません");
 
   // ---- まん中: 猫カフェ ----
-  const onCatTap = (cid: string) => {
-    if (cid === ctx.save.selectedChar) { openCharDetail(ctx, cid); return; }
-    openCatBubble(ctx, cid);
+  const onCatTap = (uid: string) => {
+    if (uid === heroUid(ctx.save)) { openCatDetail(ctx, uid); return; }
+    openCatBubble(ctx, uid);
   };
   const cafe = renderCafe(ctx, onCatTap);
 
-  const plate = h("button", { class: "mn-plate", onclick: () => openCharDetail(ctx, save.selectedChar) },
-    h("span", { class: "mn-plate-name" }, charDef?.name ?? "?"),
+  const plate = h("button", { class: "mn-plate", onclick: () => openCatDetail(ctx, hero) },
+    h("span", { class: "mn-plate-name" }, cs?.name ?? "?"),
     h("span", { class: "mn-plate-sub" },
       h("span", { class: "mn-plate-lv" }, `Lv${cs?.level ?? 1}`),
-      charDef ? h("span", { class: `role-tag role-${charDef.role}` }, ROLE_NAMES[charDef.role]) : null,
+      roleTag(catRole(save, hero)),
+      party.length > 1 ? h("span", { class: "mn-plate-mates" }, `+相棒${party.length - 1}`) : null,
       h("span", { class: "mn-plate-pow" }, "戦力 ", h("b", { class: `pv-${diff.cls}` }, fmt(mine)))));
 
   return h("div", { class: "tab tab-main" },
     cafe,
     stagePanel,
     plate,
-    h("div", { class: "mn-foot" }, party, playBtn));
+    h("div", { class: "mn-foot" }, partyBox, playBtn));
 }
 
-/** ほかの猫をタップ: 名前と「この子で出撃」。 */
-function openCatBubble(ctx: Ctx, cid: string): void {
-  const def = CHAR_MAP[cid];
-  const cs = ctx.save.chars[cid];
-  if (!def || !cs) return;
+/** ほかの猫をタップ: 名前と、パーティに入れるボタン。 */
+function openCatBubble(ctx: Ctx, uid: string): void {
+  const c = ctx.save.cats[uid];
+  if (!c) return;
+  const talk = CAT_TALK[Math.floor(Math.random() * CAT_TALK.length)];
   const m = ctx.modals.open({
     cls: "modal-small modal-catpop",
     closeButton: false,
-    render: () => h("div", { class: "catpop" },
-      catIcon(cid, "catpop-ico"),
-      h("div", { class: "catpop-name" }, def.name),
-      h("div", { class: "catpop-sub" }, rarityPill(def.rarity), h("span", { class: `role-tag role-${def.role}` }, ROLE_NAMES[def.role]), h("b", null, `Lv${cs.level}`)),
-      h("div", { class: "catpop-talk" }, CAT_TALK[Math.floor(Math.random() * CAT_TALK.length)])),
-    footer: () => h("div", { class: "foot-row" },
-      h("button", { class: "btn btn-gray", onclick: () => { m.close(); openCharDetail(ctx, cid); } }, "くわしく"),
-      h("button", {
-        class: "btn btn-green", onclick: () => {
-          selectChar(ctx.save, cid); m.close(); ctx.commit(); ctx.toast(`${def.name}が出撃します`);
-        },
-      }, "出撃させる")),
+    render: () => {
+      const save = ctx.save;
+      const w = mainWazaOf(save, uid);
+      const slot = partyUids(save).indexOf(uid);
+      return h("div", { class: "catpop" },
+        catIcon(c.look, "catpop-ico"),
+        h("div", { class: "catpop-name" }, c.name),
+        h("div", { class: "catpop-sub" }, roleTag(w.role!), h("b", null, `Lv${c.level}`), slot > 0 ? h("span", { class: "pt-tag mate inline" }, `相棒${slot}`) : null),
+        h("div", { class: "catpop-wz" }, rarityPill(w.rarity, "rp-sm"), h("span", null, w.name)),
+        h("div", { class: "catpop-talk" }, talk));
+    },
+    footer: () => {
+      const save = ctx.save;
+      const party = partyUids(save);
+      const slot = party.indexOf(uid);
+      const canMate = slot < 0 && party.length < PARTY_SIZE;
+      return h("div", { class: "foot-row" },
+        h("button", { class: "btn btn-gray", onclick: () => { m.close(); openCatDetail(ctx, uid); } }, "くわしく"),
+        h("button", {
+          class: "btn btn-green", onclick: () => {
+            const r = setParty(ctx.save, canMate ? (party.length as 1 | 2) : 0, uid);
+            if (!r.ok) { ctx.toast(r.reason, "ng"); return; }
+            m.close(); ctx.commit(); ctx.toast(canMate ? `${c.name}が相棒になりました` : `${c.name}が主人公になりました`);
+          },
+        }, canMate ? "相棒にする" : "主人公にする"));
+    },
   });
 }
 

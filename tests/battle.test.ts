@@ -1,7 +1,8 @@
 // 戦闘エンジンのテスト（src/data は使わず、手で作った定義で確かめる）。v3: 14×18 の盤面・大きさのあるオブジェクト・特殊効果。
 import { describe, expect, it } from "vitest";
 import {
-  Battle, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, GOAL_Y, idleInput, isGoal, type BattleEvent, type BugState,
+  Battle, COMPANION_FOLLOW, COMPANION_LEASH, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, GOAL_Y, idleInput, isGoal,
+  type BattleEvent, type BugState, type CatState,
 } from "../src/battle/engine";
 import { COLS, ROWS } from "../src/core/types";
 import type { BattleInput, BugDef, Loadout, ResolvedChar, ResolvedObject, StageDef, WaveDef } from "../src/core/types";
@@ -13,10 +14,16 @@ const tank: BugDef = { id: "tank", name: "カブト", hp: 1e9, atk: 1, speed: 1,
 /** 動かない虫（位置はテストで決める）。 */
 const post: BugDef = { id: "post", name: "かかし", hp: 100, atk: 0, speed: 0, atkInterval: 1, drop: 0 };
 const weak: BugDef = { id: "weak", name: "よわむし", hp: 3, atk: 0, speed: 0, atkInterval: 1, drop: 1 };
+/** 動かないで、触れた猫をかじる虫。 */
+const biter: BugDef = { id: "biter", name: "かみむし", hp: 1e9, atk: 5, speed: 0, atkInterval: 1, drop: 0 };
+/** 動かないボス。 */
+/** ほどほどに倒れる虫（重さのテスト用。倒れるたびに連鎖が起きる）。 */
+const mid: BugDef = { id: "mid", name: "ふつうむし", hp: 6, atk: 0.1, speed: 0.6, atkInterval: 1, drop: 1 };
+const bossPost: BugDef = { id: "bossPost", name: "おやぶん", hp: 1000, atk: 0, speed: 0, atkInterval: 1, drop: 0, boss: true };
 
 function char(over: Partial<ResolvedChar> = {}): ResolvedChar {
   return {
-    id: "tama", name: "たま", role: "melee", maxHp: 10, atk: 0, atkInterval: 0.5, range: 0.9, aoe: 0,
+    id: "tama", name: "たま", look: "tama", role: "melee", companion: false, combos: {}, maxHp: 10, atk: 0, atkInterval: 0.5, range: 0.9, aoe: 0,
     moveSpeed: 3, restTime: 3, armor: 1,
     crit: 0, critMul: 2, multiHit: 0, lifesteal: 0, regen: 0, knockback: 0, poison: 0, slowHit: 1, pierce: 0,
     kibbleBonus: 0, objectAura: 0, repair: 0, reviveHp: 1, dodge: 0,
@@ -44,12 +51,13 @@ function stage(waves: WaveDef[], over: Partial<StageDef> = {}): StageDef {
   };
 }
 
-function loadout(opts: { waves?: WaveDef[]; objects?: ResolvedObject[]; char?: ResolvedChar; stage?: Partial<StageDef>; mamaHp?: number } = {}): Loadout {
+function loadout(opts: { waves?: WaveDef[]; objects?: ResolvedObject[]; char?: ResolvedChar; companions?: ResolvedChar[]; stage?: Partial<StageDef>; mamaHp?: number } = {}): Loadout {
   return {
     char: opts.char ?? char(),
+    companions: opts.companions ?? [],
     objects: opts.objects ?? [],
     stage: stage(opts.waves ?? [], opts.stage),
-    bugs: { ant, fly, boss, tank, post, weak },
+    bugs: { ant, fly, boss, tank, post, weak, biter, bossPost, mid },
     global: { kibbleMul: 1, startKibbleAdd: 0, mamaHp: opts.mamaHp ?? 10 },
   };
 }
@@ -93,9 +101,9 @@ const later = (at: number, bugs: WaveDef["bugs"]): WaveDef[] => [{ at, bugs }];
 function parkCat(b: Battle): void { moveCatTo(b, 0.4, ROWS - 0.4); }
 
 /** 動かない虫を、指定の位置に並べる（hp も決められる）。 */
-function frozen(positions: [number, number][], opts: { objects?: ResolvedObject[]; hp?: number; char?: ResolvedChar; bug?: string } = {}): { b: Battle; bugs: BugState[] } {
+function frozen(positions: [number, number][], opts: { objects?: ResolvedObject[]; hp?: number; char?: ResolvedChar; companions?: ResolvedChar[]; bug?: string } = {}): { b: Battle; bugs: BugState[] } {
   const b = new Battle(loadout({
-    objects: opts.objects, char: opts.char,
+    objects: opts.objects, char: opts.char, companions: opts.companions,
     waves: [{ at: 0, bugs: [{ bug: opts.bug ?? "post", count: positions.length, every: 0, lanes: [0] }] }, { at: 999, bugs: [{ bug: "ant", count: 1, every: 1, lanes: [0] }] }],
   }));
   b.step(0.001, idle);
@@ -614,5 +622,335 @@ describe("ステージの障害物（家具）", () => {
         expect(Number.isFinite(b.pathDist(c, 0)), `${st.id} col ${c}`).toBe(true);
       }
     }
+  });
+});
+
+// ---- v4: 相棒・複合効果 ----
+
+/** 相棒の猫（AI で動く）。 */
+const mate = (over: Partial<ResolvedChar> = {}): ResolvedChar => char({ id: "c2", name: "みけ", look: "mike", companion: true, ...over });
+/** 書きかえ用（テストだけで状態をさわる）。 */
+const catOf = (b: Battle, i = 0) => b.cats[i] as CatState;
+/** 主人公の初めの位置のすぐ上（近接の届く所）。 */
+const NEAR: [number, number] = [7.3, 14.8];
+const dmgOf = (g: BugState) => g.maxHp - g.hp;
+
+describe("相棒（v4）", () => {
+  it("cats は [主人公, 相棒…]。cat は cats[0]。相棒は主人公についていく", () => {
+    const b = new Battle(loadout({ companions: [mate(), mate({ id: "c3", look: "kuro" })], waves: later(100, [{ bug: "ant", count: 1, every: 1 }]) }));
+    expect(b.cats.length).toBe(3);
+    expect(b.cats[0]).toBe(b.cat);
+    expect(b.cats[1].companion).toBe(true);
+    expect(b.cats[2].char.look).toBe("kuro");
+    moveCatTo(b, 3, 5);
+    run(b, 3, idle, 0.05);
+    for (const c of b.cats.slice(1)) {
+      expect(Math.hypot(c.x - b.cat.x, c.y - b.cat.y)).toBeLessThan(COMPANION_FOLLOW);
+    }
+    // 2匹は別の位置にいる
+    expect(Math.hypot(b.cats[1].x - b.cats[2].x, b.cats[1].y - b.cats[2].y)).toBeGreaterThan(1);
+  });
+
+  it("相棒は主人公の近くの虫へ向かって攻撃する（遠すぎる虫へは行かない）", () => {
+    const { b, bugs } = frozen([[8.5, 12.8], [2, 3]], { companions: [mate({ atk: 3 })] });
+    run(b, 4, idle, 0.05);
+    const m = b.cats[1];
+    expect(dmgOf(bugs[0])).toBeGreaterThan(0);
+    expect(Math.hypot(m.x - bugs[0].x, m.y - bugs[0].y)).toBeLessThan(1);
+    expect(dmgOf(bugs[1])).toBe(0);
+    expect(Math.hypot(m.x - b.cat.x, m.y - b.cat.y)).toBeLessThan(COMPANION_LEASH + 1);
+  });
+
+  it("遠距離の相棒は自分の弾を撃つ（弾の owner が相棒）", () => {
+    const { b, bugs } = frozen([[8, 12.5]], { companions: [mate({ role: "ranged", atk: 2, range: 3, atkInterval: 0.5 })] });
+    let owner = -1;
+    for (let i = 0; i < 60 && owner < 0; i++) {
+      b.step(0.05, idle);
+      for (const p of b.projectiles) if (p.owner) owner = p.owner.index;
+    }
+    expect(owner).toBe(1);
+    run(b, 1, idle, 0.05);
+    expect(dmgOf(bugs[0])).toBeGreaterThan(0);
+  });
+
+  it("相棒もかじられて休けいし、restTime で戻る", () => {
+    const b0 = new Battle(loadout({ companions: [mate()] }));
+    const m0 = b0.cats[1];
+    const { b } = frozen([[m0.x, m0.y]], { bug: "biter", companions: [mate({ maxHp: 2, restTime: 2, reviveHp: 1 })] });
+    const m = b.cats[1];
+    for (let i = 0; i < 60 && !m.resting; i++) b.step(0.05, idle);
+    expect(m.resting).toBe(true);
+    expect(b.cat.resting).toBe(false);
+    for (let i = 0; i < 60 && m.resting; i++) b.step(0.05, idle);
+    expect(m.resting).toBe(false);
+    expect(m.hp).toBeGreaterThan(0);
+  });
+});
+
+describe("複合効果（ComboId）", () => {
+  it("poisonBurst: 毒の虫が倒れると、まわりに 攻撃力×v の爆発", () => {
+    const { b, bugs } = frozen([NEAR, [7.3, 14.0]], { char: char({ atk: 1, poison: 1, atkInterval: 100, combos: { poisonBurst: 10 } }) });
+    bugs[0].hp = 1.5;
+    const evs = collect(b, 1.5);
+    expect(bugs[0].alive).toBe(false);
+    expect(evs.some((e) => e.type === "poisonBurst")).toBe(true);
+    expect(dmgOf(bugs[1])).toBeCloseTo(10);
+  });
+
+  it("critChain: 会心で近くの虫へ電撃が v 回（1回 攻撃力×0.5）", () => {
+    const { b, bugs } = frozen([NEAR, [7.3, 13.5], [7.3, 12.0], [7.3, 9.5]], { char: char({ atk: 2, crit: 1, critMul: 1, atkInterval: 100, combos: { critChain: 2 } }) });
+    const evs = collect(b, 0.5);
+    expect(evs.filter((e) => e.type === "zap").length).toBe(2);
+    expect(dmgOf(bugs[0])).toBeCloseTo(2);
+    expect(dmgOf(bugs[1])).toBeCloseTo(1);
+    expect(dmgOf(bugs[2])).toBeCloseTo(1);
+    expect(dmgOf(bugs[3])).toBe(0);
+  });
+
+  it("knockSlam: 押しもどした虫がほかの虫にぶつかると 攻撃力×v", () => {
+    const mk = (slam: number) => {
+      const { b, bugs } = frozen([[7.5, 14.5], [7.5, 14.2]], { char: char({ atk: 1, range: 1.5, knockback: 0.3, atkInterval: 100, combos: { knockSlam: slam } }) });
+      const evs = collect(b, 0.3);
+      return { evs, a: dmgOf(bugs[0]), o: dmgOf(bugs[1]) };
+    };
+    const off = mk(0);
+    expect(off.a).toBeCloseTo(1);
+    expect(off.o).toBe(0);
+    const on = mk(3);
+    expect(on.evs.some((e) => e.type === "slam")).toBe(true);
+    expect(on.a).toBeCloseTo(4);
+    expect(on.o).toBeCloseTo(3);
+  });
+
+  it("frenzy: 倒すたび攻撃の速さ +v（4秒で消える）", () => {
+    const { b } = frozen([NEAR], { bug: "weak", char: char({ atk: 5, atkInterval: 1, combos: { frenzy: 1 } }) });
+    run(b, 0.2, idle, 0.05);
+    expect(b.kills).toBe(1);
+    expect(b.cat.frenzy).toBe(1);
+    expect(b.catSpeed(b.cat)).toBeCloseTo(2);
+    run(b, 4.2, idle, 0.05);
+    expect(b.cat.frenzy).toBe(0);
+    expect(b.catSpeed(b.cat)).toBe(1);
+  });
+
+  it("lastStand: 体力30%以下で攻撃 +v", () => {
+    const mk = (hp: number) => {
+      const { b, bugs } = frozen([NEAR], { char: char({ atk: 2, atkInterval: 100, combos: { lastStand: 1 } }) });
+      catOf(b).hp = hp;
+      run(b, 0.2, idle, 0.05);
+      return dmgOf(bugs[0]);
+    };
+    expect(mk(10)).toBeCloseTo(2);
+    expect(mk(2)).toBeCloseTo(4);
+  });
+
+  it("wakeUp: 休けいから戻ったあと v 秒、無敵＋攻撃の速さ2倍", () => {
+    const { b } = frozen([[7, 15.4]], { bug: "biter", char: char({ maxHp: 1, restTime: 1, combos: { wakeUp: 3 } }) });
+    const c = b.cat;
+    for (let i = 0; i < 60 && !c.resting; i++) b.step(0.05, idle);
+    expect(c.resting).toBe(true);
+    let sawWake = false;
+    for (let i = 0; i < 40 && c.resting; i++) { b.step(0.05, idle); if (b.events.some((e) => e.type === "wakeUp")) sawWake = true; }
+    expect(sawWake).toBe(true);
+    expect(c.wakeUp).toBeGreaterThan(2.5);
+    expect(b.catSpeed(c)).toBe(2);
+    run(b, 2.5, idle, 0.05);
+    expect(c.resting).toBe(false);
+    expect(c.hp).toBe(1);
+    run(b, 2, idle, 0.05);
+    expect(c.wakeUp).toBe(0);
+    expect(c.resting).toBe(true);
+  });
+
+  it("slowShatter: 遅くなっている虫へのダメージ +v", () => {
+    const mk = (slow: boolean) => {
+      const { b, bugs } = frozen([NEAR], { char: char({ atk: 2, atkInterval: 100, combos: { slowShatter: 1 } }) });
+      if (slow) { bugs[0].slowMul = 0.5; bugs[0].slowTimer = 10; }
+      run(b, 0.2, idle, 0.05);
+      return dmgOf(bugs[0]);
+    };
+    expect(mk(false)).toBeCloseTo(2);
+    expect(mk(true)).toBeCloseTo(4);
+  });
+
+  it("pierceGrow: 弾が1匹つらぬくたび、その弾のダメージ +v", () => {
+    const { b, bugs } = frozen([[7, 13.4], [7, 12.4], [7, 11.4]], { char: char({ atk: 2, pierce: 2, atkInterval: 100, role: "ranged", range: 3, combos: { pierceGrow: 1 } }) });
+    run(b, 1, idle, 0.02);
+    expect(dmgOf(bugs[0])).toBeCloseTo(2);
+    expect(dmgOf(bugs[1])).toBeCloseTo(4);
+    expect(dmgOf(bugs[2])).toBeCloseTo(6);
+  });
+
+  it("multiEcho: 連続攻撃の最後の一撃が半径 v の範囲攻撃", () => {
+    const mk = (v: number) => {
+      const { b, bugs } = frozen([NEAR, [7.3, 13.6]], { char: char({ atk: 1, multiHit: 1, atkInterval: 100, combos: { multiEcho: v } }) });
+      const evs = collect(b, 0.5);
+      return { evs, a: dmgOf(bugs[0]), o: dmgOf(bugs[1]) };
+    };
+    expect(mk(0)).toMatchObject({ a: 2, o: 0 });
+    const on = mk(1.5);
+    expect(on.a).toBeCloseTo(2);
+    expect(on.o).toBeCloseTo(1);
+    expect(on.evs.some((e) => e.type === "echo")).toBe(true);
+  });
+
+  it("kibbleFever: カリカリが入るたび攻撃 +v（重ねる）", () => {
+    const { b } = frozen([NEAR], { bug: "weak", char: char({ atk: 5, atkInterval: 100, combos: { kibbleFever: 0.5 } }) });
+    run(b, 0.2, idle, 0.05);
+    expect(b.kills).toBe(1);
+    expect(b.cat.fever).toBe(1);
+    expect(b.catPower(b.cat)).toBeCloseTo(7.5);
+    run(b, 3.2, idle, 0.05);
+    expect(b.cat.fever).toBe(0);
+  });
+
+  it("partyLink: ほかの猫と2マス以内で、攻撃と攻撃の速さ +v", () => {
+    const mk = (withMate: boolean) => {
+      const { b, bugs } = frozen([NEAR], { char: char({ atk: 2, atkInterval: 100, combos: { partyLink: 1 } }), companions: withMate ? [mate()] : [] });
+      run(b, 0.1, idle, 0.05);
+      return { b, d: dmgOf(bugs[0]) };
+    };
+    const solo = mk(false);
+    expect(solo.d).toBeCloseTo(2);
+    expect(solo.b.cat.linked).toBe(false);
+    const duo = mk(true);
+    expect(duo.b.cat.linked).toBe(true);
+    expect(duo.d).toBeCloseTo(4);
+    expect(duo.b.catSpeed(duo.b.cat)).toBe(2);
+  });
+
+  it("bossHunter: ボスへのダメージ +v", () => {
+    const mk = (bug: string) => {
+      const { b, bugs } = frozen([NEAR], { bug, char: char({ atk: 2, atkInterval: 100, combos: { bossHunter: 2 } }) });
+      run(b, 0.2, idle, 0.05);
+      return dmgOf(bugs[0]);
+    };
+    expect(mk("post")).toBeCloseTo(2);
+    expect(mk("bossPost")).toBeCloseTo(6);
+  });
+
+  it("venomCrit: 毒がかかった虫への会心率 +v", () => {
+    const mk = (poisoned: boolean) => {
+      const { b, bugs } = frozen([NEAR], { char: char({ atk: 2, crit: 0, critMul: 3, atkInterval: 100, combos: { venomCrit: 1 } }) });
+      if (poisoned) { bugs[0].poisonDps = 1e-6; bugs[0].poisonTimer = 3; }
+      run(b, 0.2, idle, 0.05);
+      return dmgOf(bugs[0]);
+    };
+    expect(mk(false)).toBeCloseTo(2);
+    expect(mk(true)).toBeCloseTo(6);
+  });
+
+  it("shockwave: 範囲攻撃で押しもどして、0.7倍の速さにする", () => {
+    const { b, bugs } = frozen([[7.5, 14.5]], { char: char({ role: "aoe", aoe: 1, atk: 1, range: 1.2, atkInterval: 100, combos: { shockwave: 1 } }) });
+    const evs = collect(b, 0.2);
+    expect(evs.some((e) => e.type === "shockwave")).toBe(true);
+    expect(bugs[0].slowMul).toBeCloseTo(0.7);
+    expect(bugs[0].y).toBeLessThan(14);
+  });
+
+  it("mamaGuard: ママから3マス以内で攻撃 +v、受けるダメージ ×(1 - v/2)", () => {
+    const { b, bugs } = frozen([NEAR], { char: char({ atk: 2, atkInterval: 100, combos: { mamaGuard: 1 } }) });
+    run(b, 0.2, idle, 0.05);
+    expect(b.cat.guarded).toBe(true);
+    expect(dmgOf(bugs[0])).toBeCloseTo(4);
+    const g = frozen([[7, 15.4]], { bug: "biter", char: char({ maxHp: 100, combos: { mamaGuard: 1 } }) });
+    for (let i = 0; i < 100 && g.b.cat.hp === 100; i++) g.b.step(0.05, idle);
+    expect(g.b.cat.hp).toBeCloseTo(97.5);
+    // ママから遠いと効かない
+    const far = frozen([[7, 6]], { char: char({ atk: 2, atkInterval: 100, combos: { mamaGuard: 1 } }) });
+    moveCatTo(far.b, 7, 6.6);
+    run(far.b, 0.2, idle, 0.05);
+    expect(far.b.cat.guarded).toBe(false);
+    expect(dmgOf(far.bugs[0])).toBeCloseTo(2);
+  });
+
+  it("dodgeCounter: よけたとき、まわり1マスの虫へ 攻撃力×v の反撃", () => {
+    const { b, bugs } = frozen([[7, 15.4]], { bug: "biter", char: char({ atk: 3, dodge: 1, atkInterval: 100, combos: { dodgeCounter: 2 } }) });
+    bugs[0].hp = 1000; bugs[0].maxHp = 1000;
+    const evs = collect(b, 1.5);
+    expect(evs.some((e) => e.type === "dodge")).toBe(true);
+    expect(evs.some((e) => e.type === "counter")).toBe(true);
+    expect(dmgOf(bugs[0])).toBeCloseTo(3 + 6);
+    expect(b.cat.hp).toBe(10);
+  });
+
+  it("zapVenom: 範囲攻撃と猫の電撃が毒をのせる（攻撃力×v/秒）", () => {
+    const area = frozen([[7.5, 14.5]], { char: char({ role: "aoe", aoe: 1, atk: 1, range: 1.2, atkInterval: 100, combos: { zapVenom: 2 } }) });
+    run(area.b, 0.1, idle, 0.05);
+    expect(area.bugs[0].poisonDps).toBeCloseTo(2);
+    const zap = frozen([NEAR, [7.3, 13.5]], { char: char({ atk: 1, crit: 1, critMul: 1, atkInterval: 100, combos: { critChain: 1, zapVenom: 2 } }) });
+    run(zap.b, 0.1, idle, 0.05);
+    expect(zap.bugs[0].poisonDps).toBe(0);   // 単体の一撃には毒はのらない
+    expect(zap.bugs[1].poisonDps).toBeCloseTo(2);
+  });
+
+  it("objectSync: 猫が攻撃するたび、近くのオブジェクトの次の発動を v 秒早める", () => {
+    const { b } = frozen([NEAR], { char: char({ atk: 1, atkInterval: 1, combos: { objectSync: 3 } }), objects: [obj({ kind: "producer", atk: 0, produce: 1, interval: 10, block: false })] });
+    expect(b.place(0, 5, 15).ok).toBe(true);
+    const o = b.objects[0];
+    const evs = collect(b, 0.1);
+    expect(evs.some((e) => e.type === "objectSync")).toBe(true);
+    expect(o.timer).toBeGreaterThanOrEqual(3);
+  });
+
+  it("killHeal: 倒すたび最大体力の v 回復", () => {
+    const { b } = frozen([NEAR], { bug: "weak", char: char({ atk: 5, atkInterval: 100, combos: { killHeal: 0.5 } }) });
+    catOf(b).hp = 2;
+    run(b, 0.2, idle, 0.05);
+    expect(b.kills).toBe(1);
+    expect(b.cat.hp).toBeCloseTo(7);
+  });
+
+  it("overkill: 余ったダメージ ×v を、いちばん近い虫へ", () => {
+    const { b, bugs } = frozen([NEAR, [8, 12]], { char: char({ atk: 10, atkInterval: 100, combos: { overkill: 1 } }) });
+    bugs[0].hp = 3;
+    const evs = collect(b, 0.2);
+    expect(evs.some((e) => e.type === "overkill")).toBe(true);
+    expect(dmgOf(bugs[1])).toBeCloseTo(7);
+  });
+
+  it("複合効果は相棒にも効く（相棒が倒すと相棒の frenzy が重なる）", () => {
+    const b0 = new Battle(loadout({ companions: [mate()] }));
+    const m0 = b0.cats[1];
+    const { b } = frozen([[m0.x, m0.y - 0.4]], { bug: "weak", companions: [mate({ atk: 5, combos: { frenzy: 1 } })] });
+    run(b, 0.3, idle, 0.05);
+    expect(b.kills).toBe(1);
+    expect(b.cats[1].frenzy).toBe(1);
+    expect(b.cat.frenzy).toBe(0);
+  });
+});
+
+describe("たくさんの虫（相棒・複合効果つき）", () => {
+  it("相棒2匹＋派手な複合効果でも 1 コマが軽い", () => {
+    const combos = { poisonBurst: 1, critChain: 3, overkill: 1, shockwave: 0.3, frenzy: 0.1, kibbleFever: 0.1, partyLink: 0.2, objectSync: 0.1, zapVenom: 0.5, knockSlam: 0.5, killHeal: 0.01 };
+    const tough = { maxHp: 1e9, atk: 0.4, crit: 0.4, critMul: 2, poison: 0.5, multiHit: 1, knockback: 0.2, combos };
+    const objects = [
+      obj({ id: "s", multishot: 4, spread: 0.7, pierce: 1, splash: 0.8, atk: 0.5, interval: 0.3, range: 4, w: 2, h: 2, cost: 0 }),
+      obj({ id: "p", kind: "poison", atk: 0.3, poison: 1, poisonSpread: 1.2, interval: 1, range: 2.5, cost: 0 }),
+    ];
+    const b = new Battle(loadout({
+      objects,
+      mamaHp: 1e9,
+      stage: { chapter: 3 },
+      char: char({ ...tough, role: "aoe", aoe: 1.2, range: 1.5, atkInterval: 0.4 }),
+      companions: [mate({ ...tough, role: "ranged", range: 3, pierce: 2, atkInterval: 0.3 }), mate({ ...tough, role: "fast", atkInterval: 0.25 })],
+      waves: [{ at: 0, bugs: [{ bug: "tank", count: 300, every: 0.03 }, { bug: "mid", count: 900, every: 0.012 }] }],
+    }), 5);
+    for (const [i, c, r] of [[0, 2, 6], [0, 10, 6], [1, 3, 12], [1, 10, 12]] as const) expect(b.place(i, c, r).ok).toBe(true);
+    moveCatTo(b, 7, 4);
+    run(b, 9, idle, 1 / 30);
+    expect(b.bugs.length).toBeGreaterThan(300);
+    const kills0 = b.kills;
+    const seen = new Set<string>();
+    const t0 = performance.now();
+    const frames = 120;
+    for (let i = 0; i < frames; i++) {
+      b.step(1 / 60, idle);
+      for (const e of b.events) seen.add(e.type);
+    }
+    const ms = (performance.now() - t0) / frames;
+    expect(b.kills).toBeGreaterThan(kills0);
+    for (const t of ["poisonBurst", "zap", "overkill", "shockwave"]) expect(seen.has(t), t).toBe(true);
+    expect(ms).toBeLessThan(5);
   });
 });

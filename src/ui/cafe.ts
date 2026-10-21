@@ -5,6 +5,7 @@
 // 開発用: ?cafeTime=morning|day|evening|night・?cafeSeason=spring|summer|autumn|winter・?cafeFast（できごとを早く）
 // 絵の差しかえ: sprites/cats/manifest.json に "<id>_<pose>" があれば <img src="sprites/cats/<id>_<pose>.png"> を使う。
 import { CHAR_MAP } from "../data/chars";
+import { partyUids } from "../core/progress";
 import type { Ctx } from "./ctx";
 import { h, svgIcon } from "./dom";
 import { catFur, catSvg } from "./icons";
@@ -246,19 +247,32 @@ interface CatEl { id: string; spot: Spot; wrap: HTMLElement; pose: CatPose; busy
 interface Cache { key: string; ctx: Ctx; el: HTMLElement; stop(): void }
 let cache: Cache | null = null;
 
+/** カフェにいる猫（uid・見た目・名前）。 */
+interface CafeCat { uid: string; look: string; name: string }
+
 /** 猫カフェの部屋。同じ猫たちなら前の DOM をそのまま使う（ごはん・虫の途中で描きなおしても続く）。 */
-export function renderCafe(ctx: Ctx, onCatTap: (id: string) => void): HTMLElement {
+export function renderCafe(ctx: Ctx, onCatTap: (uid: string) => void): HTMLElement {
   const save = ctx.save;
-  const others = Object.keys(save.chars).filter((id) => id !== save.selectedChar && CHAR_MAP[id]);
-  const key = [save.selectedChar, ...others].join(",");
+  const party = partyUids(save);
+  const toCat = (uid: string): CafeCat => ({ uid, look: save.cats[uid].look, name: save.cats[uid].name });
+  const hero = toCat(party[0]);
+  const mates = party.slice(1).map(toCat);
+  const others = Object.keys(save.cats).filter((u) => !party.includes(u)).map(toCat);
+  const key = [hero, ...mates, "|", ...others].map((c) => (typeof c === "string" ? c : `${c.uid}:${c.look}:${c.name}`)).join(",");
   if (cache && cache.key === key && cache.ctx === ctx) return cache.el;
   cache?.stop();
-  const built = buildCafe(save.selectedChar, others, onCatTap, () => { if (cache?.key === key) { cache.stop(); cache = null; ctx.rerender(); } });
+  const built = buildCafe(hero, mates, others, onCatTap, () => { if (cache?.key === key) { cache.stop(); cache = null; ctx.rerender(); } });
   cache = { key, ctx, el: built.el, stop: built.stop };
   return built.el;
 }
 
-function buildCafe(selected: string, others: string[], onCatTap: (id: string) => void, onSprites: () => void): { el: HTMLElement; stop(): void } {
+/** 相棒の場所（主人公のとなり）。 */
+const MATE_SPOTS: Spot[] = [
+  { id: "mate1", x: 24, b: 21, u: "min(21cqw, 19cqh)", pose: "sit", z: 36, look: 1, perch: false },
+  { id: "mate2", x: 76, b: 21, u: "min(21cqw, 19cqh)", pose: "sit", z: 36, look: -1, perch: false },
+];
+
+function buildCafe(hero: CafeCat, mates: CafeCat[], others: CafeCat[], onCatTap: (uid: string) => void, onSprites: () => void): { el: HTMLElement; stop(): void } {
   const q = query();
   const fast = q.has("cafeFast");
   const tO = overrideTime();
@@ -297,19 +311,22 @@ function buildCafe(selected: string, others: string[], onCatTap: (id: string) =>
 
   // ---- 猫 ----
   const cats: CatEl[] = [];
-  const makeCat = (id: string, spot: Spot, hero: boolean): CatEl => {
+  const makeCat = (cat: CafeCat, spot: Spot, kind: "hero" | "mate" | ""): CatEl => {
     const wrap = h("button", {
-      class: `cf-cat ${hero ? "hero" : ""}`, "aria-label": CHAR_MAP[id]?.name ?? id,
+      class: `cf-cat ${kind}`, "aria-label": cat.name,
       style: `left:${spot.x}%;bottom:${spot.b}%;--u:${spot.u};z-index:${spot.z};--look:${spot.look};--d:${(cats.length * 0.37) % 2}s`,
-      onclick: (e: Event) => { e.stopPropagation(); onCatTap(id); },
-    }, catPoseEl(id, spot.pose));
-    const c: CatEl = { id, spot, wrap, pose: spot.pose, busy: false };
+      onclick: (e: Event) => { e.stopPropagation(); onCatTap(cat.uid); },
+    }, catPoseEl(cat.look, spot.pose), kind === "mate" ? h("span", { class: "cf-mate-tag" }, cat.name) : null);
+    const c: CatEl = { id: cat.look, spot, wrap, pose: spot.pose, busy: false };
     cats.push(c);
     return c;
   };
   const heroSpot: Spot = { id: "hero", x: 50, b: 14, u: "min(30cqw, 27cqh)", pose: "sit", z: 40, look: 0, perch: false };
-  makeCat(selected, heroSpot, true);
-  const lounging = others.slice(0, SPOTS.length).map((id, i) => makeCat(id, SPOTS[i], false));
+  makeCat(hero, heroSpot, "hero");
+  mates.forEach((m, i) => makeCat(m, MATE_SPOTS[i], "mate"));
+  // 相棒がいるときは、相棒と重なる場所（ラグ・クッション）は使わない
+  const spots = SPOTS.filter((sp) => !(mates.length >= 1 && sp.id === "rug") && !(mates.length >= 2 && sp.id === "cushion"));
+  const lounging = others.slice(0, spots.length).map((c, i) => makeCat(c, spots[i], ""));
 
   const room = h("div", { class: "cf-room" },
     h("div", { class: "cf-wall" }), h("div", { class: "cf-wains" }), h("div", { class: "cf-floor" }),

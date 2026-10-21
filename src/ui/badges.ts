@@ -1,17 +1,19 @@
 // 赤いバッジ（なにかできることがあるとき）の判定。
 import type { SaveData } from "../core/save";
-import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, skillTreeOf } from "../core/progress";
+import type { CharRole } from "../core/types";
+import { adoptableNeighbors, canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTreeOf } from "../core/progress";
 import { canPull } from "../core/gacha";
+import { MAX_CATS } from "../core/save";
 import { EQUIP_SLOTS, MAX_EQUIP_RARITY } from "../data/equips";
 
-/** この猫がいま覚えられるスキルがあるか。 */
-export function charCanLearn(save: SaveData, charId: string): boolean {
-  if (!save.chars[charId]) return false;
-  return skillTreeOf(charId).some((n) => canLearn(save, charId, n.id).ok);
+/** この役割のスキルツリーで、いま覚えられるスキルがあるか。 */
+export function roleCanLearn(save: SaveData, role: CharRole): boolean {
+  return skillTreeOf(role).some((n) => canLearn(save, role, n.id).ok);
 }
 
-export function anyCharBadge(save: SaveData): boolean {
-  return Object.keys(save.chars).some((id) => charCanLearn(save, id));
+/** パーティの役割のスキルで、いま覚えられるものがあるか（ほかの役割は、うるさくないように数えない）。 */
+export function anySkillBadge(save: SaveData): boolean {
+  return partyRoles(save).some((r) => roleCanLearn(save, r));
 }
 
 export function objCanLevel(save: SaveData, id: string): boolean {
@@ -40,8 +42,15 @@ export function anyEquipBadge(save: SaveData): boolean {
   return EQUIP_SLOTS.some((s) => !save.equipped[s] && save.equips.some((e) => e.slot === s));
 }
 
+/** キャラ: 相棒の枠が空いていて、入れられる猫がいる。 */
+export function anyCharBadge(save: SaveData): boolean {
+  const n = Object.keys(save.cats).length;
+  const inParty = save.party.filter((u) => save.cats[u]).length;
+  return inParty < 3 && n > inParty;
+}
+
 export function growBadge(save: SaveData): boolean {
-  return anyCharBadge(save) || anyObjBadge(save) || anyEquipBadge(save);
+  return anyCharBadge(save) || anySkillBadge(save) || anyObjBadge(save) || anyEquipBadge(save);
 }
 
 export function relicBadge(save: SaveData): boolean {
@@ -49,7 +58,17 @@ export function relicBadge(save: SaveData): boolean {
   return !!n && canUnlockRelic(save, n.id).ok;
 }
 
-/** 譲渡会会場で1回お迎えできるだけのちゅ〜るがあるか。 */
-export function gachaBadge(save: SaveData): boolean {
+/** ねこ福袋を1回あけられるだけのちゅ〜るがあるか。 */
+export function bagBadge(save: SaveData): boolean {
   return canPull(save, 1).ok;
+}
+
+/** 譲渡会に、お迎えできる近所の猫が来ているか。 */
+export function adoptBadge(save: SaveData): boolean {
+  return Object.keys(save.cats).length < MAX_CATS && adoptableNeighbors(save).length > 0;
+}
+
+/** 下のタブ「福袋」。 */
+export function gachaBadge(save: SaveData): boolean {
+  return bagBadge(save) || adoptBadge(save);
 }

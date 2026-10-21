@@ -261,6 +261,25 @@
 .bt-kibble.pop { animation: bt-pop 0.2s; }
 .bt-kibble-icon { width: 26px; height: 26px; flex: none; }
 .bt-kibble-num { font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+/* 猫たち（主人公・相棒）の小さな体力 */
+.bt-party { flex: none; display: flex; gap: 3px; align-items: center; }
+.bt-pcat {
+  position: relative;
+  width: 28px;
+  height: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+}
+.bt-pcat-icon { width: 22px; height: 22px; display: block; }
+.bt-pcat.mate .bt-pcat-icon { width: 19px; height: 19px; }
+.bt-pcat-bar { width: 24px; height: 5px; border: 1.5px solid var(--bt-ink); border-radius: 3px; background: #d9c6b0; overflow: hidden; }
+.bt-pcat-fill { height: 100%; width: 100%; background: #5ee07a; }
+.bt-pcat.mate .bt-pcat-fill { background: #7cc8ff; }
+.bt-pcat.rest .bt-pcat-icon { opacity: 0.4; filter: grayscale(1); }
+.bt-pcat.rest::after { content: "zz"; position: absolute; top: -2px; right: -1px; font-size: 9px; font-weight: 900; color: #5a7ab0; }
 .bt-mode {
   flex: 1 1 auto;
   min-width: 0;

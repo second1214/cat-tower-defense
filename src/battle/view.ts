@@ -7,10 +7,13 @@
 // 置こうとしているカードの「影」（ghost）を、置ける＝緑・置けない＝赤（理由つき）で出す。
 // 電撃のぎざぎざの線・毒の雲・範囲の輪・会心の「!」つき数字。
 // 背景（床・壁・マス目）は大きさが変わったときだけオフスクリーンに描いておき、毎コマはそれを貼るだけ。
+// v4: 相棒（battle.cats[1]〜）も描く（主人公の 85% の大きさ。絵は char.look）。手前（下）の猫ほどあとに描く。
+// 複合効果の見た目: frenzy・kibbleFever の重ね（猫の上の小さな点）、wakeUp の光、lastStand の赤い気配、partyLink の線、
+// 毒の爆発・衝撃波・反撃・余ったダメージ（オレンジの電撃）・連続攻撃のこだま など。
 
 import { COLS, ROWS } from "../core/types";
-import type { Battle, BattleEvent, BugState, ObjState } from "./engine";
-import { FLOAT_LIFE, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, KNOCK_TIME, SIDE_SPAWN_ROWS, SPAWN_Y } from "./engine";
+import type { Battle, BattleEvent, BugState, CatState, ObjState } from "./engine";
+import { FEVER_MAX, FLOAT_LIFE, FRENZY_MAX, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, KNOCK_TIME, SIDE_SPAWN_ROWS, SPAWN_Y } from "./engine";
 import { getCatPose, getFlashSprite, getSprite, type CatPose, type SpriteHint } from "./sprites";
 import { fmt } from "../core/num";
 
@@ -24,7 +27,7 @@ const SIDE_PAD = 0.14;
 const OL = "#2a170d";
 
 interface Fx {
-  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris" | "cloud";
+  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris" | "cloud" | "flash";
   x: number;      // 盤面の座標（マス）
   y: number;
   vx: number;
@@ -36,7 +39,10 @@ interface Fx {
   text?: string;
 }
 
-interface Bolt { x0: number; y0: number; x1: number; y1: number; t: number; life: number; k: number }
+interface Bolt { x0: number; y0: number; x1: number; y1: number; t: number; life: number; k: number; hot?: boolean }
+
+/** 相棒の大きさ（主人公に対する割合）。 */
+const COMPANION_SCALE = 0.85;
 
 const MAX_FX = 360;
 const MAX_BOLTS = 80;
@@ -80,9 +86,11 @@ export class BattleView {
   private mamaScared = 0;
   private banner = { text: "", sub: "", t: 99 };
   private clock = 0;
-  private lastCat = { x: 0, y: 0, moving: 0, atkHold: 0 };
-  private catHint: SpriteHint;
-  private catId: string;
+  /** 猫ごとの見た目の状態（battle.cats と同じ順）。 */
+  private lastCats: { x: number; y: number; moving: number; atkHold: number }[] = [];
+  private catHints: SpriteHint[] = [];
+  private catLooks: string[] = [];
+  private catOrder: CatState[] = [];
   private readonly topHoles: number[];
   private readonly sideHoles: boolean;
   /** 通り道（マスからマスへの線）。flowVersion が変わったら作りなおす。 */
@@ -93,9 +101,11 @@ export class BattleView {
   constructor(canvas: HTMLCanvasElement, private readonly battle: Battle) {
     this.canvas = canvas;
     this.g = canvas.getContext("2d", { alpha: false })!;
-    const ch = battle.loadout.char;
-    this.catId = ch.id;
-    this.catHint = { role: ch.role };
+    for (const c of battle.cats) {
+      this.catLooks.push(c.char.look || c.char.id);
+      this.catHints.push({ role: c.char.role });
+      this.lastCats.push({ x: c.x, y: c.y, moving: 0, atkHold: 0 });
+    }
     const st = battle.loadout.stage;
     const lanes = new Set<number>();
     let any = false;
@@ -217,6 +227,50 @@ export class BattleView {
           break;
         case "dodge":
           this.addFx({ type: "text", x: e.x, y: e.y - 0.55, r: 0.4, life: 0.6, color: "#bfe8ff", text: "ひらり" });
+          break;
+        case "poisonBurst": {
+          // 毒の爆発（緑と紫の雲＋輪＋かけら）
+          if (this.fx.length > 320) break;
+          this.addFx({ type: "flash", x: e.x, y: e.y, r: e.value * 0.9, life: 0.18, color: "#e6ffb0" });
+          this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.4, color: "#9cf060" });
+          this.addFx({ type: "cloud", x: e.x, y: e.y, r: e.value * 0.7, life: 0.7, color: "150,90,210" });
+          const n = this.fx.length > 220 ? 2 : 6;
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 2.5;
+            this.addFx({ type: "pop", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, r: 0.09, life: 0.45, color: i % 2 ? "#9cf060" : "#c08af0" });
+          }
+          this.shake = Math.max(this.shake, 0.12);
+          break;
+        }
+        case "slam":
+          if (this.fx.length > 300) break;
+          this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.3, life: 0.25, color: "#fff2b0" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.3, r: 0.42, life: 0.5, color: "#ffcf5a", text: "ドン!" });
+          this.shake = Math.max(this.shake, 0.08);
+          break;
+        case "shockwave":
+          this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value * 1.5, life: 0.45, color: "rgba(150,220,255,0.95)" });
+          this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value * 1.1, life: 0.3, color: "#ffffff" });
+          break;
+        case "counter":
+          this.addFx({ type: "flash", x: e.x, y: e.y, r: e.value * 1.1, life: 0.2, color: "#ffffff" });
+          this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.3, color: "#bfe8ff" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 0.9, r: 0.42, life: 0.6, color: "#ffffff", text: "カウンター!" });
+          break;
+        case "echo":
+          this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.35, color: "#ffb04a" });
+          this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.25, life: 0.25, color: "#ffd84a" });
+          break;
+        case "overkill":
+          if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
+          this.bolts.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0, life: 0.3, k: 0, hot: true });
+          break;
+        case "wakeUp":
+          this.addFx({ type: "flash", x: e.x, y: e.y, r: 1.2, life: 0.35, color: "#fff6c0" });
+          this.addFx({ type: "text", x: e.x, y: e.y - 1, r: 0.48, life: 1, color: "#ffe14a", text: "めざめた!" });
+          break;
+        case "objectSync":
+          if (this.fx.length < 240) this.addFx({ type: "spark", x: e.x, y: e.y - 0.3, r: 0.16, life: 0.3, color: "#8fffd8" });
           break;
         case "knockback":
           if (this.fx.length < 260) this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.3, life: 0.22, color: "#fff2b0" });
@@ -439,7 +493,7 @@ export class BattleView {
     // 猫の攻撃が届く範囲（うすく）
     const cat = b.cat;
     if (!cat.resting) {
-      const rng = b.loadout.char.range;
+      const rng = cat.char.range;
       g.strokeStyle = "rgba(255,255,255,0.3)";
       g.lineWidth = 1.2;
       g.beginPath();
@@ -473,7 +527,13 @@ export class BattleView {
     const bugs = b.bugs;
     for (let i = 0; i < bugs.length; i++) this.drawBug(g, bugs[i], dt);
     this.resetTf();
-    this.drawCat(g, dt, X(cat.x), Y(cat.y));
+    this.drawLinks(g);
+    // 猫（上にいる猫から。主人公は同じ高さなら手前）
+    const order = this.catOrder;
+    order.length = 0;
+    for (const c of b.cats) order.push(c);
+    order.sort((p, q) => p.y - q.y || q.index - p.index);
+    for (const c of order) this.drawCat(g, dt, c, X(c.x), Y(c.y));
     if (this.bugAngle.size > bugs.length * 2 + 64) {
       const alive = new Set(bugs.map((x) => x.uid));
       for (const k of this.bugAngle.keys()) if (!alive.has(k)) this.bugAngle.delete(k);
@@ -881,78 +941,145 @@ export class BattleView {
     }
   }
 
-  private drawCat(g: CanvasRenderingContext2D, dt: number, x: number, y: number): void {
-    const b = this.battle;
-    const cat = b.cat;
+  /** partyLink が効いている猫どうしを、うすい線でつなぐ。 */
+  private drawLinks(g: CanvasRenderingContext2D): void {
+    const cats = this.battle.cats;
+    if (cats.length < 2) return;
+    const { cw, ch, u, ox, oy } = this.L;
+    let drew = false;
+    for (let i = 0; i < cats.length; i++) {
+      const a = cats[i];
+      if (!a.linked || !(a.char.combos?.partyLink ?? 0)) continue;
+      for (let j = 0; j < cats.length; j++) {
+        if (j === i) continue;
+        const b = cats[j];
+        if (b.resting || Math.hypot(a.x - b.x, a.y - b.y) > 2) continue;
+        if (!drew) {
+          g.strokeStyle = `rgba(255,170,220,${0.35 + Math.sin(this.clock * 6) * 0.15})`;
+          g.lineWidth = Math.max(2, u * 0.08);
+          g.setLineDash([u * 0.18, u * 0.14]);
+          drew = true;
+        }
+        g.beginPath();
+        g.moveTo(ox + a.x * cw, oy + a.y * ch);
+        g.lineTo(ox + b.x * cw, oy + b.y * ch);
+        g.stroke();
+      }
+    }
+    if (drew) g.setLineDash([]);
+  }
+
+  /** 1匹の猫（主人公・相棒）。相棒は少し小さい。 */
+  private drawCat(g: CanvasRenderingContext2D, dt: number, cat: CatState, x: number, y: number): void {
+    const i = cat.index;
+    const look = this.catLooks[i] ?? cat.char.look;
+    const hint = this.catHints[i] ?? { role: cat.char.role };
+    let lc = this.lastCats[i];
+    if (!lc) { lc = { x: cat.x, y: cat.y, moving: 0, atkHold: 0 }; this.lastCats[i] = lc; }
     const { u } = this.L;
-    const moved = Math.hypot(cat.x - this.lastCat.x, cat.y - this.lastCat.y);
-    this.lastCat.x = cat.x;
-    this.lastCat.y = cat.y;
-    this.lastCat.moving = moved > 0.002 ? Math.min(1, this.lastCat.moving + dt * 8) : Math.max(0, this.lastCat.moving - dt * 8);
-    const s = u * 1.3;
+    const moved = Math.hypot(cat.x - lc.x, cat.y - lc.y);
+    lc.x = cat.x;
+    lc.y = cat.y;
+    lc.moving = moved > 0.002 ? Math.min(1, lc.moving + dt * 8) : Math.max(0, lc.moving - dt * 8);
+    const sc = cat.companion ? COMPANION_SCALE : 1;
+    const s = u * 1.3 * sc;
     g.fillStyle = "rgba(10,5,2,0.4)";
     g.beginPath();
     g.ellipse(x, y + s * 0.4, s * 0.34, s * 0.1, 0, 0, Math.PI * 2);
     g.fill();
 
     if (cat.resting) {
-      g.drawImage(getSprite("catRest", this.catId, this.catHint), x - s / 2, y - s / 2, s, s);
-      const total = b.loadout.char.restTime || 1;
+      g.drawImage(getSprite("catRest", look, hint), x - s / 2, y - s / 2, s, s);
+      const total = cat.char.restTime || 1;
       const k = Math.max(0, Math.min(1, cat.restTimer / total));
-      const rx = x + s * 0.4, ry = y - s * 0.45, rr = u * 0.28;
+      const rx = x + s * 0.4, ry = y - s * 0.45, rr = u * 0.28 * sc;
       g.fillStyle = "rgba(40,30,60,0.7)";
       g.beginPath(); g.arc(rx, ry, rr + 3, 0, Math.PI * 2); g.fill();
       g.strokeStyle = "#9fd8ff";
       g.lineWidth = 3;
       g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); g.stroke();
       g.fillStyle = "#fff";
-      g.font = `900 ${Math.max(9, u * 0.32)}px system-ui, sans-serif`;
+      g.font = `900 ${Math.max(9, u * 0.32 * sc)}px system-ui, sans-serif`;
       g.textAlign = "center";
       g.textBaseline = "middle";
       g.fillText(String(Math.ceil(cat.restTimer)), rx, ry + 1);
       return;
     }
 
-    const hop = this.lastCat.moving * Math.abs(Math.sin(this.clock * 14)) * s * 0.08;
+    // wakeUp の光・lastStand の赤い気配（猫の下に）
+    if (cat.wakeUp > 0) {
+      const pulse = 0.55 + Math.sin(this.clock * 10) * 0.2;
+      const grd = g.createRadialGradient(x, y, s * 0.1, x, y, s * 0.75);
+      grd.addColorStop(0, `rgba(255,240,150,${pulse})`);
+      grd.addColorStop(1, "rgba(255,240,150,0)");
+      g.fillStyle = grd;
+      g.beginPath(); g.arc(x, y, s * 0.75, 0, Math.PI * 2); g.fill();
+    } else if (cat.desperate && (cat.char.combos?.lastStand ?? 0) > 0) {
+      g.strokeStyle = `rgba(255,70,70,${0.45 + Math.sin(this.clock * 12) * 0.25})`;
+      g.lineWidth = Math.max(2, u * 0.09);
+      g.beginPath(); g.arc(x, y, s * 0.55, 0, Math.PI * 2); g.stroke();
+    }
+
+    const hop = lc.moving * Math.abs(Math.sin(this.clock * 14 + i * 1.7)) * s * 0.08;
     const atk = cat.attackAnim > 0 ? 1 + (cat.attackAnim / 0.15) * 0.14 : 1;
     const flip = cat.facingX < -0.1 ? -1 : 1;
     const d = this.dpr;
     g.setTransform(d * flip * atk, 0, 0, d * atk, d * (x + this.shx), d * (y - hop + this.shy));
-    const pose = this.catPose(dt);
-    const img = pose ? getCatPose(this.catId, pose) : null;
-    g.drawImage(img ?? getSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
+    const pose = this.catPose(cat, lc, dt);
+    const img = pose ? getCatPose(look, pose) : null;
+    g.drawImage(img ?? getSprite("cat", look, hint), -s / 2, -s / 2, s, s);
     if (cat.hurt > 0 && !(img && pose === "hurt")) {
       g.globalAlpha = Math.min(1, cat.hurt / 0.15) * 0.8;
-      g.drawImage(getFlashSprite("cat", this.catId, this.catHint), -s / 2, -s / 2, s, s);
+      g.drawImage(getFlashSprite("cat", look, hint), -s / 2, -s / 2, s, s);
       g.globalAlpha = 1;
     }
     this.resetTf();
-    const role = b.loadout.char.role;
+    const role = cat.char.role;
     if (cat.attackAnim > 0 && role !== "ranged") {
       const a = Math.atan2(cat.facingY, cat.facingX);
       const k = 1 - cat.attackAnim / 0.15;
-      const R = role === "aoe" ? (b.loadout.char.aoe || 1) * u : u * 0.8;
+      const R = role === "aoe" ? (cat.char.aoe || 1) * u : u * 0.8 * sc;
       g.strokeStyle = `rgba(255,255,255,${0.9 - k * 0.7})`;
-      g.lineWidth = Math.max(2.5, u * 0.1);
+      g.lineWidth = Math.max(2.5, u * 0.1 * sc);
       g.beginPath();
       if (role === "aoe") g.arc(x, y, R * (0.5 + k * 0.5), 0, Math.PI * 2);
       else g.arc(x, y, R, a - 0.9 + k * 0.6, a + 0.3 + k * 0.6);
       g.stroke();
     }
-    hpBar(g, x, y + s * 0.52, s * 0.7, Math.max(3, u * 0.12), cat.hp / cat.maxHp, "#5ee07a");
+    hpBar(g, x, y + s * 0.52, s * 0.7, Math.max(3, u * 0.12 * sc), cat.hp / cat.maxHp, cat.companion ? "#7cc8ff" : "#5ee07a");
+    this.drawStacks(g, cat, x, y - s * 0.55, s);
+  }
+
+  /** frenzy（赤）・kibbleFever（黄）の重ねを、猫の上に小さな点で出す。 */
+  private drawStacks(g: CanvasRenderingContext2D, cat: CatState, x: number, y: number, s: number): void {
+    const rows: [number, number, string][] = [];
+    if (cat.frenzy > 0) rows.push([cat.frenzy, FRENZY_MAX, "#ff6a4a"]);
+    if (cat.fever > 0) rows.push([cat.fever, FEVER_MAX, "#ffd84a"]);
+    if (rows.length === 0) return;
+    const r = Math.max(1.6, s * 0.035);
+    const gap = r * 2.4;
+    g.strokeStyle = OL;
+    g.lineWidth = 1;
+    rows.forEach(([n, max, color], k) => {
+      const cnt = Math.min(n, max);
+      const x0 = x - ((cnt - 1) * gap) / 2;
+      const yy = y - k * gap;
+      g.fillStyle = color;
+      for (let j = 0; j < cnt; j++) {
+        g.beginPath(); g.arc(x0 + j * gap, yy, n >= max ? r * 1.25 : r, 0, Math.PI * 2); g.fill(); g.stroke();
+      }
+    });
   }
 
   /** 今のポーズ（攻撃 > 被弾 > 移動 > 待機）。攻撃の絵は attackAnim より長めに見せる。 */
-  private catPose(dt: number): CatPose | null {
-    const cat = this.battle.cat;
-    const lc = this.lastCat;
+  private catPose(cat: CatState, lc: { moving: number; atkHold: number }, dt: number): CatPose | null {
     lc.atkHold = cat.attackAnim > 0 ? 0.3 : Math.max(0, lc.atkHold - dt);
-    const role = this.battle.loadout.char.role;
+    const role = cat.char.role;
     if (lc.atkHold > 0) return role === "ranged" ? "ranged" : role === "aoe" ? "aoe" : "melee";
     if (cat.hurt > 0) return "hurt";
     if (lc.moving > 0.3) {
       if (role === "fast") return "run";
-      return Math.floor(this.clock * 6) % 2 ? "walk2" : "walk1";
+      return Math.floor(this.clock * 6 + cat.index * 0.5) % 2 ? "walk2" : "walk1";
     }
     return null;
   }
@@ -984,10 +1111,10 @@ export class BattleView {
       }
       g.lineTo(x1, y1);
       const a = 1 - k;
-      g.strokeStyle = `rgba(110,190,255,${0.45 * a})`;
+      g.strokeStyle = bl.hot ? `rgba(255,150,60,${0.45 * a})` : `rgba(110,190,255,${0.45 * a})`;
       g.lineWidth = Math.max(4, u * 0.28);
       g.stroke();
-      g.strokeStyle = `rgba(190,235,255,${0.95 * a})`;
+      g.strokeStyle = bl.hot ? `rgba(255,220,150,${0.95 * a})` : `rgba(190,235,255,${0.95 * a})`;
       g.lineWidth = Math.max(2, u * 0.1);
       g.stroke();
       g.strokeStyle = `rgba(255,255,255,${a})`;
@@ -1041,6 +1168,13 @@ export class BattleView {
           g.fillStyle = f.color;
           g.globalAlpha = (1 - k) * 0.15;
           g.fill();
+          break;
+        }
+        case "flash": {
+          // 一瞬の光（中が明るい円）
+          g.globalAlpha = (1 - k) * 0.7;
+          g.fillStyle = f.color;
+          g.beginPath(); g.arc(x, y, f.r * u * (0.6 + k * 0.6), 0, Math.PI * 2); g.fill();
           break;
         }
         case "cloud": {

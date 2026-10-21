@@ -1,13 +1,18 @@
 // 成長の計算（セーブデータをさわる純粋な関数たち）。
 // 関数は save をその場で書きかえる。保存（writeSave）は呼ぶ側でする。
-import type { BugDef, Loadout, ObjectKind, ResolvedChar, ResolvedObject, StageDef } from "./types";
+import type { BugDef, CharRole, ComboId, Loadout, ObjectKind, Personality, ResolvedChar, ResolvedObject, StageDef } from "./types";
 import { type Rng, pickWeighted, randInt } from "./rng";
-import { type SaveData, MAX_LOADOUT } from "./save";
-import { BOND_STAT_PER, CHARS, CHAR_MAP, CHAR_RARITY_MUL, RARITY_RANK } from "../data/chars";
+import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
+import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, NEIGHBOR_UNLOCK, bondToNext } from "../data/chars";
 import {
-  SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, addNodeTotals, emptyTotals, modsFromTotals, nodeCost,
-  nodeTotalCost,
+  SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
+  modsFromTotals, nodeCost, nodeTotalCost,
 } from "../data/skills";
+import {
+  CHAR_GROWTH, DEFAULT_MAIN_WAZA, MAX_SUBS, RARITY_MUL, ROLE_BASE, SPECIAL0, WAZAS, WAZA_MAP, type WazaDef,
+  wazaLevelMul,
+} from "../data/waza";
+import { PERSONALITY_MAP, isPersonality } from "../data/personality";
 import {
   OBJECTS, OBJECT_MAP, OBJ_LEVEL_GROWTH, OBJ_PRODUCE_PER_LEVEL, OBJ_RARITY_COST, OBJ_RARITY_DROP, type ObjectBase,
   type ObjectPerk, shardsToNext,
@@ -26,9 +31,11 @@ const ng = <T = never>(reason: string): Result<T> => ({ ok: false, reason });
 
 /** ママの HP（レリックで増える前）。 */
 export const BASE_MAMA_HP = 10;
-/** 選んでいない猫がもらえる経験値の割合（おるすばん）。 */
-export const IDLE_EXP_RATE = 0.5;
+/** パーティにいない猫（控え）がもらえる経験値の割合。 */
+export const IDLE_EXP_RATE = 0.3;
 export const MAX_CHAR_LEVEL = 999;
+/** 相棒の強さ（攻撃・体力に掛ける）。 */
+export const COMPANION_POWER = 0.6;
 
 // ================= ステージ =================
 
@@ -65,9 +72,9 @@ export function churuForLevel(level: number): number {
   return 3 + (level % 10 === 0 ? 10 : 0) + (level % 50 === 0 ? 30 : 0);
 }
 
-/** 経験値を足す。上がったレベル数を返す。レベルが上がるとちゅ〜るも入る。持っていない猫なら 0。 */
-export function addExp(save: SaveData, charId: string, exp: number): number {
-  const c = save.chars[charId];
+/** 経験値を足す。上がったレベル数を返す。レベルが上がるとちゅ〜るも入る。いない猫なら 0。 */
+export function addExp(save: SaveData, uid: string, exp: number): number {
+  const c = save.cats[uid];
   if (!c || !(exp > 0)) return 0;
   c.exp += exp;
   let ups = 0;
@@ -87,106 +94,326 @@ export function churuForLevels(from: number, to: number): number {
   return s;
 }
 
-export function selectChar(save: SaveData, charId: string): boolean {
-  if (!save.chars[charId]) return false;
-  save.selectedChar = charId;
-  return true;
-}
-
 /** なかよし度による、基本の体力・攻撃の倍率（1 + 0.2 × なかよし度）。 */
 export function bondMul(bond: number): number {
   return 1 + BOND_STAT_PER * Math.max(0, bond);
 }
 
-// ================= スキルツリー =================
+export { bondToNext };
 
-export { nodeCost, nodeTotalCost };
-
-/** その猫のスキルツリー（役割で決まる）。 */
-export function skillTreeOf(charId: string): SkillNode[] {
-  const def = CHAR_MAP[charId];
-  return def ? SKILL_TREES[def.role] : [];
-}
-
-/** 取ったレベル（取っていなければ 0）。 */
-export function nodeLevel(save: SaveData, charId: string, nodeId: string): number {
-  return save.chars[charId]?.skills[nodeId] ?? 0;
-}
-
-/** 次のレベルに上げるちゅ〜る。最大レベルなら null。 */
-export function nextNodeCost(save: SaveData, charId: string, nodeId: string): number | null {
-  const node = SKILL_MAP[nodeId];
-  if (!node) return null;
-  const lv = nodeLevel(save, charId, nodeId);
-  return lv >= node.maxLevel ? null : nodeCost(node, lv);
-}
-
-/** 前提・レベル・レアリティだけを見る（ちゅ〜るは見ない）。ツリーで「開いている」ノードを光らせる用。 */
-export function isNodeOpen(save: SaveData, charId: string, nodeId: string): Result {
-  const c = save.chars[charId];
-  const def = CHAR_MAP[charId];
-  const node = SKILL_MAP[nodeId];
-  if (!c || !def) return ng("まだお迎えしていない猫です");
-  if (!node || node.role !== def.role) return ng("この猫のスキルではありません");
-  if ((c.skills[nodeId] ?? 0) >= node.maxLevel) return ng("もう最大レベルです");
-  if (node.minRarity && RARITY_RANK[def.rarity] < RARITY_RANK[node.minRarity]) {
-    return ng(`${node.minRarity} 以上の猫だけが覚えられます`);
+/** なかよし度の経験（戦闘 n 回ぶん）を足す。なかよし度が上がったら true。 */
+export function addBondExp(save: SaveData, uid: string, n = 1): boolean {
+  const c = save.cats[uid];
+  if (!c || c.bond >= MAX_BOND) return false;
+  c.bondExp += n;
+  let up = false;
+  while (c.bond < MAX_BOND && c.bondExp >= bondToNext(c.bond)) {
+    c.bondExp -= bondToNext(c.bond);
+    c.bond++;
+    up = true;
   }
-  const miss = node.req.filter((r) => (c.skills[r.id] ?? 0) < r.lv);
-  if (miss.length) {
-    return ng(`先に${miss.map((r) => `「${SKILL_MAP[r.id]?.name ?? r.id}」を Lv${r.lv}`).join("・")}まで上げてね`);
+  if (c.bond >= MAX_BOND) c.bondExp = 0;
+  return up;
+}
+
+/** 家族の一番高いレベル（スキルツリーの段の判定に使う）。 */
+export function familyLevel(save: SaveData): number {
+  let lv = 1;
+  for (const c of Object.values(save.cats)) lv = Math.max(lv, c.level);
+  return lv;
+}
+
+// ================= うちの子・パーティ =================
+
+/** パーティ（いる猫だけ・重なりなし・最大3）。先頭が主人公。 */
+export function partyUids(save: SaveData): string[] {
+  const out: string[] = [];
+  for (const u of save.party) if (save.cats[u] && !out.includes(u) && out.length < PARTY_SIZE) out.push(u);
+  if (!out.length) {
+    const first = Object.keys(save.cats)[0];
+    if (first) out.push(first);
   }
-  if (c.level < node.minCharLevel) return ng(`猫のレベルが ${node.minCharLevel} になったら覚えられます`);
+  return out;
+}
+
+/** 主人公の uid。 */
+export function heroUid(save: SaveData): string {
+  return partyUids(save)[0] ?? "";
+}
+
+function checkName(name: unknown): Result<string> {
+  if (typeof name !== "string" || !name.trim()) return ng("名前を入れてね");
+  const n = name.trim();
+  if ([...n].length > MAX_CAT_NAME) return ng(`名前は ${MAX_CAT_NAME} 文字までです`);
+  return ok(n);
+}
+
+function checkLook(look: unknown): Result<string> {
+  return typeof look === "string" && CAT_LOOKS.includes(look) ? ok(look) : ng("見た目が見つかりません");
+}
+
+/** うちの子を登録する。新しい uid を返す。メインのわざは「ねこパンチ」から。 */
+export function registerCat(save: SaveData, p: { name: string; look: string; personality: Personality }): Result<string> {
+  if (Object.keys(save.cats).length >= MAX_CATS) return ng(`猫は ${MAX_CATS} 匹までです`);
+  const name = checkName(p.name);
+  if (!name.ok) return name;
+  const look = checkLook(p.look);
+  if (!look.ok) return look;
+  if (!isPersonality(p.personality)) return ng("性格が見つかりません");
+  const uid = newCatUid(save);
+  save.cats[uid] = newCatSave(uid, name.value, look.value, p.personality, DEFAULT_MAIN_WAZA);
+  return ok(uid);
+}
+
+function newCatUid(save: SaveData): string {
+  let uid = `c${save.nextCatUid++}`;
+  while (save.cats[uid]) uid = `c${save.nextCatUid++}`;
+  return uid;
+}
+
+/** 名前・見た目・性格を変える。 */
+export function updateCat(
+  save: SaveData, uid: string, patch: Partial<Pick<CatSave, "name" | "look" | "personality">>,
+): Result {
+  const c = save.cats[uid];
+  if (!c) return ng("猫が見つかりません");
+  let name = c.name, look = c.look, personality = c.personality;
+  if (patch.name !== undefined) {
+    const r = checkName(patch.name);
+    if (!r.ok) return r;
+    name = r.value;
+  }
+  if (patch.look !== undefined) {
+    const r = checkLook(patch.look);
+    if (!r.ok) return r;
+    look = r.value;
+  }
+  if (patch.personality !== undefined) {
+    if (!isPersonality(patch.personality)) return ng("性格が見つかりません");
+    personality = patch.personality;
+  }
+  c.name = name;
+  c.look = look;
+  c.personality = personality;
   return ok(undefined);
 }
 
-export function canLearn(save: SaveData, charId: string, nodeId: string): Result {
-  const r = isNodeOpen(save, charId, nodeId);
+/** 猫をはずす（お別れ）。主人公ははずせない。相棒ならパーティからも外す。 */
+export function removeCat(save: SaveData, uid: string): Result {
+  if (!save.cats[uid]) return ng("猫が見つかりません");
+  if (heroUid(save) === uid) return ng("主人公ははずせません（先にほかの猫を主人公にしてね）");
+  delete save.cats[uid];
+  save.party = partyUids(save).filter((u) => u !== uid);
+  return ok(undefined);
+}
+
+/**
+ * パーティの枠に猫を入れる（slot 0 = 主人公、1・2 = 相棒）。null で相棒を外す（主人公は外せない）。
+ * ほかの枠にいる猫を入れると、入れかわる。空いた枠は詰める（相棒2だけ、にはならない）。
+ */
+export function setParty(save: SaveData, slot: 0 | 1 | 2, uid: string | null): Result {
+  if (slot !== 0 && slot !== 1 && slot !== 2) return ng("枠が見つかりません");
+  const party = partyUids(save);
+  if (uid === null) {
+    if (slot === 0) return ng("主人公は外せません");
+    if (slot < party.length) party.splice(slot, 1);
+    save.party = party;
+    return ok(undefined);
+  }
+  if (!save.cats[uid]) return ng("猫が見つかりません");
+  const cur = party.indexOf(uid);
+  if (cur === slot) return ok(undefined);
+  if (slot >= party.length) {
+    // 空いている枠へ
+    if (cur === 0) return ng("主人公は外せません（先にほかの猫を主人公にしてね）");
+    if (cur > 0) party.splice(cur, 1);
+    party.push(uid);
+  } else {
+    if (cur >= 0) party[cur] = party[slot];
+    party[slot] = uid;
+  }
+  save.party = party.slice(0, PARTY_SIZE);
+  return ok(undefined);
+}
+
+/** わざをつける（slot: "main" か、サブの 0・1）。null でサブを外す（メインは外せない）。 */
+export function equipWaza(save: SaveData, uid: string, slot: "main" | 0 | 1, wazaId: string | null): Result {
+  const c = save.cats[uid];
+  if (!c) return ng("猫が見つかりません");
+  const w = wazaId ? WAZA_MAP[wazaId] : undefined;
+  if (wazaId && !w) return ng("わざが見つかりません");
+  if (wazaId && !save.wazas[wazaId]) return ng("まだ覚えていないわざです");
+  if (slot === "main") {
+    if (!w) return ng("メインのわざは外せません");
+    if (w.slot !== "main") return ng("メインのわざではありません");
+    c.waza.main = w.id;
+    return ok(undefined);
+  }
+  if (slot !== 0 && slot !== 1) return ng("枠が見つかりません");
+  const subs = c.waza.subs.filter((s) => WAZA_MAP[s]);
+  if (!w) {
+    if (slot < subs.length) subs.splice(slot, 1);
+    c.waza.subs = subs;
+    return ok(undefined);
+  }
+  if (w.slot !== "sub") return ng("サブのわざではありません");
+  const cur = subs.indexOf(w.id);
+  if (cur === slot) return ok(undefined);
+  if (cur >= 0) return ng("同じわざは1匹に1つだけです");
+  if (slot < subs.length) subs[slot] = w.id;
+  else subs.push(w.id);
+  c.waza.subs = subs.slice(0, MAX_SUBS);
+  return ok(undefined);
+}
+
+/** 譲渡会に来ている近所の猫（まだお迎えしていないもの）のひな形 id。 */
+export function adoptableNeighbors(save: SaveData): string[] {
+  const have = new Set(Object.values(save.cats).map((c) => c.preset).filter(Boolean));
+  return CHARS.filter((d) => (NEIGHBOR_UNLOCK[d.id] ?? Infinity) <= save.cleared && !have.has(d.id)).map((d) => d.id);
+}
+
+/** 近所の猫をお迎えする（無料）。その猫らしいわざを覚えていればそれを、なければ「ねこパンチ」か「ちょいちょい」をつける。 */
+export function adoptNeighbor(save: SaveData, presetId: string): Result<string> {
+  const def = CHAR_MAP[presetId];
+  if (!def) return ng("猫が見つかりません");
+  if (!adoptableNeighbors(save).includes(presetId)) return ng("まだ譲渡会に来ていません");
+  if (Object.keys(save.cats).length >= MAX_CATS) return ng(`猫は ${MAX_CATS} 匹までです`);
+  const sig = WAZA_MAP[def.waza];
+  const main = save.wazas[def.waza] ? def.waza : (sig?.role === "ranged" || sig?.role === "aoe" ? "choichoi" : DEFAULT_MAIN_WAZA);
+  const uid = newCatUid(save);
+  save.cats[uid] = newCatSave(uid, def.name, def.id, def.personality, main, def.id);
+  return ok(uid);
+}
+
+/** その猫のメインのわざ（なければ「ねこパンチ」）。 */
+export function mainWazaOf(save: SaveData, uid: string): WazaDef {
+  const w = WAZA_MAP[save.cats[uid]?.waza.main ?? ""];
+  return w && w.slot === "main" ? w : WAZA_MAP[DEFAULT_MAIN_WAZA];
+}
+
+/** その猫の役割（メインのわざで決まる）。 */
+export function catRole(save: SaveData, uid: string): CharRole {
+  return mainWazaOf(save, uid).role!;
+}
+
+/** パーティの役割（主人公から順・重なりなし）。この役割のスキルツリーが戦闘で効く。 */
+export function partyRoles(save: SaveData): CharRole[] {
+  const out: CharRole[] = [];
+  for (const u of partyUids(save)) {
+    const r = catRole(save, u);
+    if (!out.includes(r)) out.push(r);
+  }
+  return out;
+}
+
+// ================= スキルツリー（家族で共有・役割ごと） =================
+
+export { nodeCost, nodeTotalCost };
+
+/** その役割のスキルツリー。 */
+export function skillTreeOf(role: CharRole): SkillNode[] {
+  return SKILL_TREES[role] ?? [];
+}
+
+function roleSkills(save: SaveData, role: CharRole): Record<string, number> {
+  if (!save.skills[role]) save.skills[role] = {};
+  return save.skills[role];
+}
+
+/** 取ったレベル（取っていなければ 0）。 */
+export function nodeLevel(save: SaveData, role: CharRole, nodeId: string): number {
+  return save.skills[role]?.[nodeId] ?? 0;
+}
+
+/** 次のレベルに上げるちゅ〜る。最大レベルなら null。 */
+export function nextNodeCost(save: SaveData, role: CharRole, nodeId: string): number | null {
+  const node = SKILL_MAP[nodeId];
+  if (!node || node.role !== role) return null;
+  const lv = nodeLevel(save, role, nodeId);
+  return lv >= node.maxLevel ? null : nodeCost(node, lv);
+}
+
+/** 前提・家族のレベルだけを見る（ちゅ〜るは見ない）。ツリーで「開いている」ノードを光らせる用。 */
+export function isNodeOpen(save: SaveData, role: CharRole, nodeId: string): Result {
+  const node = SKILL_MAP[nodeId];
+  if (!node || node.role !== role) return ng("この役割のスキルではありません");
+  if (nodeLevel(save, role, nodeId) >= node.maxLevel) return ng("もう最大レベルです");
+  const miss = node.req.filter((r) => nodeLevel(save, role, r.id) < r.lv);
+  if (miss.length) {
+    return ng(`先に${miss.map((r) => `「${SKILL_MAP[r.id]?.name ?? r.id}」を Lv${r.lv}`).join("・")}まで上げてね`);
+  }
+  if (familyLevel(save) < node.minCharLevel) return ng(`家族のだれかのレベルが ${node.minCharLevel} になったら覚えられます`);
+  return ok(undefined);
+}
+
+export function canLearn(save: SaveData, role: CharRole, nodeId: string): Result {
+  const r = isNodeOpen(save, role, nodeId);
   if (!r.ok) return r;
-  const cost = nextNodeCost(save, charId, nodeId)!;
+  const cost = nextNodeCost(save, role, nodeId)!;
   if (save.churu < cost) return ng(`ちゅ〜るが足りません（あと ${cost - Math.floor(save.churu)}）`);
   return ok(undefined);
 }
 
 /** 1レベル上げる。成功したら新しいレベルを返す。 */
-export function learnSkill(save: SaveData, charId: string, nodeId: string): Result<number> {
-  const r = canLearn(save, charId, nodeId);
+export function learnSkill(save: SaveData, role: CharRole, nodeId: string): Result<number> {
+  const r = canLearn(save, role, nodeId);
   if (!r.ok) return r;
-  const c = save.chars[charId];
-  save.churu -= nextNodeCost(save, charId, nodeId)!;
-  const lv = (c.skills[nodeId] ?? 0) + 1;
-  c.skills[nodeId] = lv;
+  save.churu -= nextNodeCost(save, role, nodeId)!;
+  const sk = roleSkills(save, role);
+  const lv = (sk[nodeId] ?? 0) + 1;
+  sk[nodeId] = lv;
   return ok(lv);
 }
 
-/** その猫のスキルに使ったちゅ〜るの合計。 */
-export function skillSpent(save: SaveData, charId: string): number {
+/** その役割のスキルに使ったちゅ〜るの合計。 */
+export function skillSpent(save: SaveData, role: CharRole): number {
   let s = 0;
-  for (const [id, lv] of Object.entries(save.chars[charId]?.skills ?? {})) {
+  for (const [id, lv] of Object.entries(save.skills[role] ?? {})) {
     const n = SKILL_MAP[id];
     if (n) s += nodeTotalCost(n, lv);
   }
   return s;
 }
 
-/** スキルをぜんぶ忘れて、使ったちゅ〜るを全部もどす。もどった量を返す。 */
-export function resetSkills(save: SaveData, charId: string): number {
-  const c = save.chars[charId];
-  if (!c) return 0;
-  const refund = skillSpent(save, charId);
-  c.skills = {};
+/** その役割のスキルをぜんぶ忘れて、使ったちゅ〜るを全部もどす。もどった量を返す。 */
+export function resetSkills(save: SaveData, role: CharRole): number {
+  const refund = skillSpent(save, role);
+  save.skills[role] = {};
   save.churu += refund;
   return refund;
 }
 
-/** スキルの補正をまとめる。 */
-export function skillMods(save: SaveData, charId: string): CharMods {
-  const t = emptyTotals();
-  for (const [id, lv] of Object.entries(save.chars[charId]?.skills ?? {})) {
+function addSkillTotals(t: SkillTotals, save: SaveData, role: CharRole): void {
+  for (const [id, lv] of Object.entries(save.skills[role] ?? {})) {
     const n = SKILL_MAP[id];
-    if (n) addNodeTotals(t, n, lv);
+    if (n && n.role === role) addNodeTotals(t, n, lv);
   }
+}
+
+/** その役割のスキルツリーだけの補正。 */
+export function skillMods(save: SaveData, role: CharRole): CharMods {
+  const t = emptyTotals();
+  addSkillTotals(t, save, role);
   return modsFromTotals(t);
+}
+
+/** その猫にかかる合計（役割のスキルツリー・メインのわざ・サブのわざ）。 */
+export function catTotals(save: SaveData, uid: string): SkillTotals {
+  const t = emptyTotals();
+  const c = save.cats[uid];
+  const main = mainWazaOf(save, uid);
+  addSkillTotals(t, save, main.role!);
+  addEffects(t, main.effects, wazaLevelMul(save.wazas[main.id]?.level ?? 1));
+  for (const sid of c?.waza.subs ?? []) {
+    const s = WAZA_MAP[sid];
+    if (s && s.slot === "sub") addEffects(t, s.effects, wazaLevelMul(save.wazas[sid]?.level ?? 1));
+  }
+  return t;
+}
+
+/** 猫とわざの補正をまとめたもの（表示用）。 */
+export function catMods(save: SaveData, uid: string): CharMods {
+  return modsFromTotals(catTotals(save, uid));
 }
 
 // ================= オブジェクト =================
@@ -448,29 +675,42 @@ export function nextRelic(save: SaveData) {
 
 // ================= 計算ずみの強さ =================
 
-export function resolveChar(save: SaveData, charId: string = save.selectedChar): ResolvedChar {
-  const def = CHAR_MAP[charId] ?? CHARS[0];
-  const cs = save.chars[def.id];
-  const lv = cs?.level ?? 1;
-  const m = skillMods(save, def.id);
+/** 猫がいないときの仮の猫（ふつうは使われない）。 */
+const FALLBACK_CAT: CatSave = newCatSave("c1", CHAR_MAP.chatora.name, "chatora", CHAR_MAP.chatora.personality);
+
+/**
+ * 猫の戦闘での強さ（省くと主人公）。companion なら相棒として（攻撃・体力 ×COMPANION_POWER）。
+ * どの猫も同じ式: 役割の基本の形 × メインのわざのレアリティ × なかよし度 × レベル × スキル・わざ × 性格 × 装備 × レリック。
+ */
+export function resolveCat(save: SaveData, uid: string = heroUid(save), companion = false): ResolvedChar {
+  const c = save.cats[uid] ?? save.cats[heroUid(save)] ?? FALLBACK_CAT;
+  const w = mainWazaOf(save, c.uid);
+  const role = w.role!;
+  const m = modsFromTotals(save.cats[c.uid] ? catTotals(save, c.uid) : emptyTotals());
   const eq = equipBonus(save);
   const rel = relicBonus(save);
-  const b = def.base;
-  const baseMul = CHAR_RARITY_MUL[def.rarity] * bondMul(cs?.bond ?? 0);
-  const crit = Math.min(1, b.crit + m.crit);
+  const p = PERSONALITY_MAP[c.personality] ?? PERSONALITY_MAP.nonbiri;
+  const b = { ...ROLE_BASE[role], ...SPECIAL0, ...(w.shape ?? {}) };
+  const lv = c.level;
+  const baseMul = RARITY_MUL[w.rarity] * bondMul(c.bond) * (companion ? COMPANION_POWER : 1);
+  const combos: Partial<Record<ComboId, number>> = {};
+  for (const [k, v] of Object.entries(m.combos) as [ComboId, number][]) if (v > 0) combos[k] = v;
   return {
-    id: def.id,
-    name: def.name,
-    role: def.role,
-    maxHp: b.maxHp * baseMul * Math.pow(def.growth.hp, lv - 1) * m.hpMul * eq.charHpMul * rel.charHp,
-    atk: b.atk * baseMul * Math.pow(def.growth.atk, lv - 1) * m.atkMul * eq.charAtkMul * rel.dmg,
-    atkInterval: Math.max(0.15, b.atkInterval * m.intervalMul),
+    id: c.uid,
+    name: c.name,
+    look: c.look,
+    role,
+    companion,
+    combos,
+    maxHp: b.maxHp * baseMul * Math.pow(CHAR_GROWTH.hp, lv - 1) * m.hpMul * (1 + p.hp) * eq.charHpMul * rel.charHp,
+    atk: b.atk * baseMul * Math.pow(CHAR_GROWTH.atk, lv - 1) * m.atkMul * (1 + p.atk) * eq.charAtkMul * rel.dmg,
+    atkInterval: Math.max(0.15, (b.atkInterval * m.intervalMul) / (1 + p.atkSpd)),
     range: b.range + m.range,
     aoe: b.aoe > 0 ? b.aoe + m.aoe : 0,
-    moveSpeed: b.moveSpeed * m.moveMul * eq.charMoveMul,
-    restTime: Math.max(1, b.restTime * m.restMul),
+    moveSpeed: b.moveSpeed * m.moveMul * (1 + p.move) * eq.charMoveMul,
+    restTime: Math.max(1, b.restTime * m.restMul * (1 + p.rest)),
     armor: Math.max(0.3, b.armor * m.armorMul),
-    crit,
+    crit: Math.min(1, b.crit + m.crit),
     critMul: Math.max(1.5, b.critMul) + m.critMul,
     multiHit: Math.floor(b.multiHit + m.multiHit),
     lifesteal: Math.min(0.5, b.lifesteal + m.lifesteal),
@@ -478,8 +718,8 @@ export function resolveChar(save: SaveData, charId: string = save.selectedChar):
     knockback: b.knockback + m.knockback,
     poison: b.poison + m.poison,
     slowHit: Math.max(0.3, b.slowHit - m.slow),
-    pierce: def.role === "ranged" || b.pierce > 0 ? Math.floor(b.pierce + m.pierce) : 0,
-    kibbleBonus: b.kibbleBonus + m.kibbleBonus,
+    pierce: role === "ranged" || b.pierce + m.pierce >= 1 ? Math.floor(b.pierce + m.pierce) : 0,
+    kibbleBonus: b.kibbleBonus + m.kibbleBonus + p.kibble,
     objectAura: b.objectAura + m.objectAura,
     repair: Math.min(0.2, b.repair + m.repair),
     reviveHp: Math.min(1, Math.max(0.5, b.reviveHp + m.reviveHp)),
@@ -488,8 +728,8 @@ export function resolveChar(save: SaveData, charId: string = save.selectedChar):
 }
 
 /** 猫のだいたいの強さ（一覧の並べかえ・おすすめ用）。DPS × 体力の平方根。 */
-export function charPower(save: SaveData, charId: string): number {
-  const c = resolveChar(save, charId);
+export function catPower(save: SaveData, uid: string): number {
+  const c = resolveCat(save, uid);
   return charDps(c) * Math.sqrt(c.maxHp);
 }
 
@@ -525,7 +765,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const g = Math.pow(OBJ_LEVEL_GROWTH, lv - 1);
   const eq = equipBonus(save);
   const rel = relicBonus(save);
-  const sk = skillMods(save, save.selectedChar);
+  const sk = modsFromTotals(catTotals(save, heroUid(save)));
   const { stats: b, names } = applyPerks(def.base, def.perks, lv);
   // 装備の基本の攻撃・体力は、猫が置くオブジェクトにも効く
   const atkMul = eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
@@ -571,14 +811,16 @@ export function resolveObjects(save: SaveData, ids: string[] = save.loadout): Re
   return ids.map((id) => resolveObject(save, id)).filter((o): o is ResolvedObject => !!o);
 }
 
-/** 戦闘を始めるのに必要なものをそろえる。ステージがなければ null。 */
+/** 戦闘を始めるのに必要なものをそろえる（主人公・相棒・オブジェクト）。ステージがなければ null。 */
 export function buildLoadout(save: SaveData, stageId: string): Loadout | null {
   const stage = stageById(stageId);
   if (!stage) return null;
   const rel = relicBonus(save);
   const bugs: Record<string, BugDef> = bugDefs();
+  const [hero, ...rest] = partyUids(save);
   return {
-    char: resolveChar(save),
+    char: resolveCat(save, hero),
+    companions: rest.map((u) => resolveCat(save, u, true)),
     objects: resolveObjects(save),
     stage,
     bugs,
@@ -590,15 +832,45 @@ export function buildLoadout(save: SaveData, stageId: string): Loadout | null {
 
 /** 置くオブジェクトの数の目安（同じものを何こ置くか）。 */
 const OBJ_COPIES = 2;
+/** 相棒はいつも戦えるわけではない（主人公についていく・休けい）ので、DPS を少し控えめに見る。 */
+const COMPANION_UPTIME = 0.6;
 
-/** 猫のだいたいの DPS（会心・連続攻撃・範囲・貫通・毒をならしたもの）。 */
+/** 複合効果による DPS の上乗せの上限（目安なので、のびすぎないように）。 */
+const COMBO_DPS_CAP = 2.5;
+
+/** 複合効果による DPS のだいたいの上乗せ（倍率）。くわしい動きは戦闘しだいなので、控えめに見る。 */
+export function comboDpsFactor(c: ResolvedChar): number {
+  const k = c.combos ?? {};
+  const v = (id: ComboId) => k[id] ?? 0;
+  let f = 1;
+  f *= 1 + v("critChain") * 0.25 * (c.crit ?? 0);
+  f *= 1 + Math.min(1, v("frenzy") * 3) * 0.25;
+  f *= 1 + Math.min(1, v("kibbleFever") * 3) * 0.2;
+  f *= 1 + v("partyLink") * 0.3;
+  f *= 1 + v("bossHunter") * 0.05;
+  f *= 1 + v("lastStand") * 0.05;
+  f *= 1 + v("mamaGuard") * 0.15;
+  f *= 1 + v("slowShatter") * ((c.slowHit ?? 1) < 1 ? 0.4 : 0.1);
+  f *= 1 + v("pierceGrow") * (c.pierce ?? 0) * 0.3;
+  f *= 1 + Math.min(1.5, v("multiEcho")) * 0.2 * ((c.multiHit ?? 0) > 0 ? 1 : 0.1);
+  f *= 1 + v("poisonBurst") * Math.min(1, (c.poison ?? 0) + (v("zapVenom") > 0 ? 0.5 : 0)) * 0.3;
+  f *= 1 + v("overkill") * 0.15;
+  f *= 1 + v("knockSlam") * Math.min(1, c.knockback ?? 0) * 0.15;
+  f *= 1 + v("shockwave") * 0.05;
+  f *= 1 + v("zapVenom") * 0.15 * ((c.aoe ?? 0) > 0 || v("critChain") > 0 ? 1 : 0.2);
+  f *= 1 + v("dodgeCounter") * (c.dodge ?? 0) * 0.5;
+  f *= 1 + Math.min(1, v("venomCrit")) * Math.max(0, (c.critMul ?? 1.5) - 1) * ((c.poison ?? 0) > 0 ? 0.25 : 0);
+  return Math.min(COMBO_DPS_CAP, f);
+}
+
+/** 猫のだいたいの DPS（会心・連続攻撃・範囲・貫通・毒・複合効果をならしたもの）。 */
 export function charDps(c: ResolvedChar): number {
   const critF = 1 + (c.crit ?? 0) * Math.max(0, (c.critMul ?? 1.5) - 1);
   const multiF = 1 + (c.multiHit ?? 0);
   const areaF = c.aoe > 0 ? 1 + c.aoe : 1;
   const pierceF = 1 + 0.5 * (c.pierce ?? 0);
   const poisonF = 1 + Math.min(1, (c.poison ?? 0) * 1.5);
-  return (c.atk / c.atkInterval) * critF * multiF * areaF * pierceF * poisonF;
+  return (c.atk / c.atkInterval) * critF * multiF * areaF * pierceF * poisonF * comboDpsFactor(c);
 }
 
 /**
@@ -625,14 +897,18 @@ export function objectDps(o: ResolvedObject): number {
   }
 }
 
-/** だいたいの DPS（1秒あたりのダメージ）。 */
-export function estimateDps(lo: Pick<Loadout, "char" | "objects">): { char: number; objects: number; total: number } {
+/** だいたいの DPS（1秒あたりのダメージ）。char は主人公、companions は相棒の合計。 */
+export function estimateDps(
+  lo: Pick<Loadout, "char" | "objects"> & Partial<Pick<Loadout, "companions">>,
+): { char: number; companions: number; objects: number; total: number } {
   const c = lo.char;
   const char = charDps(c);
+  let companions = 0;
+  for (const m of lo.companions ?? []) companions += charDps(m) * COMPANION_UPTIME;
   let objects = 0;
   for (const o of lo.objects) objects += objectDps(o);
   objects *= OBJ_COPIES * (1 + (c.objectAura ?? 0) * 0.5);
-  return { char, objects, total: char + objects };
+  return { char, companions, objects, total: char + companions + objects };
 }
 
 /** 虫がママまで歩く道のりの目安（マス）。14×18 の盤面で、家具やオブジェクトをよけて遠回りする。 */
@@ -677,7 +953,10 @@ export interface RewardResult {
   equips: EquipItem[];
   shards: { id: string; count: number }[];
   newObjects: string[];
-  levelUps: Record<string, number>;   // 猫 id → 上がったレベル数
+  /** 新しく譲渡会に来た近所の猫（ひな形 id）。 */
+  newNeighbors: string[];
+  levelUps: Record<string, number>;   // 猫の uid → 上がったレベル数
+  bondUps: Record<string, number>;    // 猫の uid → 上がったあとのなかよし度（上がった猫だけ）
 }
 
 /** 小数の回数を、確率で整数にする（2.3 → 2 か 3）。 */
@@ -695,7 +974,7 @@ export function rollDropRarity(g: number, rng: Rng): EquipRarity {
   return r as EquipRarity;
 }
 
-/** クリアした数に合わせて、オブジェクトを手に入れる（猫は譲渡会会場でお迎えする）。新しく増えた id を返す。 */
+/** クリアした数に合わせて、オブジェクトを手に入れる。新しく増えた id を返す。 */
 export function syncUnlocks(save: SaveData): { newObjects: string[] } {
   const n = save.cleared + 1; // クリアしたステージの数（通し番号＝この数まで）
   const newObjects: string[] = [];
@@ -712,7 +991,10 @@ export function syncUnlocks(save: SaveData): { newObjects: string[] } {
 /** はじめてクリアしたときのちゅ〜るの倍率。 */
 export const FIRST_CLEAR_CHURU_MUL = 2;
 
-/** ステージに勝ったときに呼ぶ。報酬を抽選して save に入れ、クリアを記録する。 */
+/**
+ * ステージに勝ったときに呼ぶ。報酬を抽選して save に入れ、クリアを記録する。
+ * 経験値: パーティ（主人公・相棒）は全部、控えの猫は IDLE_EXP_RATE。なかよし度: パーティの猫に戦闘1回ぶん。
+ */
 export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: Rng): RewardResult {
   const stage = typeof stageOrId === "string" ? stageById(stageOrId) : stageOrId;
   if (!stage) throw new Error(`ステージがありません: ${String(stageOrId)}`);
@@ -730,11 +1012,14 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   save.relicPoints += relicPoints;
   save.churu += churu;
   const churuBefore = save.churu;
+  const party = partyUids(save);
   const levelUps: Record<string, number> = {};
-  for (const id of Object.keys(save.chars)) {
-    const e = id === save.selectedChar ? exp : Math.round(exp * IDLE_EXP_RATE);
-    const ups = addExp(save, id, e);
-    if (ups) levelUps[id] = ups;
+  const bondUps: Record<string, number> = {};
+  for (const uid of Object.keys(save.cats)) {
+    const inParty = party.includes(uid);
+    const ups = addExp(save, uid, inParty ? exp : Math.round(exp * IDLE_EXP_RATE));
+    if (ups) levelUps[uid] = ups;
+    if (inParty && addBondExp(save, uid, 1)) bondUps[uid] = save.cats[uid].bond;
   }
   const churuFromLevels = save.churu - churuBefore;
 
@@ -755,16 +1040,18 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   for (const [id, cnt] of shardMap) save.objects[id].shards += cnt;
 
   // クリアの記録
+  const before = new Set(adoptableNeighbors(save));
   save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + 1;
   if (firstClear) save.cleared = g;
   const { newObjects } = syncUnlocks(save);
+  const newNeighbors = adoptableNeighbors(save).filter((id) => !before.has(id));
 
   return {
     stageId: stage.id, firstClear, exp, coins, relicPoints, churu, churuFromLevels, equips,
     shards: [...shardMap].map(([id, count]) => ({ id, count })),
-    newObjects, levelUps,
+    newObjects, newNeighbors, levelUps, bondUps,
   };
 }
 
 // 使いやすいように定義も出しておく
-export { CHARS, OBJECTS, EQUIPS, RELICS, STAGES };
+export { CHARS, OBJECTS, EQUIPS, RELICS, STAGES, WAZAS, ROLES };
