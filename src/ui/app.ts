@@ -4,15 +4,15 @@ import "./styles.css";
 import { mulberry32, type Rng } from "../core/rng";
 import { type SaveData, clearSave, exportSave, importSave, loadSave, newSave, writeSave } from "../core/save";
 import {
-  buildLoadout, grantRewards, isStageUnlocked, nextStageId, stageById, syncUnlocks, type RewardResult,
+  buildLoadout, grantRewards, heroUid, isStageUnlocked, nextStageId, stageById, syncUnlocks, type RewardResult,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import type { BattleResult, Loadout } from "../core/types";
-import { CHAR_MAP } from "../data/chars";
+import { CHAR_MAP, MAX_BOND } from "../data/chars";
 import { OBJECT_MAP } from "../data/objects";
-import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
+import { type Ctx, type GachaSub, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
-import { ICONS, catSvg, objectSvg } from "./icons";
+import { ICONS, bagSvg, objectSvg } from "./icons";
 import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
 import { renderMain } from "./tab-main";
@@ -20,6 +20,8 @@ import { renderGrow } from "./tab-grow";
 import { renderRelic } from "./tab-relic";
 import { renderGachaTab } from "./gacha";
 import { equipCard } from "./grow-equip";
+import { openSetup } from "./cat-form";
+import { bondHearts } from "./parts";
 
 // 戦闘画面は別のモジュール。まだないときは、かんたんな代わりを使う。
 const battleModules = import.meta.glob<{ startBattle: StartBattle }>("../battle/screen.ts");
@@ -80,7 +82,7 @@ export function createApp(root: HTMLElement): AppHandle {
   root.appendChild(app);
 
   const modals = new Modals(layer);
-  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all" };
+  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all", gachaSub: "bag", skillRole: null };
   // 開発用: ?tab=gacha|grow|main|relic で最初のタブ
   if (typeof location !== "undefined") {
     const t = new URLSearchParams(location.search).get("tab");
@@ -108,10 +110,11 @@ export function createApp(root: HTMLElement): AppHandle {
     modals,
     toast,
     confirm,
-    goTab(tab: Tab, sub?: GrowSub) {
+    goTab(tab: Tab, sub?: GrowSub | GachaSub) {
       modals.closeAll();
       ui.tab = tab;
-      if (sub) ui.growSub = sub;
+      if (sub === "bag" || sub === "adopt") ui.gachaSub = sub;
+      else if (sub) ui.growSub = sub;
       ui.fuseMode = false;
       ui.fuseSel = [];
       render();
@@ -173,14 +176,14 @@ export function createApp(root: HTMLElement): AppHandle {
     top.replaceChildren(
       h("div", { class: "res res-coin", title: "お金" }, svgIcon(ICONS.coin), h("span", null, fmt(save.coins))),
       h("div", { class: "res res-relic", title: "レリックポイント" }, svgIcon(ICONS.relic), h("span", null, fmt(save.relicPoints))),
-      h("div", { class: "res res-churu", title: "ちゅ〜る（スキル・譲渡会会場に使う）" }, svgIcon(ICONS.churu), h("span", null, fmt(save.churu))),
+      h("div", { class: "res res-churu", title: "ちゅ〜る（スキル・ねこ福袋に使う）" }, svgIcon(ICONS.churu), h("span", null, fmt(save.churu))),
       h("div", { class: "top-space" }),
       h("button", { class: "gear-btn", "aria-label": "設定", onclick: openSettings }, svgIcon(ICONS.gear)));
   }
 
   function renderNav(): void {
     const items: [Tab, string, string, boolean][] = [
-      ["gacha", "譲渡会", ICONS.tent, gachaBadge(save)],
+      ["gacha", "福袋", bagSvg(false), gachaBadge(save)],
       ["grow", "成長", ICONS.tabGrow, growBadge(save)],
       ["main", "メイン", ICONS.tabMain, false],
       ["relic", "レリック", ICONS.tabRelic, relicBadge(save)],
@@ -214,6 +217,7 @@ export function createApp(root: HTMLElement): AppHandle {
                 if (!s) { toast("読みこめませんでした", "ng"); return; }
                 if (!(await confirm("いまのデータを、この内容で上書きしますか？", "上書きする", true))) return;
                 save = s; syncUnlocks(save); writeSave(save); m.close(); render(); toast("読みこみました");
+                if (!save.setupDone) openSetup(ctx);
               },
             }, "読みこむ")),
           ta,
@@ -225,6 +229,7 @@ export function createApp(root: HTMLElement): AppHandle {
               clearSave(); save = newSave(); writeSave(save);
               ui.tab = "main"; ui.fuseMode = false; ui.fuseSel = [];
               scrollMem.clear(); modals.closeAll(); render(); toast("データを消しました");
+              openSetup(ctx);
             },
           }, "データを消す"));
       },
@@ -292,7 +297,7 @@ export function createApp(root: HTMLElement): AppHandle {
       dismissable: false,
       closeButton: false,
       render: () => h("div", { class: "lose" },
-        catIcon(save.selectedChar, "lose-ico"),
+        catIcon(save.cats[heroUid(save)]?.look ?? "chatora", "lose-ico"),
         h("p", { class: "lose-msg" }, "虫たちに押しきられちゃった…"),
         h("p", null, "成長タブで強化してもう一度！"),
         h("p", { class: "muted small" }, `${result.stageId}　たおした虫 ${result.kills}ひき・波 ${result.wavesCleared}`)),
@@ -309,9 +314,11 @@ export function createApp(root: HTMLElement): AppHandle {
       dismissable: false,
       closeButton: false,
       render: () => {
-        const ups = Object.entries(res.levelUps);
+        const ups = Object.entries(res.levelUps).filter(([uid]) => save.cats[uid]);
+        const bonds = Object.entries(res.bondUps).filter(([uid]) => save.cats[uid]);
+        const hero = save.cats[heroUid(save)];
         return h("div", { class: "reward" },
-          h("div", { class: "rwp-banner" }, svgIcon(catSvg(save.selectedChar), "rwp-cat"), h("div", null, res.firstClear ? "はじめてのクリア！" : "ママを守った！")),
+          h("div", { class: "rwp-banner" }, catIcon(hero?.look ?? "chatora", "rwp-cat"), h("div", null, res.firstClear ? "はじめてのクリア！" : "ママを守った！")),
           h("div", { class: "rwp-grid" },
             h("div", { class: "rwp-item" }, svgIcon(ICONS.exp), h("span", null, `+${fmt(res.exp)}`)),
             h("div", { class: "rwp-item" }, svgIcon(ICONS.coin), h("span", null, `+${fmt(res.coins)}`)),
@@ -320,10 +327,25 @@ export function createApp(root: HTMLElement): AppHandle {
           h("div", { class: "rwp-churu-note" },
             h("span", null, res.firstClear ? "クリア（はじめて ×2）" : "クリア", h("b", null, ` +${fmt(res.churu)}`)),
             res.churuFromLevels > 0 ? h("span", null, "レベルアップ", h("b", null, ` +${fmt(res.churuFromLevels)}`)) : null),
+          res.newNeighbors.length ? h("div", { class: "rwp-sec rwp-nb" },
+            h("div", { class: "rwp-nb-t" }, svgIcon(ICONS.tent, "rwp-nb-ico"), "近所の猫が譲渡会に来たよ！"),
+            h("div", { class: "rwp-nb-cats" }, res.newNeighbors.map((id) => h("div", { class: "rwp-nb-cat" },
+              catIcon(id, "rwp-nb-cat-ico"), h("span", null, CHAR_MAP[id]?.name ?? id)))),
+            h("div", { class: "muted small" }, "福袋タブの「譲渡会」で、無料でお迎えできます")) : null,
           ups.length ? h("div", { class: "rwp-sec" },
             h("div", { class: "panel-title" }, "レベルアップ"),
-            h("div", { class: "rwp-ups" }, ups.map(([id, n]) => h("div", { class: "rwp-up" },
-              svgIcon(catSvg(id), "rwp-up-ico"), h("span", null, CHAR_MAP[id]?.name ?? id), h("b", null, `Lv${save.chars[id]?.level ?? "?"}`), h("span", { class: "up" }, `+${n}`))))) : null,
+            h("div", { class: "rwp-ups" }, ups.map(([uid, n]) => {
+              const c = save.cats[uid];
+              return h("div", { class: "rwp-up" },
+                catIcon(c.look, "rwp-up-ico"), h("span", { class: "rwp-up-name" }, c.name), h("b", null, `Lv${c.level}`), h("span", { class: "up" }, `+${n}`));
+            }))) : null,
+          bonds.length ? h("div", { class: "rwp-sec" },
+            h("div", { class: "panel-title" }, "なかよし度アップ"),
+            h("div", { class: "rwp-ups" }, bonds.map(([uid, b]) => {
+              const c = save.cats[uid];
+              return h("div", { class: "rwp-up rwp-bond" },
+                catIcon(c.look, "rwp-up-ico"), h("span", { class: "rwp-up-name" }, c.name), bondHearts(b), h("span", { class: "up" }, b >= MAX_BOND ? "最大！" : `${b}`));
+            }))) : null,
           res.equips.length ? h("div", { class: "rwp-sec" },
             h("div", { class: "panel-title" }, `装備 ${res.equips.length}こ`),
             h("div", { class: "rwp-cards" }, res.equips.map((it) => equipCard(null, it)))) : null,
@@ -338,7 +360,11 @@ export function createApp(root: HTMLElement): AppHandle {
             h("div", { class: "rwp-cards" },
               res.newObjects.map((id) => h("div", { class: `card new-card r-${OBJECT_MAP[id]?.rarity ?? "N"}` }, svgIcon(objectSvg(id, OBJECT_MAP[id]?.kind), "card-ico"), h("span", { class: "card-name small" }, OBJECT_MAP[id]?.name ?? id))))) : null);
       },
-      footer: () => h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "やったね！"),
+      footer: () => res.newNeighbors.length
+        ? h("div", { class: "foot-row" },
+          h("button", { class: "btn btn-gray", onclick: () => m.close() }, "やったね！"),
+          h("button", { class: "btn btn-green", onclick: () => { m.close(); ctx.goTab("gacha", "adopt"); } }, "譲渡会へ"))
+        : h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "やったね！"),
     });
   }
 
@@ -348,6 +374,7 @@ export function createApp(root: HTMLElement): AppHandle {
 
   loadCatSprites(() => render());
   render();
+  if (!save.setupDone) openSetup(ctx);
 
   return {
     ctx,

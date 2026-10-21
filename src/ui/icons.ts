@@ -1,5 +1,5 @@
 // メニュー用の、かんたんな手描き風アイコン（SVG 文字列）。絵文字は使わない。
-import type { ObjectKind } from "../core/types";
+import type { CharRole, ObjectKind } from "../core/types";
 import type { EquipSlot } from "../data/equips";
 import type { SkillBranch } from "../data/skills";
 
@@ -302,3 +302,50 @@ export function tentSvg(): string {
     <path d="M14 120 Q34 136 54 120 Q74 136 94 120 Q114 136 134 120 Q154 136 174 120 Q184 128 192 120" fill="#ff6b6b" stroke="${OUT}" stroke-width="3"/>
     <path d="M78 140 L100 96 L122 140 Z" fill="#6b3f2a" stroke="${OUT}" stroke-width="3"/>`, "0 0 200 150");
 }
+
+// ---------------- v4: ねこ福袋・わざ・複合効果 ----------------
+
+/** ねこ福袋（ふくろの口をひもでしばった、まるい布の袋）。open なら口がほどけて光がもれる。 */
+export function bagSvg(open = false, color = "#ff6b6b"): string {
+  const top = open
+    ? `<path d="M18 22 Q10 10 20 6 Q26 14 32 12 Q38 14 44 6 Q54 10 46 22" fill="${color}" stroke="${OUT}" stroke-width="3"/>
+       <path d="M22 20 Q32 4 42 20" fill="#fff6c8" opacity=".9"/>
+       <g stroke="#fff3a0" stroke-width="3"><path d="M32 2 V-6"/><path d="M22 4 L17 -2"/><path d="M42 4 L47 -2"/></g>`
+    : `<path d="M20 20 Q12 8 22 6 Q27 13 32 10 Q37 13 42 6 Q52 8 44 20" fill="${color}" stroke="${OUT}" stroke-width="3"/>
+       <path d="M24 12 q2 4 0 7 M40 12 q-2 4 0 7" stroke="rgba(0,0,0,.25)" stroke-width="2"/>`;
+  return S(`
+    <path d="M14 30 Q6 52 18 58 Q32 63 46 58 Q58 52 50 30 Q44 20 32 21 Q20 20 14 30 Z" fill="${color}" stroke="${OUT}" stroke-width="3"/>
+    <path d="M17 36 Q32 42 47 36" stroke="#fff" stroke-width="2.5" opacity=".35"/>
+    <circle cx="32" cy="43" r="9.5" fill="#fff6ea" stroke="${OUT}" stroke-width="2.5"/>
+    <g fill="${color}"><ellipse cx="32" cy="46" rx="3.6" ry="3"/><circle cx="27.6" cy="41.4" r="1.7"/><circle cx="30.6" cy="39.6" r="1.7"/><circle cx="33.6" cy="39.6" r="1.7"/><circle cx="36.4" cy="41.4" r="1.7"/></g>
+    ${top}
+    <path d="M19 23 Q32 28 45 23" stroke="#ffd23f" stroke-width="4"/>
+    <path d="M30 25 l-6 7 M34 25 l6 7" stroke="#ffd23f" stroke-width="3"/>
+    <circle cx="32" cy="25" r="3" fill="#ffd23f" stroke="${OUT}" stroke-width="1.8"/>
+    <path d="M18 34 Q16 44 20 52" stroke="#fff" stroke-width="3" opacity=".45"/>`, "0 -8 64 72");
+}
+
+/** 役割のアイコン（わざ・スキルのタブ用）。currentColor で塗る。 */
+const ROLE_ICON: Record<CharRole, string> = {
+  melee: S(`<ellipse cx="32" cy="42" rx="13" ry="11" fill="currentColor"/><ellipse cx="15" cy="28" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="25" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="39" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="49" cy="28" rx="6" ry="7.5" fill="currentColor"/>`),
+  ranged: S(`<circle cx="32" cy="32" r="24" stroke="currentColor" stroke-width="6"/><circle cx="32" cy="32" r="13" stroke="currentColor" stroke-width="6"/><circle cx="32" cy="32" r="4.5" fill="currentColor"/>`),
+  aoe: S(`<path d="M32 32 m-4 0 a4 4 0 1 1 8 0 a10 10 0 1 1 -20 0 a16 16 0 1 1 32 0 a22 22 0 1 1 -44 0" stroke="currentColor" stroke-width="6"/>`),
+  fast: S(`<path d="M38 4 L12 36 H30 L24 60 L52 26 H34 Z" fill="currentColor"/>`),
+};
+
+export function roleSvg(role: CharRole): string {
+  return ROLE_ICON[role];
+}
+
+/** 複合効果（スキルツリーの特別なノード）。きらきらの星。 */
+export const COMBO_ICON = S(`<path d="M32 3 L39 22 L60 24 L44 37 L49 58 L32 47 L15 58 L20 37 L4 24 L25 22 Z" fill="currentColor"/>
+  <path d="M32 16 L35 27 L46 28 L37 34 L40 45 L32 39 L24 45 L27 34 L18 28 L29 27 Z" fill="#fff" opacity=".55"/>`);
+
+/** わざの星（レベル）。 */
+export const STAR_ICON = S(`<path d="M32 5 L40 24 L60 25 L44 38 L50 58 L32 47 L14 58 L20 38 L4 25 L24 24 Z" fill="currentColor"/>`);
+
+/** えんぴつ（なまえを変える）。 */
+export const PEN_ICON = S(`<path d="M12 52 L16 38 L44 10 L54 20 L26 48 Z" fill="currentColor"/><path d="M12 52 L16 38 L26 48 Z" fill="#ffe0a8"/><path d="M40 14 L50 24" stroke="#1a1238" stroke-width="3" opacity=".4"/>`);
+
+/** たす（＋）。 */
+export const PLUS_ICON = S(`<path d="M32 12 V52 M12 32 H52" stroke="currentColor" stroke-width="9"/>`);
