@@ -6,14 +6,14 @@ import { mulberry32, type Rng } from "../src/core/rng";
 import {
   autoEquip, autoFuse, buildLoadout, canLearn, catPower, equipWaza, estimateDps,
   grantRewards, heroUid, learnSkill, levelUpObject, mainWazaOf, nextNodeCost, nextRelic, objectDps, objectUpgradeCost,
-  partyRoles, partyUids, powerRatio, registerCat, resolveObjects, setLoadout, setParty, skillTreeOf, stageIdList, stageLoad,
+  partyRoles, partyUids, powerRatio, registerCat, resolveObjects, setLoadout, setParty, skillTree, stageIdList, stageLoad,
   unlockRelic,
 } from "../src/core/progress";
 import { PULL10_COST, pull } from "../src/core/gacha";
 import { MAX_SUBS, WAZA_MAP } from "../src/data/waza";
 import { OBJECTS } from "../src/data/objects";
 import { BUG_MAP } from "../src/data/bugs";
-import type { CharRole } from "../src/core/types";
+import { SKILL_MAP } from "../src/data/skills";
 
 /** あとから登録するうちの子（クリアした通し番号 → 猫）。 */
 const EXTRA_CATS: [number, { name: string; look: string; personality: "yancha" | "amaenbo" }][] = [
@@ -101,22 +101,21 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
   setParty(save, 1, comps[0] ?? null);
   setParty(save, 2, comps[1] ?? null);
   if (hero !== prevHero) st.switches++;
-  // スキル: パーティの役割のうち、いちばん安いものから（主人公の役割をだいじに。福袋用はとっておく）
+  // スキル: いちばん安いものから（みんなの枝と主人公の役割の枝をだいじに。パーティにいない役割の枝は取らない。福袋用はとっておく）
   const roles = partyRoles(save);
   const heroRole = mainWazaOf(save, hero).role!;
   for (;;) {
-    let pick: { role: CharRole; id: string; cost: number } | null = null;
+    let pick: { id: string; cost: number } | null = null;
     let pickScore = Infinity;
-    for (const role of roles) {
-      const w = role === heroRole ? 1 : 3;
-      for (const n of skillTreeOf(role)) {
-        if (!canLearn(save, role, n.id).ok) continue;
-        const c = nextNodeCost(save, role, n.id)!;
-        if (c * w < pickScore) { pickScore = c * w; pick = { role, id: n.id, cost: c }; }
-      }
+    for (const n of skillTree()) {
+      if (n.role && !roles.includes(n.role)) continue;
+      const w = !n.role || n.role === heroRole ? 1 : 3;
+      if (!canLearn(save, n.id).ok) continue;
+      const c = nextNodeCost(save, n.id)!;
+      if (c * w < pickScore) { pickScore = c * w; pick = { id: n.id, cost: c }; }
     }
     if (!pick || save.churu - pick.cost < st.pullBudget) break;
-    learnSkill(save, pick.role, pick.id);
+    learnSkill(save, pick.id);
     st.churuOnSkills += pick.cost;
   }
   st.lastChuru = save.churu;
@@ -147,7 +146,7 @@ export interface SimRow {
   level: number;      // 主人公のレベル
   char: string;       // 主人公「名前/メインのわざ(レアリティ)Lv♥なかよし度」
   party: number;      // パーティの数（主人公＋相棒）
-  skillLv: number;    // 主人公の役割のスキルのレベルの合計
+  skillLv: number;    // 主人公に効くスキル（みんなの枝 ＋ 主人公の役割の枝）のレベルの合計
   combos: number;     // 主人公にかかっている複合効果の数
   charDps: number;
   compDps: number;    // 相棒の DPS の合計
@@ -203,7 +202,7 @@ export function simulate(
       stage: id, ratio: first, grinds, level: cs.level,
       char: `${cs.name}/${w.name}(${w.rarity})${save.wazas[w.id]?.level ?? 1}♥${cs.bond}`,
       party: partyUids(save).length,
-      skillLv: Object.values(save.skills[w.role!]).reduce((s, v) => s + v, 0),
+      skillLv: Object.entries(save.skills).reduce((s, [id, v]) => s + (SKILL_MAP[id] && (!SKILL_MAP[id].role || SKILL_MAP[id].role === w.role) ? v : 0), 0),
       combos: Object.keys(lo.char.combos).length,
       charDps: d.char, compDps: d.companions, objDps: d.objects, bugHp: BUG_MAP.ari.hp * lo.stage.hpMul,
       churu: save.churu,
