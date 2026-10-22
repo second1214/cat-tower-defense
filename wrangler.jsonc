@@ -9,6 +9,6 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  // ランキングの保存先。id を書かなければ、はじめてデプロイしたときに自動で作られる
-  "kv_namespaces": [{ "binding": "RANKING" }]
+  // ランキングの保存先（KV「cat-ranking」）
+  "kv_namespaces": [{ "binding": "RANKING", "id": "a89f0704f6094facb63a8aa58ef99cd0" }]
 }
