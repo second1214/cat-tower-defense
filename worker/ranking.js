@@ -1,4 +1,4 @@
-// エンドレスのランキング（Cloudflare Pages Functions）。KV の名前空間を RANKING という名前でつないで使う。
+// エンドレスのランキング（Cloudflare Workers の worker/index.js から呼ぶ）。KV の名前空間 RANKING（wrangler.jsonc）を使う。
 // GET  /api/ranking            → { top: [{ name, score }] }（上位 100）
 // POST /api/ranking {id, name, score} → 自分の記録が上がったときだけ書きかえる。{ ok, rank }
 // RANKING がつながっていないときは 503（画面は「自分の記録」だけ出す）。
