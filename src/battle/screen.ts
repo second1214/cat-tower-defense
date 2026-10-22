@@ -214,6 +214,11 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const overlay = el("div", "bt-overlay", wrap);
   overlay.hidden = true;
 
+  // エンドレスは、始めた波（stage.index）からの通しの番号で出す
+  const endless = !!loadout.stage.endless;
+  const endlessBase = endless ? loadout.stage.index : 0;
+  const waveLabel = (i: number) => (endless ? `なみ ${endlessBase + i}` : `なみ ${i}/${battle.waveTotal}`);
+
   // ---- 状態 ----
   const view = new BattleView(canvas, battle);
   let speed = 1;
@@ -704,7 +709,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     overlay.hidden = false;
     const card = el("div", "bt-dialog", overlay);
     el("div", "bt-dialog-title", card, "ひとやすみ");
-    el("div", "bt-dialog-sub", card, `なみ ${Math.max(1, battle.waveIndex)}/${battle.waveTotal}　・　${timeText(battle.time)}`);
+    el("div", "bt-dialog-sub", card, `${waveLabel(Math.max(1, battle.waveIndex))}　・　${timeText(battle.time)}`);
     const resume = el("button", "bt-btn bt-btn-main", card, "つづける");
     resume.type = "button";
     resume.addEventListener("click", () => setPaused(false));
@@ -739,7 +744,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     };
     row("たおした虫", fmt(res.kills));
     row("じかん", timeText(res.time));
-    row("なみ", `${res.wavesCleared}/${battle.waveTotal}`);
+    row("なみ", endless ? `${endlessBase + res.wavesCleared} までこえた` : `${res.wavesCleared}/${battle.waveTotal}`);
     const next = el("button", "bt-btn bt-btn-main", card, "つぎへ");
     next.type = "button";
     next.addEventListener("click", () => {
@@ -759,7 +764,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
       switch (e.type) {
         case "wave": {
           const last = e.value === battle.waveTotal;
-          view.showBanner(last ? "さいごのなみ！" : `なみ ${e.value}`, `${e.value}/${battle.waveTotal}`);
+          if (endless) view.showBanner(`なみ ${endlessBase + e.value}`, (endlessBase + e.value) % 10 === 0 ? "ぬしが来る！" : "");
+          else view.showBanner(last ? "さいごのなみ！" : `なみ ${e.value}`, `${e.value}/${battle.waveTotal}`);
           break;
         }
         case "mamaHit":
@@ -830,7 +836,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
         mamaBarText.textContent = `${fmt(s.mamaHp)}/${fmt(s.mamaMaxHp)}`;
       }
     }
-    const wv = `なみ ${Math.max(1, s.waveIndex)}/${s.waveTotal}`;
+    const wv = waveLabel(Math.max(1, s.waveIndex));
     if (wv !== last.wave) { last.wave = wv; waveText.textContent = wv; }
     const tt = timeText(s.time);
     if (tt !== last.time) { last.time = tt; timeEl.textContent = tt; }
