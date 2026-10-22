@@ -2,7 +2,7 @@
 // 盤は 850 ノードほどの大きな地図なので、1まいの canvas に描く（画面に見えているところだけ）。
 // 指1本で動かす・指2本でひろげる／ちぢめる・PC はホイールでズーム。ノードをタップすると、下のパネルにくわしく出る。
 import {
-  canLearn, familyLevel, isNodeLinked, isNodeOpen, learnSkill, nextNodeCost, nodeCost, nodeLevel, resetSkills, skillSpent, skillTree,
+  canLearn, familyLevel, focusLearn, isNodeLinked, isNodeOpen, learnSkill, nextNodeCost, nodeCost, nodeLevel, resetSkills, skillSpent, skillTree,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import { sfx } from "../audio";
@@ -95,7 +95,8 @@ export function renderSkillTab(ctx: Ctx): HTMLElement {
           ctx.toast(`ちゅ〜る ${fmt(back)} がもどりました`);
         }
       },
-    }, "リセット"));
+    }, "リセット"),
+    h("button", { class: "btn btn-small btn-gold sk-focus", onclick: () => openFocus(ctx) }, "極振り"));
   const legend = h("div", { class: "sk-legend" },
     SKILL_REGIONS.map((r) => h("span", { class: `sk-lg lg-${r}` }, svgIcon(regionSvg(r)), REGION_NAMES[r])));
 
@@ -615,4 +616,35 @@ function renderNodePanel(ctx: Ctx, spent: number): HTMLElement {
       h("button", { class: `btn ${many.levels > 1 ? "btn-purple" : "btn-gray is-off"} np-max`, disabled: many.levels <= 1, onclick: learnMax },
         h("span", { class: "np-bt" }, many.levels > 1 ? `まとめて +${many.levels}` : "まとめて"),
         h("span", { class: "np-bc" }, svgIcon(ICONS.churu), many.levels > 1 ? fmt(many.cost) : "-"))));
+}
+
+
+/** 極振り: 系統を選んで、その系統のスキルにちゅ〜るをまとめて使う。 */
+function openFocus(ctx: Ctx): void {
+  let region: SkillRegion = "atk";
+  let part: 1 | 0.5 = 1;
+  const m = ctx.modals.open({
+    title: "極振り",
+    cls: "modal-small",
+    render: () => h("div", { class: "fc" },
+      h("p", { class: "muted small" }, "えらんだ系統のスキルを、安い順にまとめて覚えます。届かないときは、その系統へ向かう道のスキルも覚えます。"),
+      h("div", { class: "fc-regions" }, SKILL_REGIONS.map((r) => h("button", {
+        class: `btn fc-r lg-${r} ${region === r ? "on" : ""}`,
+        onclick: () => { region = r; ctx.modals.rerenderAll(); },
+      }, svgIcon(regionSvg(r)), REGION_NAMES[r]))),
+      h("div", { class: "fc-amt" },
+        h("button", { class: `btn btn-small ${part === 1 ? "on" : ""}`, onclick: () => { part = 1; ctx.modals.rerenderAll(); } }, `ぜんぶ（${fmt(Math.floor(ctx.save.churu))}）`),
+        h("button", { class: `btn btn-small ${part === 0.5 ? "on" : ""}`, onclick: () => { part = 0.5; ctx.modals.rerenderAll(); } }, `半分（${fmt(Math.floor(ctx.save.churu / 2))}）`))),
+    footer: () => h("div", { class: "row" },
+      h("button", { class: "btn", onclick: () => m.close() }, "やめる"),
+      h("button", {
+        class: "btn btn-gold", onclick: () => {
+          const r = focusLearn(ctx.save, region, Math.floor(ctx.save.churu * part));
+          m.close();
+          ctx.commit();
+          if (r.learned > 0) { sfx("levelUp"); ctx.toast(`${REGION_NAMES[region]}に ${r.learned} 回（ちゅ〜る ${fmt(r.spent)}）`); }
+          else ctx.toast("いま覚えられるスキルがありません", "ng");
+        },
+      }, "極振りする")),
+  });
 }

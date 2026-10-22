@@ -88,3 +88,18 @@ describe("エンドレスの波", () => {
     expect(starts).toBeGreaterThan(1);
   });
 });
+
+import { focusLearn, nodeLevel as nl, skillTree as st } from "../src/core/progress";
+
+describe("極振り", () => {
+  test("えらんだ系統にちゅ〜るを使う（道のノードもとる）", () => {
+    const s = newSave();
+    s.churu = 5000;
+    const r = focusLearn(s, "def", 3000);
+    expect(r.learned).toBeGreaterThan(5);
+    expect(r.spent).toBeLessThanOrEqual(3000);
+    const got = st().filter((n) => nl(s, n.id) > 0 && n.kind !== "root");
+    const inReg = got.filter((n) => n.region === "def").length;
+    expect(inReg).toBeGreaterThan(got.length / 2);
+  });
+});
