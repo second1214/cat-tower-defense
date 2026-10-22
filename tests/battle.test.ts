@@ -1163,7 +1163,9 @@ describe("押し戻しのなれ", () => {
       const evs = stepEvents(k, 0.02);
       if (evs.some((e) => e.type === "knockback")) pushes.push(prevY - k.bugs[0].y);
     }
-    expect(pushes.length).toBeGreaterThanOrEqual(5);
+    // 4回押し戻されたら、もう効かない（なれきる）。押し戻しのイベントも出ない
+    expect(pushes.length).toBeGreaterThanOrEqual(3);
+    expect(pushes.length).toBeLessThanOrEqual(4);
     expect(pushes[pushes.length - 1]).toBeLessThan(pushes[0] * 0.6);
   });
 });
@@ -1188,5 +1190,21 @@ describe("電源タップ（buff）", () => {
     // 遠くのオブジェクトには効かない
     expect(k.place(0, 11, 4).ok).toBe(true);
     expect(k.buffOf(k.objects[k.objects.length - 1]).atk).toBe(0);
+  });
+});
+
+describe("がれき", () => {
+  it("こわれたオブジェクトのあとは、しばらく置けない（虫は通れる）", () => {
+    const k = new Battle(loadout({ objects: [obj({ atk: 1, interval: 1, range: 2 })], waves: later(999, [{ bug: "ant", count: 1, every: 1, lanes: [7] }]) }));
+    parkCat(k);
+    expect(k.place(0, 3, 8).ok).toBe(true);
+    const o = k.objects[0];
+    (k as unknown as { removeObject(o: unknown, broken: boolean): void }).removeObject(o, true);
+    const r = k.placeCheck(0, 3, 8);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("がれき");
+    const inp = { move: { x: 0, y: 0 }, place: null, upgrade: false };
+    for (let i = 0; i < 70; i++) k.step(0.1, inp);
+    expect(k.placeCheck(0, 3, 8).ok).toBe(true);
   });
 });

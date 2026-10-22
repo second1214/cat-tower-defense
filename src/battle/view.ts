@@ -774,6 +774,25 @@ export class BattleView {
     }
 
     // オブジェクト: 通れるもの（床）→ 通れないもの・家具（上の行から。下の行が手前）
+    // がれき（こわれたオブジェクトのあと。片づくまで置けない）
+    {
+      const { cw, ch, ox, oy } = this.L;
+      for (let i = 0; i < b.debris.length; i++) {
+        const left = b.debris[i] - b.time;
+        if (left <= 0) continue;
+        const c = i % COLS, r = (i - c) / COLS;
+        const x = ox + (c + 0.5) * cw, y = oy + (r + 0.5) * ch;
+        g.globalAlpha = Math.min(1, left / 1.5) * 0.9;
+        g.fillStyle = "rgba(40,24,12,0.35)";
+        g.beginPath(); g.ellipse(x, y + ch * 0.18, cw * 0.38, ch * 0.16, 0, 0, Math.PI * 2); g.fill();
+        for (let k = 0; k < 4; k++) {
+          const a = (i * 7 + k * 1.9) % (Math.PI * 2), rr = cw * (0.12 + ((i + k) % 3) * 0.07);
+          g.fillStyle = k % 2 ? "#a8794a" : "#8a6038";
+          g.beginPath(); g.ellipse(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.6, cw * 0.12, ch * 0.08, a, 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+      }
+    }
     for (const o of b.objects) if (!o.def.block) this.drawFlatObject(g, o);
     const items: { row: number; o?: ObjState; ob?: { col: number; row: number; kind: string; w?: number; h?: number }; fi?: number }[] = [];
     for (const o of b.objects) if (o.def.block) items.push({ row: o.row + o.h, o });
