@@ -5,7 +5,7 @@ import { type Rng, pickWeighted, randInt } from "./rng";
 import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
 import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bondToNext } from "../data/chars";
 import {
-  SKILL_MAP, SKILL_TREES, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
+  SKILL_MAP, SKILL_TREE, nodeAppliesTo, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
   modsFromTotals, nodeCost, nodeTotalCost,
 } from "../data/skills";
 import {
@@ -288,39 +288,34 @@ export function partyRoles(save: SaveData): CharRole[] {
   return out;
 }
 
-// ================= スキルツリー（家族で共有・役割ごと） =================
+// ================= スキルツリー（家族みんなで1つ） =================
 
 export { nodeCost, nodeTotalCost };
 
-/** その役割のスキルツリー。 */
-export function skillTreeOf(role: CharRole): SkillNode[] {
-  return SKILL_TREES[role] ?? [];
-}
-
-function roleSkills(save: SaveData, role: CharRole): Record<string, number> {
-  if (!save.skills[role]) save.skills[role] = {};
-  return save.skills[role];
+/** スキルツリー（みんなの枝 ＋ 役割の枝）。 */
+export function skillTree(): SkillNode[] {
+  return SKILL_TREE;
 }
 
 /** 取ったレベル（取っていなければ 0）。 */
-export function nodeLevel(save: SaveData, role: CharRole, nodeId: string): number {
-  return save.skills[role]?.[nodeId] ?? 0;
+export function nodeLevel(save: SaveData, nodeId: string): number {
+  return save.skills[nodeId] ?? 0;
 }
 
-/** 次のレベルに上げるちゅ〜る。最大レベルなら null。 */
-export function nextNodeCost(save: SaveData, role: CharRole, nodeId: string): number | null {
+/** 次のレベルに上げるちゅ〜る。最大レベル・ないノードなら null。 */
+export function nextNodeCost(save: SaveData, nodeId: string): number | null {
   const node = SKILL_MAP[nodeId];
-  if (!node || node.role !== role) return null;
-  const lv = nodeLevel(save, role, nodeId);
+  if (!node) return null;
+  const lv = nodeLevel(save, nodeId);
   return lv >= node.maxLevel ? null : nodeCost(node, lv);
 }
 
 /** 前提・家族のレベルだけを見る（ちゅ〜るは見ない）。ツリーで「開いている」ノードを光らせる用。 */
-export function isNodeOpen(save: SaveData, role: CharRole, nodeId: string): Result {
+export function isNodeOpen(save: SaveData, nodeId: string): Result {
   const node = SKILL_MAP[nodeId];
-  if (!node || node.role !== role) return ng("この役割のスキルではありません");
-  if (nodeLevel(save, role, nodeId) >= node.maxLevel) return ng("もう最大レベルです");
-  const miss = node.req.filter((r) => nodeLevel(save, role, r.id) < r.lv);
+  if (!node) return ng("このスキルはありません");
+  if (nodeLevel(save, nodeId) >= node.maxLevel) return ng("もう最大レベルです");
+  const miss = node.req.filter((r) => nodeLevel(save, r.id) < r.lv);
   if (miss.length) {
     return ng(`先に${miss.map((r) => `「${SKILL_MAP[r.id]?.name ?? r.id}」を Lv${r.lv}`).join("・")}まで上げてね`);
   }
@@ -328,58 +323,79 @@ export function isNodeOpen(save: SaveData, role: CharRole, nodeId: string): Resu
   return ok(undefined);
 }
 
-export function canLearn(save: SaveData, role: CharRole, nodeId: string): Result {
-  const r = isNodeOpen(save, role, nodeId);
+export function canLearn(save: SaveData, nodeId: string): Result {
+  const r = isNodeOpen(save, nodeId);
   if (!r.ok) return r;
-  const cost = nextNodeCost(save, role, nodeId)!;
+  const cost = nextNodeCost(save, nodeId)!;
   if (save.churu < cost) return ng(`ちゅ〜るが足りません（あと ${cost - Math.floor(save.churu)}）`);
   return ok(undefined);
 }
 
 /** 1レベル上げる。成功したら新しいレベルを返す。 */
-export function learnSkill(save: SaveData, role: CharRole, nodeId: string): Result<number> {
-  const r = canLearn(save, role, nodeId);
+export function learnSkill(save: SaveData, nodeId: string): Result<number> {
+  const r = canLearn(save, nodeId);
   if (!r.ok) return r;
-  save.churu -= nextNodeCost(save, role, nodeId)!;
-  const sk = roleSkills(save, role);
-  const lv = (sk[nodeId] ?? 0) + 1;
-  sk[nodeId] = lv;
+  save.churu -= nextNodeCost(save, nodeId)!;
+  const lv = nodeLevel(save, nodeId) + 1;
+  save.skills[nodeId] = lv;
   return ok(lv);
 }
 
-/** その役割のスキルに使ったちゅ〜るの合計。 */
-export function skillSpent(save: SaveData, role: CharRole): number {
+/** スキルに使ったちゅ〜るの合計。 */
+export function skillSpent(save: SaveData): number {
   let s = 0;
-  for (const [id, lv] of Object.entries(save.skills[role] ?? {})) {
+  for (const [id, lv] of Object.entries(save.skills)) {
     const n = SKILL_MAP[id];
     if (n) s += nodeTotalCost(n, lv);
   }
   return s;
 }
 
-/** その役割のスキルをぜんぶ忘れて、使ったちゅ〜るを全部もどす。もどった量を返す。 */
-export function resetSkills(save: SaveData, role: CharRole): number {
-  const refund = skillSpent(save, role);
-  save.skills[role] = {};
+/** スキルをぜんぶ忘れて、使ったちゅ〜るを全部もどす。もどった量を返す。 */
+export function resetSkills(save: SaveData): number {
+  const refund = skillSpent(save);
+  save.skills = {};
   save.churu += refund;
   return refund;
 }
 
+/** スキルの合計の覚え書き（skills の中身が同じなら、計算しなおさない）。 */
+const skillCache = new WeakMap<Record<string, number>, Map<CharRole, { sig: string; t: SkillTotals }>>();
+
+/** その役割の猫に効くノード（みんなの枝 ＋ その役割の枝）を合計に足す。 */
 function addSkillTotals(t: SkillTotals, save: SaveData, role: CharRole): void {
-  for (const [id, lv] of Object.entries(save.skills[role] ?? {})) {
-    const n = SKILL_MAP[id];
-    if (n && n.role === role) addNodeTotals(t, n, lv);
+  const sk = save.skills;
+  // 中身のしるし（ノードの数・レベルの合計・重みつきの合計）
+  let n = 0, sum = 0, w = 0;
+  for (const id in sk) { const lv = sk[id]; n++; sum += lv; w += lv * (id.length + id.charCodeAt(id.length - 1)) * n; }
+  const sig = `${n}/${sum}/${w}`;
+  let byRole = skillCache.get(sk);
+  if (!byRole) { byRole = new Map(); skillCache.set(sk, byRole); }
+  let hit = byRole.get(role);
+  if (!hit || hit.sig !== sig) {
+    const st = emptyTotals();
+    for (const id in sk) {
+      const node = SKILL_MAP[id];
+      if (node && nodeAppliesTo(node, role)) addNodeTotals(st, node, sk[id]);
+    }
+    hit = { sig, t: st };
+    byRole.set(role, hit);
+  }
+  for (const key in hit.t) {
+    if (key === "combos") {
+      for (const [c, v] of Object.entries(hit.t.combos) as [ComboId, number][]) t.combos[c] = (t.combos[c] ?? 0) + v;
+    } else (t as unknown as Record<string, number>)[key] += (hit.t as unknown as Record<string, number>)[key];
   }
 }
 
-/** その役割のスキルツリーだけの補正。 */
+/** その役割の猫にかかる、スキルツリーだけの補正。 */
 export function skillMods(save: SaveData, role: CharRole): CharMods {
   const t = emptyTotals();
   addSkillTotals(t, save, role);
   return modsFromTotals(t);
 }
 
-/** その猫にかかる合計（役割のスキルツリー・メインのわざ・サブのわざ）。 */
+/** その猫にかかる合計（スキルツリーのみんなの枝と役割の枝・メインのわざ・サブのわざ）。 */
 export function catTotals(save: SaveData, uid: string): SkillTotals {
   const t = emptyTotals();
   const c = save.cats[uid];
@@ -495,6 +511,33 @@ export function fuseEquips(save: SaveData, uids: string[], rng: Rng): Result<Equ
   const it = addEquip(save, rng, (a.rarity + 1) as EquipRarity, a.slot, a.defId);
   if (wasEquipped) save.equipped[it.slot] = it.uid;
   return ok(it);
+}
+
+/**
+ * スキルの付け替え（いちばん上のレアリティ UR どうし・同じ枠）。
+ * donor（もとになる装備）は消える。base の補正 baseAffixIndex 番を、donor の補正 donorAffixIndex 番（ふった値のまま）に入れかえる。
+ * 1回で付け替えられるのは1つだけ。base に同じ補正がほかにあるときはできない。donor をつけていたら、かわりに base をつける。
+ */
+export function transferAffix(
+  save: SaveData, baseUid: string, donorUid: string, donorAffixIndex: number, baseAffixIndex: number,
+): Result<EquipItem> {
+  if (baseUid === donorUid) return ng("ちがう装備を2つ選んでね");
+  const base = findEquip(save, baseUid);
+  const donor = findEquip(save, donorUid);
+  if (!base || !donor) return ng("見つからない装備があります");
+  if (base.rarity !== MAX_EQUIP_RARITY || donor.rarity !== MAX_EQUIP_RARITY) return ng("UR の装備どうしだけ付け替えられます");
+  if (base.slot !== donor.slot) return ng("同じ枠の装備を選んでね");
+  const from = donor.affixes[donorAffixIndex];
+  const to = base.affixes[baseAffixIndex];
+  if (!Number.isInteger(donorAffixIndex) || !from) return ng("もらう補正を選んでね");
+  if (!Number.isInteger(baseAffixIndex) || !to) return ng("入れかえる補正を選んでね");
+  if (base.affixes.some((x, i) => i !== baseAffixIndex && x.id === from.id)) return ng("同じ補正がもうついています");
+  const donorEquipped = isEquipped(save, donorUid);
+  base.affixes[baseAffixIndex] = { id: from.id, value: from.value };
+  save.equips = save.equips.filter((e) => e.uid !== donorUid);
+  for (const s of EQUIP_SLOTS) if (save.equipped[s] === donorUid) delete save.equipped[s];
+  if (donorEquipped) save.equipped[base.slot] = base.uid;
+  return ok(base);
 }
 
 /** 売ったときのお金。 */
@@ -753,6 +796,9 @@ export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): {
   return { stats, names };
 }
 
+/** オブジェクトの攻撃の底上げ（押し戻しで足止めできなくなったぶん。オブジェクトが主役）。 */
+export const OBJ_ATK_BOOST = 1.5;
+
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
   if (!def) return null;
@@ -763,7 +809,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const sk = modsFromTotals(catTotals(save, heroUid(save)));
   const { stats: b, names } = applyPerks(def.base, def.perks, lv);
   // 装備の基本の攻撃・体力は、猫が置くオブジェクトにも効く
-  const atkMul = eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
+  const atkMul = OBJ_ATK_BOOST * eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
   const intMul = Math.max(0.4, 1 - eq.objInterval - (eq.objIntervalKind[def.kind] ?? 0));
   const costMul = Math.max(0.4, 1 - eq.objCost - rel.objCost);
   const attacks = b.atk > 0;

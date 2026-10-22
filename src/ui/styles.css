@@ -763,6 +763,11 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
   --br-spd: #4d8cc4;
   --br-tech: #9467c8;
   --br-support: #d49a1c;
+  /* 役割の枝 */
+  --br-melee: #c8573a;
+  --br-ranged: #3f78ad;
+  --br-aoe: #7c5bb0;
+  --br-fast: #4f8040;
 }
 
 /* 一覧のカード（猫） */
@@ -893,6 +898,8 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .st-lines .ln-on { stroke-width: 6; }
 .st-lines .lc-atk { stroke: var(--br-atk); } .st-lines .lc-def { stroke: var(--br-def); } .st-lines .lc-spd { stroke: var(--br-spd); }
 .st-lines .lc-tech { stroke: var(--br-tech); } .st-lines .lc-support { stroke: var(--br-support); }
+.st-lines .lc-melee { stroke: var(--br-melee); } .st-lines .lc-ranged { stroke: var(--br-ranged); } .st-lines .lc-aoe { stroke: var(--br-aoe); } .st-lines .lc-fast { stroke: var(--br-fast); }
+.st-lines .ln-ready.lc-melee, .st-lines .ln-ready.lc-ranged, .st-lines .ln-ready.lc-aoe, .st-lines .ln-ready.lc-fast { opacity: .85; }
 .st-lines .ln-ready.lc-atk, .st-lines .ln-ready.lc-def, .st-lines .ln-ready.lc-spd, .st-lines .ln-ready.lc-tech, .st-lines .ln-ready.lc-support { opacity: .85; }
 
 .st-node {
@@ -904,6 +911,7 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 }
 .st-node.br-atk { --bc: var(--br-atk); } .st-node.br-def { --bc: var(--br-def); } .st-node.br-spd { --bc: var(--br-spd); }
 .st-node.br-tech { --bc: var(--br-tech); } .st-node.br-support { --bc: var(--br-support); }
+.st-node.br-melee { --bc: var(--br-melee); } .st-node.br-ranged { --bc: var(--br-ranged); } .st-node.br-aoe { --bc: var(--br-aoe); } .st-node.br-fast { --bc: var(--br-fast); }
 .st-circle {
   position: relative; width: 44px; height: 44px; border-radius: 50%;
   display: grid; place-items: center;
@@ -953,6 +961,7 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .np-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--c-card); box-shadow: inset 0 0 0 2px currentColor; }
 .np-ico .ico { width: 18px; height: 18px; }
 .ic-atk { color: var(--br-atk); } .ic-def { color: var(--br-def); } .ic-spd { color: var(--br-spd); } .ic-tech { color: var(--br-tech); } .ic-support { color: var(--br-support); }
+.ic-melee { color: var(--br-melee); } .ic-ranged { color: var(--br-ranged); } .ic-aoe { color: var(--br-aoe); } .ic-fast { color: var(--br-fast); }
 .np-title { flex: 1; min-width: 0; }
 .np-name { font-weight: var(--fw-x); font-size: var(--fs-l); line-height: 1.2; }
 .np-sub { font-size: var(--fs-2xs); font-weight: var(--fw-b); color: var(--c-ink-2); }
@@ -1671,6 +1680,7 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .sk-reset { flex: none; min-height: 30px !important; padding: 2px 10px; font-size: var(--fs-s); }
 .sk-branches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
 .sk-br { --bc: var(--c-wood); position: relative; min-width: 0; height: 48px; border-radius: 11px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; background: var(--c-paper-2); color: var(--c-ink-2); box-shadow: inset 0 0 0 2px var(--c-line-soft); transition: background var(--dur); }
+.sk-br.bc-melee { --bc: var(--br-melee); } .sk-br.bc-ranged { --bc: var(--br-ranged); } .sk-br.bc-aoe { --bc: var(--br-aoe); } .sk-br.bc-fast { --bc: var(--br-fast); }
 .sk-br.bc-atk { --bc: var(--br-atk); } .sk-br.bc-def { --bc: var(--br-def); } .sk-br.bc-spd { --bc: var(--br-spd); } .sk-br.bc-tech { --bc: var(--br-tech); } .sk-br.bc-support { --bc: var(--br-support); }
 .sk-br-ico { width: 16px; height: 16px; color: var(--bc); }
 .sk-br-name { font-size: var(--fs-2xs); font-weight: var(--fw-x); line-height: 1.2; white-space: nowrap; letter-spacing: -.02em; }
@@ -1820,6 +1830,13 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .sk-br-top { display: flex; align-items: center; gap: 2px; }
 .sk-br-ico { width: 13px; height: 13px; }
 .sk-br-name { font-size: var(--fs-2xs); }
+.sk-tabs { display: flex; flex-direction: column; gap: 6px; }
+.sk-rbranches { grid-template-columns: auto repeat(4, 1fr); align-items: center; }
+.sk-rb-label { writing-mode: vertical-rl; font-size: var(--fs-3xs); font-weight: var(--fw-x); color: var(--c-ink-3); letter-spacing: .1em; padding: 0 1px; }
+.sk-br-role { height: 42px; padding-bottom: 4px; }
+.sk-br-role .sk-br-name { font-size: var(--fs-xs); }
+.sk-br-role.away { opacity: .62; }
+.sk-br-role .sk-role-mark { bottom: -6px; }
 .sk-br-dot { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--c-honey-d); box-shadow: 0 0 0 1.5px #fff, 0 0 6px rgba(243, 184, 67, .9); }
 .sk-panel { padding: 7px 9px; }
 .sk-panel .np { gap: 5px; }
@@ -1888,3 +1905,29 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .mn-mode:first-child { flex: 1.4; }
 .mn-mode b { line-height: 1.15; }
 .mn-mode small { font-size: 9px; line-height: 1.1; }
+
+/* 装備: スキル（補正）の付け替え（UR どうし） */
+.tf-open { margin-top: 10px; flex-direction: column; gap: 0; }
+.tf-open-sub { font-size: var(--fs-2xs); font-weight: var(--fw-b); opacity: .85; }
+.tf { display: flex; flex-direction: column; gap: 8px; }
+.tf-base { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 12px; background: var(--c-paper-2); box-shadow: inset 0 0 0 2px var(--c-line-soft); }
+.tf-base .eq-card { flex: none; width: 56px; }
+.tf-base-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tf-step-t { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-weight: var(--fw-x); font-size: var(--fs-s); color: var(--c-ink-2); }
+.tf-num { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: var(--fs-2xs); background: var(--c-paper-2); box-shadow: inset 0 0 0 2px var(--c-line-soft); }
+.tf-step-t.done .tf-num { background: var(--c-honey); color: #4f2f05; box-shadow: 0 0 0 1.5px var(--c-line); }
+.tf-affs { display: flex; flex-direction: column; gap: 5px; }
+.tf-aff { display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; padding: 8px 10px; border-radius: 10px; font-size: var(--fs-s); font-weight: var(--fw-b); background: var(--c-card); box-shadow: inset 0 0 0 2px var(--c-line-soft); color: var(--c-ink); }
+.tf-aff.on { background: color-mix(in srgb, var(--br-tech) 14%, var(--c-card)); box-shadow: inset 0 0 0 2.5px var(--br-tech), 0 0 0 1.5px var(--c-line); }
+.tf-aff.out.on { background: color-mix(in srgb, var(--br-atk) 12%, var(--c-card)); box-shadow: inset 0 0 0 2.5px var(--br-atk), 0 0 0 1.5px var(--c-line); }
+.tf-aff.off { opacity: .45; }
+.tf-note { flex: none; font-size: var(--fs-3xs); color: var(--t-danger); }
+.tf-diff { display: grid; grid-template-columns: 1fr auto 1fr; gap: 4px; align-items: start; }
+.tf-col { min-width: 0; padding: 6px; border-radius: 10px; background: var(--c-paper-2); }
+.tf-col .affixes { font-size: var(--fs-2xs); }
+.tf-col-t { font-size: var(--fs-2xs); font-weight: var(--fw-x); color: var(--c-ink-3); margin-bottom: 2px; }
+.tf-arrow { align-self: center; font-weight: var(--fw-x); color: var(--c-ink-3); }
+.tf-old { text-decoration: line-through; color: var(--c-ink-3); }
+.tf-new { font-weight: var(--fw-x); color: var(--t-sage); }
+.tf-warn { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 10px; font-size: var(--fs-xs); font-weight: var(--fw-b); color: var(--t-danger); background: color-mix(in srgb, var(--t-danger) 10%, var(--c-card)); }
+.tf-warn-ico { flex: none; width: 14px; height: 14px; }

@@ -1,19 +1,30 @@
-// スキルツリー（役割ごと・家族で共有）。ちゅ〜るで1レベルずつ取る。
-// 1匹で取れば、その役割（メインのわざの役割）で戦う全員に効く。
+// スキルツリー（家族みんなで1つ）。ちゅ〜るで1レベルずつ取る。
+// みんなの枝（攻撃・体力防御・速さ・技・支援）は、どの猫にも効く。
+// 役割の枝（近接・遠距離・範囲・すばやい）は、メインのわざの役割がおなじ猫にだけ効く（node.role）。
 // ステータスの枝はレベルつき（例: 攻撃 +10% × Lv1〜10）。特殊技能（会心・毒・吸血 など）も同じしくみ。
 // 同じステータスの % はツリー全体で足し算（掛け算にすると強くなりすぎるので）。
 // 複合効果（ComboId）のノードもある。深い段ほど強い・派手。
 // 深い段はコストが高く、家族の一番高いレベル（familyLevel）が足りないと取れない。
 import type { CharRole, ComboId } from "../core/types";
+import { ROLE_NAMES } from "./chars";
 
-export type SkillBranch = "atk" | "def" | "spd" | "tech" | "support";
-export const SKILL_BRANCHES: SkillBranch[] = ["atk", "def", "spd", "tech", "support"];
+/** みんなの枝。 */
+export type CommonBranch = "atk" | "def" | "spd" | "tech" | "support";
+/** 枝: みんなの枝 ＋ 役割の枝（役割の id と同じ）。 */
+export type SkillBranch = CommonBranch | CharRole;
+export const COMMON_BRANCHES: CommonBranch[] = ["atk", "def", "spd", "tech", "support"];
+export const ROLE_BRANCHES: CharRole[] = ["melee", "ranged", "aoe", "fast"];
+export const SKILL_BRANCHES: SkillBranch[] = [...COMMON_BRANCHES, ...ROLE_BRANCHES];
 export const BRANCH_NAMES: Record<SkillBranch, string> = {
   atk: "攻撃",
   def: "体力・防御",
   spd: "速さ",
   tech: "技",
   support: "支援",
+  melee: ROLE_NAMES.melee,
+  ranged: ROLE_NAMES.ranged,
+  aoe: ROLE_NAMES.aoe,
+  fast: ROLE_NAMES.fast,
 };
 
 /** スキルでのびるもの。 */
@@ -39,12 +50,13 @@ export interface SkillReq {
 
 export interface SkillNode {
   id: string;
-  role: CharRole;
+  /** 役割の枝のノードなら、その役割（その役割の猫にだけ効く）。みんなの枝は無し。 */
+  role?: CharRole;
   name: string;
   /** 1レベルぶんの効果の説明。 */
   desc: string;
   branch: SkillBranch;
-  /** 段（0 = 根もと … 11 = いちばん奥）。深いほど高い。 */
+  /** 段（0 = 根もと … 12 = いちばん奥）。深いほど高い。 */
   tier: number;
   maxLevel: number;
   /** 先に取っておくスキル（すべて必要）。 */
@@ -56,12 +68,12 @@ export interface SkillNode {
   effects: SkillEffect[];
   /** 複合効果のノード（画面で目立たせる用）。 */
   combo: boolean;
-  /** 画面での位置（マスの列・行）。x: 0〜14（枝ごとに3列）、y: 0〜24（下に行くほど深い）。 */
+  /** 画面での位置（マスの列・行）。x: 0〜26（枝ごとに3列）、y: 0〜39（1段に3行。下に行くほど深い）。 */
   pos: { x: number; y: number };
 }
 
 /** 段ごとの、取るのに必要な家族のレベル（familyLevel）。 */
-export const TIER_MIN_LEVEL = [1, 3, 8, 15, 25, 40, 60, 80, 110, 150, 200, 260];
+export const TIER_MIN_LEVEL = [1, 3, 8, 15, 25, 40, 60, 80, 110, 150, 200, 260, 330];
 /** 段が1つ深くなるごとに、コストに掛ける倍率。 */
 export const TIER_COST_MUL = 1.6;
 /** ノードのレベルが1上がるごとに、次のコストに掛ける倍率。 */
@@ -69,7 +81,7 @@ export const LEVEL_COST_MUL = 1.3;
 
 /** level → level+1 に上げるちゅ〜る。 */
 export function nodeCost(node: SkillNode, level: number): number {
-  return Math.round(node.baseCost * Math.pow(TIER_COST_MUL, node.tier) * Math.pow(LEVEL_COST_MUL, level));
+  return Math.max(1, Math.round(node.baseCost * Math.pow(TIER_COST_MUL, node.tier) * Math.pow(LEVEL_COST_MUL, level)));
 }
 
 /** Lv0 から level まで上げるのに使ったちゅ〜るの合計。 */
@@ -172,9 +184,10 @@ export function effectsText(effects: SkillEffect[], mul = 1): string {
   return effects.map((e) => effectLine(e, mul)).join("・");
 }
 
-/** 効果の説明（level を掛けた量）。例: effectText(node, 3) → "攻撃 +30%"。 */
+/** 効果の説明（level を掛けた量）。例: effectText(node, 3) → "猫の攻撃 +30%"。役割の枝なら「近接の猫：攻撃 +30%」。 */
 export function effectText(node: SkillNode, level = 1): string {
-  return effectsText(node.effects, level);
+  if (!node.role) return effectsText(node.effects, level);
+  return `${ROLE_NAMES[node.role]}の猫：` + node.effects.map((e) => effectLine(e, level).replace(/^猫(の|が)/, "")).join("・");
 }
 
 // ---- ツリーの組み立て ----
@@ -184,189 +197,271 @@ const C = (combo: ComboId, per: number): SkillEffect => ({ combo, per });
 
 /** 名前の候補（同じステータスが何度も出るときは、順に使い、ひとまわりしたら「・二」などをつける）。 */
 const STAT_NAMES: Record<SkillStat, string[]> = {
-  atk: ["つめとぎ", "ねこパンチの素振り", "本気モード", "狩りの血", "肉球の一撃"],
-  hp: ["よく食べる", "ごはんおかわり", "まんぷく", "ふとっちょ", "大きな体"],
-  atkSpd: ["ちょいちょいの練習", "すばやい一撃", "はやわざ", "目にもとまらぬ", "いなずまの手"],
-  move: ["おさんぽ", "はしりこみ", "かけっこ", "ダッシュ", "つむじ風"],
-  rest: ["ひるね上手", "ねむりが浅い", "早起き", "うたたね"],
-  armor: ["ぶあつい毛", "冬毛", "もこもこ", "ふかふかの毛"],
-  dodge: ["ひらりとかわす", "しなやかな体", "すりぬけ", "身のこなし"],
-  regen: ["毛づくろい", "すぐ治る", "なめて治す"],
-  lifesteal: ["ごはんのちから", "おいしい虫", "かりのごほうび"],
-  revive: ["ひるねで元気", "ねおきすっきり", "まくらの上で"],
-  crit: ["ねらいをさだめる", "会心の一撃", "急所さがし", "するどい目"],
-  critMul: ["急所をねらう", "とどめの一撃", "渾身の力"],
-  range: ["のびのび", "ながい手", "背のび"],
-  poison: ["かみつき", "しつこくかみつく", "とげとげの舌"],
-  slow: ["おどかす", "にらみつける", "しっぽで通せんぼ"],
-  knockback: ["じゃれつき", "体当たり", "ねこキック"],
+  atk: ["つめとぎ", "ねこパンチの素振り", "本気モード", "狩りの血", "肉球の一撃", "しっぽぴーん", "やる気まんまん", "野生のめざめ"],
+  hp: ["よく食べる", "ごはんおかわり", "まんぷく", "ふとっちょ", "大きな体", "どっしり", "ねこ鍋", "もちもちボディ"],
+  atkSpd: ["ちょいちょいの練習", "すばやい一撃", "はやわざ", "目にもとまらぬ", "いなずまの手", "ねこじゃらし特訓", "てしてし", "高速ふみふみ"],
+  move: ["おさんぽ", "はしりこみ", "かけっこ", "ダッシュ", "つむじ風", "夜の運動会", "ろうかダッシュ", "しのび足"],
+  rest: ["ひるね上手", "ねむりが浅い", "早起き", "うたたね", "ひだまりのお昼寝", "五分だけ寝る"],
+  armor: ["ぶあつい毛", "冬毛", "もこもこ", "ふかふかの毛", "毛玉のよろい", "まるくなる"],
+  dodge: ["ひらりとかわす", "しなやかな体", "すりぬけ", "身のこなし", "ねこの身軽さ", "せまい所くぐり"],
+  regen: ["毛づくろい", "すぐ治る", "なめて治す", "のどゴロゴロ", "ぬくぬく"],
+  lifesteal: ["ごはんのちから", "おいしい虫", "かりのごほうび", "つまみ食い", "おやつタイム"],
+  revive: ["ひるねで元気", "ねおきすっきり", "まくらの上で", "おふとんの魔法", "のびーっ"],
+  crit: ["ねらいをさだめる", "会心の一撃", "急所さがし", "するどい目", "ひげセンサー", "おしりふりふり"],
+  critMul: ["急所をねらう", "とどめの一撃", "渾身の力", "ねこの本気", "ここぞの一撃", "必殺ねこパンチ"],
+  range: ["のびのび", "ながい手", "背のび", "遠目がきく", "高い所から"],
+  poison: ["かみつき", "しつこくかみつく", "とげとげの舌", "あまがみ", "ひっかき傷"],
+  slow: ["おどかす", "にらみつける", "しっぽで通せんぼ", "シャーッ", "毛を逆立てる"],
+  knockback: ["じゃれつき", "体当たり", "ねこキック", "けりけり", "おしりアタック"],
   pierce: ["つらぬく", "三連つらぬき", "まっすぐ一直線"],
-  aoe: ["ひろがる毛", "だいかいてん", "ごろんごろん"],
-  multiHit: ["二段パンチ", "れんぱ", "乱れひっかき"],
-  objAtk: ["おもちゃ好き", "おもちゃ名人", "遊びの天才"],
-  objHp: ["じょうぶな箱", "ていねいに使う", "箱入り"],
-  kibble: ["くいしんぼう", "おやつ探し", "カリカリ集め"],
-  aura: ["見守り", "いっしょに遊ぶ", "ママの右腕"],
-  repair: ["おかたづけ", "ていねいに直す", "おうちの修理屋"],
+  aoe: ["ひろがる毛", "だいかいてん", "ごろんごろん", "しっぽの竜巻", "毛玉ばくはつ"],
+  multiHit: ["二段パンチ", "れんぱ", "乱れひっかき", "百れつ肉球"],
+  objAtk: ["おもちゃ好き", "おもちゃ名人", "遊びの天才", "ねこじゃらし使い", "けりぐるみ名人"],
+  objHp: ["じょうぶな箱", "ていねいに使う", "箱入り", "かじらない約束", "ダンボール職人"],
+  kibble: ["くいしんぼう", "おやつ探し", "カリカリ集め", "お皿ぴかぴか", "おねだり上手"],
+  aura: ["見守り", "いっしょに遊ぶ", "ママの右腕", "お手伝い", "みんなのリーダー"],
+  repair: ["おかたづけ", "ていねいに直す", "おうちの修理屋", "つめとぎで直す", "せっせと直す"],
 };
-const SUFFIX = ["", "・二", "・三", "・四", "・五", "・六", "・七", "・八"];
+const KANJI = ["", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
 
-/** 1つのノードの中身（段 t の、ある列）。 */
+/** 1つのノードの中身（段 t の、ある列の、上か下か）。 */
 interface Cell {
   fx: SkillEffect[];
   max: number;
   cost?: number;
 }
 
-type ByRole<T> = Record<CharRole, T>;
-
 /** 段が深いほど、1レベルあたりの量を増やす。 */
 const k = (t: number) => 1 + 0.2 * t;
-const even = (t: number) => t % 2 === 0;
+/** max からレベルの数、の短い書き方。 */
+const c10 = (...fx: SkillEffect[]): Cell => ({ fx, max: 10 });
+const c5 = (...fx: SkillEffect[]): Cell => ({ fx, max: 5 });
+const c3 = (...fx: SkillEffect[]): Cell => ({ fx, max: 3 });
+const once = (cost: number, ...fx: SkillEffect[]): Cell => ({ fx, max: 1, cost });
 
-/** 枝ごとの3列（左・真ん中・右）。段 t の中身を返す。 */
-function laneCell(role: CharRole, b: SkillBranch, lane: number, t: number): Cell {
-  const reach: ByRole<number> = { melee: 0.05, ranged: 0.2, aoe: 0.08, fast: 0.05 };
-  const kb: ByRole<number> = { melee: 0.12, ranged: 0.06, aoe: 0.08, fast: 0.08 };
-  switch (b) {
-    case "atk":
-      if (lane === 0) return { fx: [S("atkSpd", 0.015 * k(t))], max: 10 };
-      if (lane === 1) return { fx: [S("atk", 0.08 * k(t))], max: 10 };
-      return even(t) ? { fx: [S("crit", 0.01)], max: 5 } : { fx: [S("critMul", 0.06 * k(t))], max: 5 };
-    case "def":
-      if (lane === 0) return even(t) ? { fx: [S("armor", 0.012)], max: 5 } : { fx: [S("dodge", 0.008)], max: 5 };
-      if (lane === 1) return { fx: [S("hp", 0.1 * k(t))], max: 10 };
-      return [
-        { fx: [S("regen", 0.001)], max: 5 },
-        { fx: [S("lifesteal", 0.008)], max: 5 },
-        { fx: [S("revive", 0.04)], max: 5 },
-      ][t % 3];
-    case "spd":
-      if (lane === 0) return { fx: [S("rest", 0.012)], max: 5 };
-      if (lane === 1) return even(t) ? { fx: [S("range", reach[role])], max: 3 } : { fx: [S("move", 0.025 * k(t))], max: 5 };
-      return { fx: [S("atkSpd", 0.015 * k(t))], max: 10 };
-    case "tech":
-      if (lane === 0) return even(t) ? { fx: [S("poison", 0.03 * k(t))], max: 5 } : { fx: [S("slow", 0.015)], max: 5 };
-      if (lane === 1) return techCell(role, t);
-      return even(t) ? { fx: [S("knockback", kb[role])], max: 5 } : { fx: [S("lifesteal", 0.006)], max: 5 };
-    case "support":
-      if (lane === 0) return { fx: [S("objAtk", 0.05 * k(t))], max: 10 };
-      if (lane === 1) return even(t) ? { fx: [S("kibble", 0.015)], max: 5 } : { fx: [S("aura", 0.03)], max: 5 };
-      return even(t) ? { fx: [S("repair", 0.002)], max: 5 } : { fx: [S("objHp", 0.08 * k(t))], max: 5 };
-  }
-}
+/** 列ごとの「かたち」のならび。段の上・下（r = 2*段 + 上下）で順にまわす。 */
+type Pattern = (k: number) => Cell;
+const cycle = (list: Pattern[], t: number, r: number): Cell => list[r % list.length](k(t));
 
-/** 技の枝の真ん中の列（役割ごとの得意技）。 */
-function techCell(role: CharRole, t: number): Cell {
-  switch (role) {
-    case "melee":
-      if (t === 4 || t === 9) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
-      return even(t) ? { fx: [S("knockback", 0.1)], max: 5 } : { fx: [S("atk", 0.06 * k(t)), S("hp", 0.06 * k(t))], max: 5 };
-    case "ranged":
-      if (t === 2 || t === 6 || t === 10) return { fx: [S("pierce", 1)], max: 1, cost: 20 };
-      return even(t) ? { fx: [S("range", 0.15)], max: 3 } : { fx: [S("critMul", 0.06 * k(t)), S("crit", 0.005)], max: 5 };
-    case "aoe":
-      if (t === 6) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
-      return even(t) ? { fx: [S("aoe", 0.05)], max: 5 } : { fx: [S("aoe", 0.03), S("atk", 0.06 * k(t))], max: 5 };
-    case "fast":
-      if (t === 4 || t === 9) return { fx: [S("multiHit", 1)], max: 1, cost: 30 };
-      return even(t) ? { fx: [S("move", 0.03), S("dodge", 0.006)], max: 5 } : { fx: [S("atk", 0.06 * k(t)), S("atkSpd", 0.01 * k(t))], max: 5 };
-  }
-}
+/** みんなの枝（5つ）。どの猫にも効く。 */
+const COMMON_LANES: Record<CommonBranch, Pattern[][]> = {
+  atk: [
+    [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.004 * q)), (q) => c10(S("atkSpd", 0.0065 * q)), (q) => c5(S("critMul", 0.03 * q), S("atkSpd", 0.003 * q))],
+    [(q) => c10(S("atk", 0.032 * q)), (q) => c10(S("atk", 0.036 * q)), (q) => c5(S("atk", 0.022 * q), S("hp", 0.028 * q))],
+    [() => c5(S("crit", 0.005)), (q) => c5(S("critMul", 0.03 * q)), (q) => c5(S("crit", 0.004), S("critMul", 0.015 * q)), (q) => c5(S("critMul", 0.035 * q))],
+  ],
+  def: [
+    [() => c5(S("armor", 0.006)), () => c5(S("dodge", 0.003)), (q) => c5(S("armor", 0.004), S("hp", 0.03 * q)), () => c5(S("dodge", 0.003), S("move", 0.01))],
+    [(q) => c10(S("hp", 0.04 * q)), (q) => c10(S("hp", 0.045 * q)), (q) => c5(S("hp", 0.028 * q), S("armor", 0.002))],
+    [() => c5(S("regen", 0.0005)), () => c5(S("lifesteal", 0.0025)), () => c5(S("revive", 0.02)), () => c5(S("regen", 0.0003), S("lifesteal", 0.0015))],
+  ],
+  spd: [
+    [() => c5(S("rest", 0.006)), () => c5(S("rest", 0.004), S("revive", 0.01)), () => c5(S("rest", 0.007))],
+    [(q) => c5(S("move", 0.0125 * q)), (q) => c5(S("move", 0.01 * q), S("dodge", 0.002)), (q) => c5(S("move", 0.014 * q))],
+    [(q) => c10(S("atkSpd", 0.0055 * q)), (q) => c10(S("atkSpd", 0.0045 * q), S("move", 0.005 * q)), (q) => c10(S("atkSpd", 0.006 * q))],
+  ],
+  tech: [
+    [(q) => c5(S("poison", 0.015 * q)), () => c5(S("slow", 0.0075)), (q) => c5(S("poison", 0.01 * q), S("slow", 0.004)), () => c5(S("slow", 0.006), S("crit", 0.002))],
+    [(q) => c5(S("atk", 0.03 * q), S("hp", 0.03 * q)), () => c5(S("lifesteal", 0.002), S("regen", 0.0003)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025))],
+    [() => c5(S("knockback", 0.03)), () => c5(S("lifesteal", 0.0015)), () => c5(S("knockback", 0.02), S("slow", 0.004))],
+  ],
+  support: [
+    [(q) => c10(S("objAtk", 0.025 * q)), (q) => c10(S("objAtk", 0.02 * q), S("objHp", 0.01 * q)), (q) => c10(S("objAtk", 0.028 * q))],
+    [() => c5(S("kibble", 0.0075)), () => c5(S("aura", 0.015)), () => c5(S("kibble", 0.005), S("aura", 0.01))],
+    [() => c5(S("repair", 0.001)), (q) => c5(S("objHp", 0.04 * q)), (q) => c5(S("repair", 0.0007), S("objHp", 0.02 * q))],
+  ],
+};
 
-/** 複合効果のノード: [段, 複合効果, 1レベルの量, 枝, 名前, 最大レベル]。 */
-type ComboRow = [number, ComboId, number, SkillBranch, string, number?];
+/** 役割の枝（4つ）。メインのわざの役割がおなじ猫にだけ効く。とくべつな段（[段, 上下]）には、得意技のノードを置く。 */
+const ROLE_LANES: Record<CharRole, { lanes: Pattern[][]; special: [number, number, Cell][] }> = {
+  melee: {
+    lanes: [
+      [(q) => c10(S("atk", 0.03 * q)), (q) => c5(S("atk", 0.02 * q), S("hp", 0.02 * q)), () => c5(S("lifesteal", 0.003)), (q) => c10(S("atk", 0.035 * q))],
+      [() => c5(S("knockback", 0.04)), (q) => c5(S("armor", 0.005), S("hp", 0.03 * q)), (q) => c5(S("knockback", 0.03), S("atk", 0.02 * q))],
+      [(q) => c10(S("hp", 0.05 * q)), () => c5(S("armor", 0.006)), (q) => c5(S("regen", 0.0005), S("hp", 0.02 * q)), () => c5(S("dodge", 0.003), S("armor", 0.003))],
+    ],
+    special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
+  },
+  ranged: {
+    lanes: [
+      [(q) => c5(S("critMul", 0.03 * q)), () => c5(S("crit", 0.004)), (q) => c10(S("atk", 0.03 * q)), (q) => c5(S("crit", 0.003), S("critMul", 0.015 * q))],
+      [() => c3(S("range", 0.08)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025)), (q) => c3(S("range", 0.06), S("atkSpd", 0.004 * q))],
+      [(q) => c10(S("atkSpd", 0.008 * q)), () => c5(S("slow", 0.005)), (q) => c5(S("atkSpd", 0.006 * q), S("range", 0.03)), () => c5(S("knockback", 0.02), S("slow", 0.003))],
+    ],
+    special: [[2, 0, once(10, S("pierce", 1))], [6, 0, once(10, S("pierce", 1))], [10, 0, once(10, S("pierce", 1))]],
+  },
+  aoe: {
+    lanes: [
+      [() => c5(S("aoe", 0.025)), (q) => c10(S("atk", 0.03 * q)), (q) => c5(S("aoe", 0.015), S("atk", 0.02 * q)), (q) => c5(S("poison", 0.015 * q))],
+      [() => c5(S("aoe", 0.03)), (q) => c5(S("poison", 0.02 * q), S("slow", 0.004)), () => c5(S("aoe", 0.02), S("armor", 0.003))],
+      [(q) => c10(S("hp", 0.04 * q)), () => c5(S("slow", 0.006)), () => c5(S("regen", 0.0004), S("armor", 0.004)), (q) => c5(S("poison", 0.012 * q), S("aoe", 0.01))],
+    ],
+    special: [[6, 0, once(15, S("multiHit", 1))]],
+  },
+  fast: {
+    lanes: [
+      [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("move", 0.015 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.003 * q)), (q) => c10(S("atkSpd", 0.007 * q))],
+      [() => c5(S("dodge", 0.003), S("move", 0.01)), (q) => c5(S("atk", 0.024 * q), S("atkSpd", 0.004 * q)), () => c5(S("dodge", 0.004))],
+      [() => c5(S("dodge", 0.002)), () => c5(S("rest", 0.005)), (q) => c5(S("lifesteal", 0.003), S("move", 0.01 * q)), () => c5(S("revive", 0.02), S("rest", 0.003))],
+    ],
+    special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
+  },
+};
 
-const COMBO_ROWS: ByRole<ComboRow[]> = {
+/** 複合効果のノード: [段, 効果（1レベルの量）, 名前, 最大レベル]。1つの枝の1つの段に2つまで。 */
+type ComboRow = [number, SkillEffect[], string, number?];
+
+const COMBO_ROWS: Record<SkillBranch, ComboRow[]> = {
+  // ---- みんなの枝（控えめ） ----
+  atk: [
+    [2, [C("bossHunter", 0.1)], "大物きらい"],
+    [4, [C("overkill", 0.15)], "あまった力"],
+    [6, [C("lastStand", 0.15)], "ねばり腰"],
+    [8, [C("bossHunter", 0.2), C("overkill", 0.1)], "ボスたおし"],
+    [10, [C("critChain", 1)], "かみなりの爪", 1],
+    [12, [C("overkill", 0.4), C("bossHunter", 0.3)], "伝説のけんか猫"],
+  ],
+  def: [
+    [1, [C("killHeal", 0.004)], "ごはんで元気"],
+    [3, [C("mamaGuard", 0.06)], "ママのそば"],
+    [5, [C("wakeUp", 0.3)], "すっきり起きる"],
+    [7, [C("killHeal", 0.008), C("lastStand", 0.1)], "食べてふんばる"],
+    [9, [C("mamaGuard", 0.12)], "ママの用心棒"],
+    [12, [C("wakeUp", 0.8), C("killHeal", 0.01)], "不死身のねこ"],
+  ],
+  spd: [
+    [2, [C("frenzy", 0.012)], "ノリノリ気分"],
+    [4, [C("wakeUp", 0.25)], "とびおき"],
+    [6, [C("kibbleFever", 0.015)], "おやつでダッシュ"],
+    [8, [C("frenzy", 0.02)], "止まらない足"],
+    [10, [C("dodgeCounter", 0.2)], "ひらりと反撃"],
+    [12, [C("frenzy", 0.05), C("kibbleFever", 0.02)], "つむじ風の大暴れ"],
+  ],
+  tech: [
+    [1, [C("slowShatter", 0.06)], "にげ足ねらい"],
+    [3, [C("venomCrit", 0.03)], "毒のすきま"],
+    [5, [C("poisonBurst", 0.15)], "ぷちっと毒"],
+    [7, [C("slowShatter", 0.1), C("venomCrit", 0.02)], "じわじわ追いつめ"],
+    [9, [C("zapVenom", 0.2)], "しびれ毒"],
+    [12, [C("poisonBurst", 0.5), C("slowShatter", 0.15)], "毒のくす玉"],
+  ],
+  support: [
+    [2, [C("kibbleFever", 0.015)], "カリカリのごほうび"],
+    [4, [C("objectSync", 0.05)], "いっしょに遊ぶ"],
+    [6, [C("partyLink", 0.06)], "なかよしパワー"],
+    [8, [C("objectSync", 0.1)], "おもちゃの名コンビ"],
+    [10, [C("partyLink", 0.12)], "家族のきずな"],
+    [12, [C("objectSync", 0.15), C("partyLink", 0.1), C("kibbleFever", 0.02)], "ねこカフェの看板猫"],
+  ],
+  // ---- 役割の枝（その役割の猫だけ。強め） ----
   melee: [
-    [1, "knockSlam", 0.3, "tech", "ぶつけパンチ"],
-    [2, "killHeal", 0.01, "def", "いただきます"],
-    [3, "lastStand", 0.25, "atk", "ふんばり"],
-    [4, "mamaGuard", 0.15, "def", "ママを守る"],
-    [5, "multiEcho", 0.4, "atk", "ひびくパンチ"],
-    [6, "slowShatter", 0.15, "tech", "にげ足つぶし"],
-    [7, "overkill", 0.3, "atk", "あまった力"],
-    [8, "knockSlam", 0.8, "tech", "かべドン"],
-    [9, "bossHunter", 0.3, "atk", "ボスとのけんか"],
-    [10, "lastStand", 0.6, "def", "九つの命"],
-    [11, "multiEcho", 0.8, "atk", "町いちばんのけんか"],
-    [11, "partyLink", 0.25, "support", "みんなでけんか"],
+    [0, [C("knockSlam", 0.15)], "ぶつけパンチ"],
+    [1, [C("killHeal", 0.006), C("lastStand", 0.08)], "いただきます"],
+    [2, [C("lastStand", 0.2)], "ふんばり"],
+    [3, [C("multiEcho", 0.3)], "ひびくパンチ"],
+    [4, [C("knockSlam", 0.4), C("slowShatter", 0.05)], "かべドン"],
+    [5, [C("mamaGuard", 0.12)], "ママの前に立つ"],
+    [6, [C("overkill", 0.3)], "もう一発"],
+    [7, [C("multiEcho", 0.5), C("knockSlam", 0.2)], "どすこい乱れうち"],
+    [8, [C("bossHunter", 0.25)], "ボスとのけんか"],
+    [9, [C("lastStand", 0.5)], "九つの命"],
+    [10, [C("knockSlam", 0.8)], "町内一のぶちかまし"],
+    [11, [C("multiEcho", 0.8)], "町いちばんのけんか"],
+    [12, [C("partyLink", 0.2), C("bossHunter", 0.2)], "ボス猫の号令"],
   ],
   ranged: [
-    [1, "pierceGrow", 0.08, "tech", "つらぬくほど強く"],
-    [2, "slowShatter", 0.1, "tech", "ねらいうち"],
-    [3, "critChain", 1, "atk", "ビリッとひっかき", 2],
-    [4, "venomCrit", 0.05, "tech", "毒をねらう"],
-    [5, "kibbleFever", 0.03, "support", "カリカリでやる気"],
-    [6, "objectSync", 0.1, "support", "おもちゃと息を合わせる"],
-    [7, "pierceGrow", 0.2, "tech", "一直線"],
-    [8, "bossHunter", 0.3, "atk", "大物ねらい"],
-    [9, "critChain", 1, "atk", "いなずまの爪", 3],
-    [10, "overkill", 0.5, "atk", "うちぬき"],
-    [11, "zapVenom", 0.5, "tech", "ビリビリ毒"],
-    [11, "partyLink", 0.25, "support", "うしろから応援"],
+    [0, [C("pierceGrow", 0.05)], "つらぬくほど強く"],
+    [1, [C("slowShatter", 0.08)], "ねらいうち"],
+    [2, [C("critChain", 1)], "ビリッとひっかき", 2],
+    [3, [C("venomCrit", 0.04)], "毒をねらう"],
+    [4, [C("pierceGrow", 0.12), C("overkill", 0.1)], "一直線"],
+    [5, [C("kibbleFever", 0.025)], "カリカリでやる気"],
+    [6, [C("objectSync", 0.08)], "おもちゃと息を合わせる"],
+    [7, [C("critChain", 1), C("venomCrit", 0.02)], "いなずまの爪", 3],
+    [8, [C("bossHunter", 0.3)], "大物ねらい"],
+    [9, [C("pierceGrow", 0.25)], "千里の一矢"],
+    [10, [C("overkill", 0.5)], "うちぬき"],
+    [11, [C("zapVenom", 0.4)], "ビリビリ毒"],
+    [12, [C("critChain", 2), C("partyLink", 0.15)], "かみなりの雨", 2],
   ],
   aoe: [
-    [1, "shockwave", 0.2, "tech", "しっぽの風"],
-    [2, "poisonBurst", 0.3, "tech", "はじける毒"],
-    [3, "zapVenom", 0.15, "tech", "静電気の毛"],
-    [4, "slowShatter", 0.12, "atk", "まとめてつぶす"],
-    [5, "objectSync", 0.1, "support", "おもちゃのリズム"],
-    [6, "mamaGuard", 0.2, "def", "ママのそばの守り神"],
-    [7, "poisonBurst", 0.8, "tech", "毒の大はじけ"],
-    [8, "shockwave", 0.5, "atk", "大回転のうず"],
-    [9, "killHeal", 0.02, "def", "ひなたぼっこ"],
-    [10, "overkill", 0.5, "atk", "なだれ"],
-    [11, "poisonBurst", 1.5, "tech", "毒の花火"],
-    [11, "partyLink", 0.25, "support", "みんなの守り神"],
+    [0, [C("shockwave", 0.15)], "しっぽの風"],
+    [1, [C("poisonBurst", 0.25)], "はじける毒"],
+    [2, [C("zapVenom", 0.12)], "静電気の毛"],
+    [3, [C("slowShatter", 0.1)], "まとめてつぶす"],
+    [4, [C("shockwave", 0.3), C("objectSync", 0.05)], "うずまき"],
+    [5, [C("mamaGuard", 0.15)], "ママのそばの守り神"],
+    [6, [C("poisonBurst", 0.6)], "毒の大はじけ"],
+    [7, [C("multiEcho", 0.3)], "ひびく大回転"],
+    [8, [C("shockwave", 0.5)], "大回転のうず"],
+    [9, [C("killHeal", 0.015)], "ひなたぼっこ"],
+    [10, [C("overkill", 0.5)], "なだれ"],
+    [11, [C("poisonBurst", 1.2), C("zapVenom", 0.3)], "毒の花火"],
+    [12, [C("shockwave", 0.8), C("partyLink", 0.15)], "台風の目"],
   ],
   fast: [
-    [1, "frenzy", 0.03, "spd", "ノリノリ"],
-    [2, "dodgeCounter", 0.3, "def", "よけてパンチ"],
-    [3, "wakeUp", 0.7, "spd", "ねおきダッシュ"],
-    [4, "kibbleFever", 0.03, "support", "カリカリでダッシュ"],
-    [5, "killHeal", 0.01, "def", "走って元気"],
-    [6, "multiEcho", 0.3, "atk", "れんぱのひびき"],
-    [7, "frenzy", 0.06, "spd", "とまらない"],
-    [8, "dodgeCounter", 0.8, "def", "みきりの反撃"],
-    [9, "bossHunter", 0.3, "atk", "ボスのまわりをぐるぐる"],
-    [10, "overkill", 0.5, "atk", "かけぬけ一閃"],
-    [11, "frenzy", 0.1, "spd", "いなずまの大暴れ"],
-    [11, "partyLink", 0.25, "support", "みんなでおいかけっこ"],
+    [0, [C("frenzy", 0.015)], "ノリノリ"],
+    [1, [C("dodgeCounter", 0.15)], "よけてパンチ"],
+    [2, [C("wakeUp", 0.6)], "ねおきダッシュ"],
+    [3, [C("kibbleFever", 0.025)], "カリカリでダッシュ"],
+    [4, [C("killHeal", 0.008)], "走って元気"],
+    [5, [C("multiEcho", 0.3)], "れんぱのひびき"],
+    [6, [C("frenzy", 0.05), C("dodgeCounter", 0.15)], "とまらない"],
+    [7, [C("dodgeCounter", 0.6)], "みきりの反撃"],
+    [8, [C("bossHunter", 0.3)], "ボスのまわりをぐるぐる"],
+    [9, [C("wakeUp", 1.2)], "ねぼすけ返上"],
+    [10, [C("overkill", 0.5)], "かけぬけ一閃"],
+    [11, [C("frenzy", 0.09)], "いなずまの大暴れ"],
+    [12, [C("multiEcho", 0.6), C("frenzy", 0.03), C("partyLink", 0.15)], "みんなでおいかけっこ"],
   ],
 };
 
 /** 段の数。 */
 export const TIERS = TIER_MIN_LEVEL.length;
+/** 1つの段の行の数（上・下のふつうのノード ＋ 複合効果の行）。 */
+export const ROWS_PER_TIER = 3;
 
+/** ふつうのノードの基本のちゅ〜る（最大レベルで決まる）。 */
 function defaultCost(max: number): number {
-  if (max >= 10) return 3;
-  if (max >= 5) return 6;
-  if (max >= 3) return 10;
-  return 20;
+  if (max >= 10) return 1.5;
+  if (max >= 5) return 3;
+  if (max >= 3) return 5;
+  return 10;
 }
-/** 複合効果のノードの基本のちゅ〜る。 */
-const COMBO_COST = 15;
+/** 複合効果のノードの基本のちゅ〜る（みんなの枝・役割の枝）。 */
+const COMBO_COST_COMMON = 8;
+const COMBO_COST_ROLE = 15;
 
-function buildTree(role: CharRole): SkillNode[] {
-  const id = (key: string) => `${role}.${key}`;
+/** 枝の役割（役割の枝なら、その役割）。 */
+export function branchRole(b: SkillBranch): CharRole | undefined {
+  return (ROLE_BRANCHES as string[]).includes(b) ? (b as CharRole) : undefined;
+}
+
+function cellOf(b: SkillBranch, lane: number, sub: number, t: number): Cell {
+  const role = branchRole(b);
+  const r = 2 * t + sub;
+  if (role) {
+    const sp = ROLE_LANES[role].special.find(([st, ss]) => lane === 1 && st === t && ss === sub);
+    if (sp) return sp[2];
+    return cycle(ROLE_LANES[role].lanes[lane], t, r);
+  }
+  return cycle(COMMON_LANES[b as CommonBranch][lane], t, r);
+}
+
+function buildTree(): SkillNode[] {
   const nodes: SkillNode[] = [];
   const used = new Set<string>();
-  const add = (n: Omit<SkillNode, "id" | "role" | "desc" | "minCharLevel"> & { key: string }) => {
+  const add = (n: Omit<SkillNode, "desc" | "minCharLevel">) => {
     used.add(`${n.pos.x},${n.pos.y}`);
-    const { key, ...rest } = n;
-    nodes.push({
-      ...rest,
-      id: id(key),
-      role,
-      desc: effectsText(n.effects) + (n.maxLevel > 1 ? "（1レベルごと）" : ""),
-      minCharLevel: TIER_MIN_LEVEL[n.tier],
-    });
+    const node: SkillNode = { ...n, desc: "", minCharLevel: TIER_MIN_LEVEL[n.tier] };
+    if (!n.role) delete node.role;
+    node.desc = effectText(node) + (n.maxLevel > 1 ? "（1レベルごと）" : "");
+    nodes.push(node);
   };
 
   add({
-    key: "root", name: "はじめの一歩", branch: "atk", tier: 0, maxLevel: 1, req: [], baseCost: 2,
-    effects: [S("atk", 0.05), S("hp", 0.05)], combo: false, pos: { x: 7, y: 0 },
+    id: "root", name: "はじめの一歩", branch: "atk", tier: 0, maxLevel: 1, req: [], baseCost: 2,
+    effects: [S("atk", 0.05), S("hp", 0.05)], combo: false, pos: { x: 13, y: 0 },
   });
 
   // 名前の重なりを数える
@@ -376,67 +471,75 @@ function buildTree(role: CharRole): SkillNode[] {
     const n = seen.get(st) ?? 0;
     seen.set(st, n + 1);
     const list = STAT_NAMES[st];
-    return list[n % list.length] + SUFFIX[Math.min(SUFFIX.length - 1, Math.floor(n / list.length))];
+    const round = Math.floor(n / list.length);
+    return list[n % list.length] + (round > 0 ? `・${KANJI[Math.min(KANJI.length - 1, round)]}` : "");
   };
 
-  // ふつうのノード: 枝ごとに3列 × 12段。同じ列の1つ前の段が前提
+  // ふつうのノード: 枝ごとに3列 × 13段 × 上下。同じ列の1つ前が前提
   for (let t = 0; t < TIERS; t++) {
-    SKILL_BRANCHES.forEach((b, bi) => {
-      for (let lane = 0; lane < 3; lane++) {
-        const c = laneCell(role, b, lane, t);
-        const prev = t === 0 ? null : laneCell(role, b, lane, t - 1);
-        add({
-          key: `${b}${lane}_${t}`,
-          name: nameOf(c.fx),
-          branch: b,
-          tier: t,
-          maxLevel: c.max,
-          req: prev ? [{ id: id(`${b}${lane}_${t - 1}`), lv: Math.min(3, prev.max) }] : [{ id: id("root"), lv: 1 }],
-          baseCost: c.cost ?? defaultCost(c.max),
-          effects: c.fx,
-          combo: false,
-          pos: { x: bi * 3 + lane, y: 1 + 2 * t },
-        });
-      }
-    });
+    for (let sub = 0; sub < 2; sub++) {
+      SKILL_BRANCHES.forEach((b, bi) => {
+        for (let lane = 0; lane < 3; lane++) {
+          const c = cellOf(b, lane, sub, t);
+          const pt = sub === 0 ? t - 1 : t;
+          const ps = sub === 0 ? 1 : 0;
+          const prev = pt < 0 ? null : cellOf(b, lane, ps, pt);
+          add({
+            id: `${b}.${lane}${"ab"[sub]}${t}`,
+            role: branchRole(b),
+            name: nameOf(c.fx),
+            branch: b,
+            tier: t,
+            maxLevel: c.max,
+            req: prev ? [{ id: `${b}.${lane}${"ab"[ps]}${pt}`, lv: Math.min(3, prev.max) }] : [{ id: "root", lv: 1 }],
+            baseCost: c.cost ?? defaultCost(c.max),
+            effects: c.fx,
+            combo: false,
+            pos: { x: bi * 3 + lane, y: 1 + ROWS_PER_TIER * t + sub },
+          });
+        }
+      });
+    }
   }
 
-  // 複合効果のノード: その段の、同じ枝の真ん中の列が前提。ふつうのノードのすぐ下の行に置く
-  COMBO_ROWS[role].forEach(([t, combo, per, b, name, max], i) => {
+  // 複合効果のノード: その段の、同じ枝の真ん中の列（下）が前提。ふつうのノードのすぐ下の行に置く
+  for (const b of SKILL_BRANCHES) {
     const bi = SKILL_BRANCHES.indexOf(b);
-    const y = 2 + 2 * t;
-    const x = [bi * 3 + 1, bi * 3, bi * 3 + 2].find((cx) => !used.has(`${cx},${y}`))!;
-    const mid = laneCell(role, b, 1, t);
-    add({
-      key: `combo${i + 1}`,
-      name,
-      branch: b,
-      tier: t,
-      maxLevel: max ?? 3,
-      req: [{ id: id(`${b}1_${t}`), lv: Math.min(3, mid.max) }],
-      baseCost: COMBO_COST,
-      effects: [C(combo, per)],
-      combo: true,
-      pos: { x, y },
+    const role = branchRole(b);
+    COMBO_ROWS[b].forEach(([t, fx, name, max], i) => {
+      const y = ROWS_PER_TIER * (t + 1);
+      const x = [bi * 3 + 1, bi * 3].find((cx) => !used.has(`${cx},${y}`))!;
+      const mid = cellOf(b, 1, 1, t);
+      add({
+        id: `${b}.combo${i + 1}`,
+        role,
+        name,
+        branch: b,
+        tier: t,
+        maxLevel: max ?? 3,
+        req: [{ id: `${b}.1b${t}`, lv: Math.min(3, mid.max) }],
+        baseCost: role ? COMBO_COST_ROLE : COMBO_COST_COMMON,
+        effects: fx,
+        combo: true,
+        pos: { x, y },
+      });
     });
-  });
+  }
   return nodes;
 }
 
-export const SKILL_TREES: Record<CharRole, SkillNode[]> = {
-  melee: buildTree("melee"),
-  ranged: buildTree("ranged"),
-  aoe: buildTree("aoe"),
-  fast: buildTree("fast"),
-};
+/** 家族みんなで1つのスキルツリー。 */
+export const SKILL_TREE: SkillNode[] = buildTree();
 
-export const SKILL_MAP: Record<string, SkillNode> = Object.fromEntries(
-  Object.values(SKILL_TREES).flat().map((n) => [n.id, n]),
-);
+export const SKILL_MAP: Record<string, SkillNode> = Object.fromEntries(SKILL_TREE.map((n) => [n.id, n]));
+
+/** その猫（メインのわざの役割）に効くノードか。 */
+export function nodeAppliesTo(node: SkillNode, role: CharRole): boolean {
+  return !node.role || node.role === role;
+}
 
 /** ツリーの大きさ（画面のスクロール用。マスの数）。 */
-export const SKILL_TREE_SIZE = { w: 15, h: 2 + 2 * TIERS };
-
+export const SKILL_TREE_SIZE = { w: SKILL_BRANCHES.length * 3, h: 1 + ROWS_PER_TIER * TIERS };
 // ---- 補正のまとめ ----
 
 /** スキル（と、わざ）で猫（とオブジェクト）にかかる補正。Mul は掛け算（1 から）、それ以外は足し算（0 から）。 */

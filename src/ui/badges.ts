@@ -1,19 +1,20 @@
 // 赤いバッジ（なにかできることがあるとき）の判定。
 import type { SaveData } from "../core/save";
-import type { CharRole } from "../core/types";
-import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTreeOf } from "../core/progress";
+import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTree } from "../core/progress";
+import type { SkillBranch } from "../data/skills";
 import { canPull } from "../core/gacha";
 import { MAX_CATS } from "../core/save";
 import { EQUIP_SLOTS, MAX_EQUIP_RARITY } from "../data/equips";
 
-/** この役割のスキルツリーで、いま覚えられるスキルがあるか。 */
-export function roleCanLearn(save: SaveData, role: CharRole): boolean {
-  return skillTreeOf(role).some((n) => canLearn(save, role, n.id).ok);
+/** その枝で、いま覚えられるスキルがあるか（根もとはのぞく）。 */
+export function branchCanLearn(save: SaveData, b: SkillBranch): boolean {
+  return skillTree().some((n) => n.branch === b && n.req.length > 0 && canLearn(save, n.id).ok);
 }
 
-/** パーティの役割のスキルで、いま覚えられるものがあるか（ほかの役割は、うるさくないように数えない）。 */
+/** いま覚えられるスキルがあるか（役割の枝は、パーティにいる役割だけ。うるさくないように）。 */
 export function anySkillBadge(save: SaveData): boolean {
-  return partyRoles(save).some((r) => roleCanLearn(save, r));
+  const roles = partyRoles(save);
+  return skillTree().some((n) => (!n.role || roles.includes(n.role)) && canLearn(save, n.id).ok);
 }
 
 export function objCanLevel(save: SaveData, id: string): boolean {

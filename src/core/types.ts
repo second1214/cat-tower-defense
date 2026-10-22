@@ -101,7 +101,8 @@ export type ObjectKind =
   | "producer"  // カリカリを生む
   | "mine"      // 踏んだ虫に大ダメージ（1回きり）
   | "zap"       // 電撃: 当たった虫から近くの虫へ次々に飛び移る（chain）
-  | "poison";   // 毒: 範囲の虫に毒。倒れた虫の毒がまわりにうつる（poisonSpread）
+  | "poison"    // 毒: 範囲の虫に毒。倒れた虫の毒がまわりにうつる（poisonSpread）
+  | "buff";     // 強化: まわり（range）のオブジェクトの攻撃 +produce・速さ ×(1/slow)。自分は攻撃しない
 
 /** 戦闘で使う、計算ずみのオブジェクトの強さ（レベル・装備の補正・レリックを掛けたあと）。 */
 export interface ResolvedObject {

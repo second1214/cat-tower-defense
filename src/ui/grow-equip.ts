@@ -1,6 +1,6 @@
 // 成長 > 装備（頭・首・胴体の3枠、手持ち、合成、売る）。
 import {
-  autoEquip, autoFuse, equip, equipBonus, equipScore, equipSellPrice, findEquip, fuseEquips, isEquipped, sellEquip, unequip,
+  autoEquip, autoFuse, equip, equipBonus, equipScore, equipSellPrice, findEquip, fuseEquips, isEquipped, sellEquip, transferAffix, unequip,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import {
@@ -181,7 +181,9 @@ export function openEquipDetail(ctx: Ctx, uid: string): void {
       const it = findEquip(ctx.save, uid);
       if (!it) return h("div", { class: "muted" }, "この装備はもうありません");
       return h("div", { class: "eq-detail" },
-        h("div", { class: "cd-top" }, equipCard(ctx, it, { cls: "big", equipped: isEquipped(ctx.save, uid) }), equipInfo(it)));
+        h("div", { class: "cd-top" }, equipCard(ctx, it, { cls: "big", equipped: isEquipped(ctx.save, uid) }), equipInfo(it)),
+        it.rarity >= MAX_EQUIP_RARITY ? h("button", { class: "btn btn-purple btn-wide tf-open", onclick: () => openTransfer(ctx, uid) },
+          "スキルの付け替え", h("span", { class: "tf-open-sub" }, "UR をもう1つ使って、補正を1つ入れかえる")) : null);
     },
     footer: () => {
       const save = ctx.save;
@@ -201,6 +203,90 @@ export function openEquipDetail(ctx: Ctx, uid: string): void {
         eq
           ? h("button", { class: "btn btn-gray", onclick: () => { unequip(ctx.save, it.slot); ctx.commit(); } }, "はずす")
           : h("button", { class: "btn btn-green", onclick: () => { equip(ctx.save, uid); ctx.commit(); ctx.toast("つけました"); } }, "つける"));
+    },
+  });
+}
+
+/**
+ * スキル（補正）の付け替え: UR どうし・同じ枠。もう1つの UR（消える）から補正を1つえらんで、この装備の補正1つと入れかえる。
+ * 手順: もらう装備 → もらう補正 → 入れかえる補正 → たしかめる。
+ */
+export function openTransfer(ctx: Ctx, baseUid: string): void {
+  const st: { donor: string | null; from: number | null; to: number | null } = { donor: null, from: null, to: null };
+  const step = (n: number, title: string, done: boolean) =>
+    h("div", { class: `tf-step-t ${done ? "done" : ""}` }, h("span", { class: "tf-num" }, String(n)), title);
+  const m = ctx.modals.open({
+    title: "スキルの付け替え",
+    render: () => {
+      const save = ctx.save;
+      const base = findEquip(save, baseUid);
+      if (!base) return h("div", { class: "muted" }, "この装備はもうありません");
+      const donors = sortEquips(save.equips.filter((e) => e.uid !== baseUid && e.slot === base.slot && e.rarity >= MAX_EQUIP_RARITY));
+      if (st.donor && !donors.some((d) => d.uid === st.donor)) { st.donor = null; st.from = null; st.to = null; }
+      const donor = st.donor ? findEquip(save, st.donor) : undefined;
+      const from = donor && st.from != null ? donor.affixes[st.from] : undefined;
+      // base のほかの場所に同じ補正があると付けられない
+      const dupAt = (i: number) => !!from && base.affixes.some((x, j) => j !== i && x.id === from.id);
+
+      const parts: HTMLElement[] = [
+        h("div", { class: "tf-base" }, equipCard(ctx, base, { cls: "mini" }),
+          h("div", { class: "tf-base-t" }, h("b", null, EQUIP_MAP[base.defId]?.name ?? "?"),
+            h("span", { class: "muted small" }, `${SLOT_NAMES[base.slot]}の UR どうしで、1回に1つだけ付け替えられます`))),
+        // 1. もらう装備
+        step(1, "補正をもらう UR をえらぶ（同じ枠）", !!donor),
+        donors.length
+          ? h("div", { class: "grid grid-5 tf-donors" }, donors.map((d) => equipCard(ctx, d, {
+            cls: d.uid === st.donor ? "fuse-sel" : "",
+            onclick: () => { st.donor = d.uid; st.from = null; st.to = null; ctx.rerender(); },
+          })))
+          : h("div", { class: "empty-msg small" }, `${SLOT_NAMES[base.slot]}の UR が、もう1つ必要です`),
+      ];
+      if (donor) {
+        parts.push(step(2, "もらう補正を1つえらぶ", from != null),
+          h("div", { class: "tf-affs" }, donor.affixes.map((a, i) => h("button", {
+            class: `tf-aff ${st.from === i ? "on" : ""}`,
+            onclick: () => { st.from = i; if (st.to != null && base.affixes.some((x, j) => j !== st.to && x.id === a.id)) st.to = null; ctx.rerender(); },
+          }, affixText(a)))));
+      }
+      if (from) {
+        parts.push(step(3, "入れかえる補正をえらぶ（この装備）", st.to != null),
+          h("div", { class: "tf-affs" }, base.affixes.map((a, i) => {
+            const ng = dupAt(i);
+            return h("button", {
+              class: `tf-aff out ${st.to === i ? "on" : ""} ${ng ? "off" : ""}`,
+              onclick: () => { if (ng) { ctx.toast("同じ補正がもうついています", "ng"); return; } st.to = i; ctx.rerender(); },
+            }, affixText(a), ng ? h("span", { class: "tf-note" }, "同じ補正がほかにある") : null);
+          })));
+      }
+      if (from && st.to != null) {
+        parts.push(step(4, "たしかめる", false),
+          h("div", { class: "tf-diff" },
+            h("div", { class: "tf-col" }, h("div", { class: "tf-col-t" }, "いま"),
+              h("ul", { class: "affixes" }, base.affixes.map((a, i) => h("li", { class: i === st.to ? "tf-old" : "" }, affixText(a))))),
+            h("div", { class: "tf-arrow" }, "→"),
+            h("div", { class: "tf-col" }, h("div", { class: "tf-col-t" }, "付け替えたあと"),
+              h("ul", { class: "affixes" }, base.affixes.map((a, i) => h("li", { class: i === st.to ? "tf-new" : "" }, affixText(i === st.to ? from : a)))))),
+          h("div", { class: "tf-warn" }, svgIcon(ICONS.close, "tf-warn-ico"),
+            `「${EQUIP_MAP[donor!.defId]?.name ?? "?"}」（UR）はなくなります${isEquipped(save, donor!.uid) ? "（つけている装備です。かわりにこの装備をつけます）" : ""}`));
+      }
+      return h("div", { class: "tf" }, parts);
+    },
+    footer: () => {
+      const ready = st.donor != null && st.from != null && st.to != null;
+      return h("div", { class: "foot-row" },
+        h("button", { class: "btn btn-gray", onclick: () => m.close() }, "やめる"),
+        h("button", {
+          class: `btn ${ready ? "btn-gold" : "btn-gray is-off"}`, disabled: !ready,
+          onclick: async () => {
+            if (!ready) return;
+            if (!(await ctx.confirm("付け替えますか？\nもとにした UR の装備はなくなります", "付け替える", true))) return;
+            const r = transferAffix(ctx.save, baseUid, st.donor!, st.from!, st.to!);
+            if (!r.ok) { ctx.toast(r.reason, "ng"); return; }
+            m.close();
+            ctx.commit();
+            showNewEquip(ctx, r.value, "付け替えせいこう！");
+          },
+        }, "付け替える"));
     },
   });
 }

@@ -215,6 +215,8 @@ export interface BugState {
   knockX: number;
   knockY: number;
   knock: number;
+  /** 押し戻されなれ（押し戻されるたびに増え、時間で減る。増えるほど押し戻しが効かない）。 */
+  knockRes: number;
   /** 内部用（電撃がもう当たったかの印）。 */
   mark: number;
   /** 毒をかけた猫（cats の添字。オブジェクトの毒・毒なしは -1）。 */
@@ -252,6 +254,16 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** 1回の押し戻しの上限（マス）。 */
+export const KNOCK_MAX = 0.8;
+/** 押し戻されるたびに増える「なれ」。 */
+export const KNOCK_RES_STEP = 0.25;
+/** 「なれ」が1秒に減る量。 */
+export const KNOCK_RES_DECAY = 0.12;
+/** なれても、これだけは押し戻される（割合）。 */
+export const KNOCK_MIN_FRAC = 0.1;
+/** この体力（基本）以上の虫は重く、押し戻しが半分。 */
+export const HEAVY_BUG_HP = 10;
 /** エンドレスで、前の波を全部たおしてから次の波までの秒数。 */
 export const WAVE_BREAK = 3;
 /** 「集合」で相棒が主人公のそばにいる秒数。 */
@@ -783,8 +795,29 @@ export class Battle {
     return this.auraBonus(o) > 0;
   }
 
-  /** オブジェクトにかかる objectAura（近くにいる猫のうち、いちばん大きい値）。 */
+  /**
+   * 電源タップ（kind "buff"）から受ける強化。近くの電源タップのうち、いちばん強いもの1つだけ（重ねがけはしない）。
+   * atk: 攻撃の上乗せ（def.produce）。spd: 速さの上乗せ（1 / def.slow - 1）。
+   */
+  buffOf(o: ObjState): { atk: number; spd: number } {
+    let atk = 0, spd = 0;
+    if (o.def.kind === "buff") return { atk, spd };
+    const objs = this.s.objects;
+    for (let i = 0; i < objs.length; i++) {
+      const t = objs[i];
+      if (t.hp <= 0 || t.def.kind !== "buff") continue;
+      if (Math.hypot(t.cx - o.cx, t.cy - o.cy) > t.def.range + Math.max(o.w, o.h) / 2) continue;
+      if (t.def.produce > atk) { atk = t.def.produce; spd = Math.max(0, 1 / Math.max(0.3, t.def.slow || 1) - 1); }
+    }
+    return { atk, spd };
+  }
+
+  /** オブジェクトにかかる objectAura（近くにいる猫のうち、いちばん大きい値）＋電源タップ。 */
   auraBonus(o: ObjState): number {
+    return this.catAura(o) + this.buffOf(o).atk;
+  }
+
+  private catAura(o: ObjState): number {
     let best = 0;
     const cats = this.s.cats;
     for (let i = 0; i < cats.length; i++) {
@@ -1273,6 +1306,7 @@ export class Battle {
       knockX: 0,
       knockY: 0,
       knock: 0,
+      knockRes: 0,
       mark: 0,
       poisonSrc: -1,
       chew: chewOf(def),
@@ -2033,9 +2067,13 @@ export class Battle {
       if (o.hurt > 0) o.hurt -= h;
       const d = o.def;
       const cx = o.cx, cy = o.cy;
+      // 電源タップ（buff）が近くにあると速くなる
+      const oh = h * (1 + this.buffOf(o).spd);
       // range はしめるマスの中心からの半径
       const range = d.range || 0;
       switch (d.kind) {
+        case "buff":
+          break;
         case "wall":
           break;
         case "mine": {
@@ -2060,7 +2098,7 @@ export class Battle {
           break;
         }
         case "producer": {
-          o.timer += h;
+          o.timer += oh;
           if (d.interval > 0 && o.timer >= d.interval) {
             o.timer -= d.interval;
             const v = d.produce * this.loadout.global.kibbleMul;
@@ -2074,7 +2112,7 @@ export class Battle {
           break;
         }
         case "aoe": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const base = this.objAtk(o);
@@ -2094,7 +2132,7 @@ export class Battle {
           break;
         }
         case "slow": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const base = this.objAtk(o);
@@ -2114,7 +2152,7 @@ export class Battle {
           break;
         }
         case "poison": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const dps = this.objAtk(o) * ((d.poison || 0) > 0 ? d.poison : 1);
@@ -2131,7 +2169,7 @@ export class Battle {
           break;
         }
         case "zap": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval) {
             const t = this.nearestBug(cx, cy, range);
             if (t) {
@@ -2143,7 +2181,7 @@ export class Battle {
         }
         case "shooter":
         default: {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval) {
             const t = this.nearestBug(cx, cy, range);
             if (t) {
@@ -2341,6 +2379,7 @@ export class Battle {
       if (!b.alive) continue;
       if (b.hurt > 0) b.hurt -= h;
       if (b.knock > 0) b.knock = Math.max(0, b.knock - h);
+      if (b.knockRes > 0) b.knockRes = Math.max(0, b.knockRes - KNOCK_RES_DECAY * h);
       if (b.slowTimer > 0) {
         b.slowTimer -= h;
         if (b.slowTimer <= 0) { b.slowTimer = 0; b.slowMul = 1; }
@@ -2477,7 +2516,11 @@ export class Battle {
     // ぬしは重いので押し戻されない（押し戻しつづけて足止めはできない）
     if (!(amount > 0) || b.y < 0 || b.def.boss) return -1;
     const x0 = b.x, y0 = b.y;
-    let amt = amount;
+    // 押し戻しつづけて足止めはできない: 1回の量に上限、押されるたびに効きにくくなる（体力の多い虫は重い）
+    const heavy = b.def.hp >= HEAVY_BUG_HP ? 0.5 : 1;
+    let amt = Math.min(KNOCK_MAX, amount) * heavy * Math.max(KNOCK_MIN_FRAC, 1 - b.knockRes);
+    b.knockRes = Math.min(1, b.knockRes + KNOCK_RES_STEP);
+    if (amt < 0.02) return -1;
     let sx = b.stepX, sy = b.stepY;
     for (let k = 0; k < 24 && amt > 1e-6; k++) {
       const cc = clamp(Math.floor(b.x), 0, COLS - 1), cr = clamp(Math.floor(b.y), 0, ROWS - 1);

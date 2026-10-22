@@ -12,8 +12,9 @@ export type { EquipItem, EquipSlot } from "../data/equips";
 /**
  * v1: スキルは id の配列・スキルポイント。v2: スキルは猫ごとに id → レベル・ちゅ〜る・譲渡会会場。
  * v3: うちの子（cats）・パーティ・わざ・スキルは家族で共有（役割ごと）。
+ * v4: スキルツリーは家族みんなで1つ（skills はノードの id → レベル）。役割ごとのスキルは消して、使ったちゅ〜るを返す。
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = "cat-tower-defense/save";
 export const MAX_LOADOUT = 5;
 /** はじめにもらえるちゅ〜る（すぐにねこ福袋を1回ためせる）。 */
@@ -56,7 +57,7 @@ export interface SaveData {
   party: string[];                       // [主人公, 相棒1, 相棒2] の uid（相棒は空きでもよい。空きは詰める）
   nextCatUid: number;                    // 猫の uid の連番（"c1" "c2" …）
   wazas: Record<string, WazaSave>;       // 覚えたわざ
-  skills: Record<CharRole, Record<string, number>>;  // 役割 → スキルノードの id → 取ったレベル（0 のものは入れない）
+  skills: Record<string, number>;        // スキルノードの id → 取ったレベル（0 のものは入れない。家族みんなで1つ）
   setupDone: boolean;                    // 初回の登録（1匹目の名前・見た目・性格）がすんだ
   objects: Record<string, ObjectSave>;   // 持っているオブジェクトだけ入る
   loadout: string[];                     // 戦闘に持っていくオブジェクト（最大5）
@@ -84,8 +85,8 @@ export function newCatSave(
   return c;
 }
 
-export function emptySkills(): Record<CharRole, Record<string, number>> {
-  return { melee: {}, ranged: {}, aoe: {}, fast: {} };
+export function emptySkills(): Record<string, number> {
+  return {};
 }
 
 /** はじめからのデータ。初回の登録の前でも遊べるように、仮の1匹（c1）がいる。 */
@@ -199,6 +200,62 @@ function oldSkillRefund(skills: unknown): number {
     }
   } else if (obj(skills)) {
     for (const [id, lv] of Object.entries(skills)) s += v2SkillCost(id, num(lv, 0));
+  }
+  return s;
+}
+
+/** v3（役割ごとのツリー）のノード id から [段, 基本のちゅ〜る, 最大レベル]。知らないものは null。 */
+function v3Node(role: string, id: string): [number, number, number] | null {
+  const m = /^(melee|ranged|aoe|fast)\.(\w+)$/.exec(id);
+  if (!m || m[1] !== role) return null;
+  const key = m[2];
+  const base = (max: number) => (max >= 10 ? 3 : max >= 5 ? 6 : max >= 3 ? 10 : 20);
+  if (key === "root") return [0, 2, 1];
+  const c = /^combo(\d+)$/.exec(key);
+  if (c) {
+    const i = Number(c[1]);
+    if (i < 1 || i > 12) return null;
+    return [Math.min(11, i), 15, role === "ranged" && i === 3 ? 2 : 3];
+  }
+  const n = /^(atk|def|spd|tech|support)([012])_(\d+)$/.exec(key);
+  if (!n) return null;
+  const lane = Number(n[2]), t = Number(n[3]);
+  if (t > 11) return null;
+  const even = t % 2 === 0;
+  if (n[1] === "tech" && lane === 1) {
+    if ((role === "melee" || role === "fast") && (t === 4 || t === 9)) return [t, 30, 1];
+    if (role === "aoe" && t === 6) return [t, 30, 1];
+    if (role === "ranged" && (t === 2 || t === 6 || t === 10)) return [t, 20, 1];
+    const max = role === "ranged" && even ? 3 : 5;
+    return [t, base(max), max];
+  }
+  const maxes: Record<string, number[]> = {
+    atk: [10, 10, 5], def: [5, 10, 5], spd: [5, even ? 3 : 5, 10], tech: [5, 0, 5], support: [10, 5, 5],
+  };
+  const max = maxes[n[1]][lane];
+  return [t, base(max), max];
+}
+
+/** v3 の役割 role のノードを Lv0 から level まで上げたちゅ〜る。知らないノードは 0。 */
+export function v3SkillCost(role: string, id: string, level: number): number {
+  const n = v3Node(role, id);
+  if (!n) return 0;
+  const [tier, base, max] = n;
+  let s = 0;
+  for (let i = 0; i < Math.min(max, Math.max(0, Math.floor(level))); i++) {
+    s += Math.round(base * Math.pow(1.6, tier) * Math.pow(1.3, i));
+  }
+  return s;
+}
+
+/** v3 の役割ごとのスキル（skills[role][id]）に使ったちゅ〜る。 */
+function v3SkillRefund(skills: unknown): number {
+  let s = 0;
+  if (!obj(skills)) return 0;
+  for (const role of ROLES) {
+    const tree = skills[role];
+    if (!obj(tree)) continue;
+    for (const [id, lv] of Object.entries(tree)) s += v3SkillCost(role, id, num(lv, 0));
   }
   return s;
 }
@@ -325,15 +382,14 @@ export function migrate(raw: unknown): SaveData {
     if (!party.length) party.push(Object.keys(cats)[0]);
     out.party = party;
     const skills = emptySkills();
-    if (obj(r.skills)) {
-      for (const role of ROLES) {
-        const tree = r.skills[role];
-        if (!obj(tree)) continue;
-        for (const [id, lv] of Object.entries(tree)) {
-          const node = SKILL_MAP[id];
-          const L = Math.floor(num(lv, 0));
-          if (node && node.role === role && L > 0) skills[role][id] = Math.min(node.maxLevel, L);
-        }
+    if (oldVersion < 4) {
+      // v3 → v4: 役割ごとのスキルは消して、使ったちゅ〜るを返す
+      out.churu += v3SkillRefund(r.skills);
+    } else if (obj(r.skills)) {
+      for (const [id, lv] of Object.entries(r.skills)) {
+        const node = SKILL_MAP[id];
+        const L = Math.floor(num(lv, 0));
+        if (node && L > 0) skills[id] = Math.min(node.maxLevel, L);
       }
     }
     out.skills = skills;

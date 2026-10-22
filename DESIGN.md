@@ -82,9 +82,17 @@
 ### パーティ
 - `party`: [主人公, 相棒1, 相棒2]（uid。相棒は空きでもよい）。同じ猫は1つの枠だけ
 - 相棒は戦闘で AI で動く（主人公のそばにいて、近くの虫へ自分の役割で攻撃。HP 0 で休けい）。強さは `COMPANION_POWER = 0.45`（攻撃・体力に掛ける。v5 で 0.6 → 0.45。猫は手助け役）
-- 主人公・相棒、それぞれのメインのわざの役割のスキルツリーが効く
+- 主人公・相棒、それぞれに、スキルツリーのみんなの枝と、メインのわざの役割の枝が効く
 
-### スキルツリー（家族で共有・役割ごと）
+### スキルツリー（家族みんなで1つ・v6）
+- `skills[nodeId] = level`。ツリーは1つだけ（役割ごとに分けない）。785 ノード（前の 4役割 × 193 = 772 より多い）・複合効果 82
+- 枝は9つ。みんなの枝（攻撃・体力防御・速さ・技・支援。どの猫にも効く）と、役割の枝（近接・遠距離・範囲・すばやい。`node.role` があり、メインのわざの役割がおなじ猫にだけ効く。説明は「近接の猫：攻撃 +10%」）
+- 1つの枝は 3列 × 13段 × 上下2行（78）＋ 複合効果（みんなの枝 6・役割の枝 13）。段 0〜12（`TIER_MIN_LEVEL` に 330 を足した）。1段に3行（上・下・複合効果）
+- 1ノードの量とコストは前の約半分（ノードが2倍になったぶん）。役割の得意技（連続攻撃・つらぬく・届く距離・範囲）は役割の枝だけ
+- 画面: 枝のタブ（上の段: みんなの枝5つ、下の段: 役割の枝4つ。役割の枝には主人公・相棒の印と、効く猫の名前）。リセットはツリー全部
+- v3 のセーブ（役割ごと）は、スキルを消して使ったちゅ〜るを返す（`v3SkillCost`）。SAVE_VERSION = 4
+
+### （古い）スキルツリー（v4〜v5: 役割ごと）
 - `skills[role][nodeId] = level`。1匹で取れば、その役割で戦う全員に効く
 - 1つの役割に 170 ノード以上（今の約3倍）。段 0〜11（`TIER_MIN_LEVEL` は家族の一番高いレベルで判定）。レアリティの条件は無くす
 - 複合効果のノード（ComboId）を各役割に 10 以上。深い段ほど強い・派手。役割に合ったもの（近接: knockSlam・multiEcho・lastStand、遠距離: pierceGrow・critChain、範囲: shockwave・poisonBurst、すばやい: frenzy・dodgeCounter …）
@@ -101,7 +109,7 @@
 interface CatSave { uid: string; name: string; look: string; personality: Personality; preset?: string;
   level: number; exp: number; bond: number; bondExp: number; waza: { main: string; subs: string[] } }
 interface WazaSave { level: number; count: number }
-SaveData に: cats, party: string[], wazas: Record<string, WazaSave>, skills: Record<CharRole, Record<string, number>>, setupDone: boolean, gachaPity, totalPulls
+SaveData に: cats, party: string[], wazas: Record<string, WazaSave>, skills: Record<string, number>（v6: 家族で1つのツリー）, setupDone: boolean, gachaPity, totalPulls
 （chars・selectedChar は無くす）
 MAX_CATS = 30
 
@@ -115,7 +123,8 @@ familyLevel(save): number
 resolveCat(save, uid, companion = false): ResolvedChar
 catPower(save, uid): number
 partyRoles(save): CharRole[]
-nodeLevel(save, role, nodeId) / nextNodeCost(save, role, nodeId) / isNodeOpen(save, role, nodeId) / canLearn / learnSkill(save, role, nodeId) / resetSkills(save, role) / skillSpent(save, role)
+skillTree() / nodeLevel(save, nodeId) / nextNodeCost(save, nodeId) / isNodeOpen(save, nodeId) / canLearn(save, nodeId) / learnSkill(save, nodeId) / resetSkills(save) / skillSpent(save)
+transferAffix(save, baseUid, donorUid, donorAffixIndex, baseAffixIndex): Result<EquipItem>   // UR どうし・同じ枠。donor は消える
 buildLoadout(save, stageId): Loadout | null                          // companions も入る
 grantRewards(...)                                                    // 経験値・なかよし度を配る
 
@@ -188,3 +197,10 @@ canPull / pullCost / pullsToPity / pullRates()                       // pullRate
 - EX のオブジェクト: レーザーポインター（つらぬく光）・ホットカーペット（通れる・熱がうつる）・お掃除ロボ（吸いこんではじく）・空気清浄機（どこまでも飛ぶ電気）。
   ストーリーでは手に入らない（unlockStage = EX_ONLY）。手に入れたあとは、ストーリーでもかけらが落ちる。手に入れたときは、持っているもののレベルの真ん中くらいから
 - 見た目: EX のオブジェクトは虹色に光り、弾は虹色の尾をひく。画面のカード・札も虹色に流れる
+
+## v6: スキルツリーを1つに・UR 装備のスキルの付け替え
+- スキルツリーは家族みんなで1つ（くわしくは v4 の「スキルツリー（家族みんなで1つ・v6）」）
+- UR（いちばん上のレアリティ）の装備は、同じ枠の UR をもう1つ使って、補正（スキル）を1つ付け替えられる（装備 → 「スキルの付け替え」）
+  - 手順: 補正をもらう UR → もらう補正 → 入れかえる補正 → たしかめる（前と後を見せる・もらった装備が消えることを知らせる）
+  - 1回で1つだけ。値はもらう装備でふった値のまま。この装備のほかの場所にある補正と同じものは付けられない（同じ場所の入れかえならよい）
+  - もらった装備は消える。それをつけていたら、かわりにこの装備をつける

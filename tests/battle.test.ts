@@ -436,7 +436,9 @@ describe("オブジェクトの種類と特殊効果", () => {
       const evs = stepEvents(k, 0.02);
       if (evs.some((e) => e.type === "knockback")) pushed = prevY - k.bugs[0].y;
     }
-    expect(pushed).toBeGreaterThan(1.5);
+    // 1回の押し戻しは KNOCK_MAX（0.8）まで。体力の多い虫（tank）は重いので半分
+    expect(pushed).toBeGreaterThan(0.3);
+    expect(pushed).toBeLessThanOrEqual(0.81);
   });
 
   it("aoe・slow・mine（大きさつき）", () => {
@@ -887,7 +889,7 @@ describe("複合効果（ComboId）", () => {
     const evs = collect(b, 0.2);
     expect(evs.some((e) => e.type === "shockwave")).toBe(true);
     expect(bugs[0].slowMul).toBeCloseTo(0.7);
-    expect(bugs[0].y).toBeLessThan(14);
+    expect(bugs[0].y).toBeLessThan(14.4);
   });
 
   it("mamaGuard: ママから3マス以内で攻撃 +v、受けるダメージ ×(1 - v/2)", () => {
@@ -1147,5 +1149,44 @@ describe("たくさんの虫（相棒・複合効果つき）", () => {
     expect(b.kills).toBeGreaterThan(kills0);
     for (const t of ["poisonBurst", "zap", "overkill", "shockwave"]) expect(seen.has(t), t).toBe(true);
     expect(ms).toBeLessThan(5);
+  });
+});
+
+describe("押し戻しのなれ", () => {
+  it("同じ虫を何度も押し戻すと、だんだん効かなくなる（袋小路に押しこめつづけられない）", () => {
+    const k = new Battle(loadout({ objects: [obj({ atk: 0.001, knockback: 2, interval: 0.2, range: 4 })], waves: later(0, [{ bug: "ant", count: 1, every: 1, lanes: [7] }]) }));
+    parkCat(k);
+    k.place(0, 7, 9);
+    const pushes: number[] = [];
+    for (let i = 0; i < 2000 && pushes.length < 8; i++) {
+      const prevY = k.bugs[0]?.y ?? 0;
+      const evs = stepEvents(k, 0.02);
+      if (evs.some((e) => e.type === "knockback")) pushes.push(prevY - k.bugs[0].y);
+    }
+    expect(pushes.length).toBeGreaterThanOrEqual(5);
+    expect(pushes[pushes.length - 1]).toBeLessThan(pushes[0] * 0.6);
+  });
+});
+
+describe("電源タップ（buff）", () => {
+  it("まわりのオブジェクトの攻撃と速さを上げる・重ねがけはしない・遠いと効かない", () => {
+    const k = new Battle(loadout({
+      objects: [obj({ atk: 1, interval: 1, range: 3 }), obj({ kind: "buff", atk: 0, produce: 0.3, slow: 0.5, range: 1.5 }), obj({ kind: "buff", atk: 0, produce: 0.2, slow: 0.8, range: 1.5 })],
+      waves: later(999, [{ bug: "ant", count: 1, every: 1, lanes: [7] }]),
+    }));
+    parkCat(k);
+    expect(k.place(0, 3, 8).ok).toBe(true);
+    const s = k.objects[0];
+    expect(k.buffOf(s).atk).toBe(0);
+    expect(k.place(2, 4, 8).ok).toBe(true);
+    expect(k.buffOf(s).atk).toBeCloseTo(0.2);
+    expect(k.place(1, 3, 9).ok).toBe(true);
+    // いちばん強い1つだけ
+    expect(k.buffOf(s).atk).toBeCloseTo(0.3);
+    expect(k.buffOf(s).spd).toBeCloseTo(1);
+    expect(k.auraBonus(s)).toBeCloseTo(0.3);
+    // 遠くのオブジェクトには効かない
+    expect(k.place(0, 11, 4).ok).toBe(true);
+    expect(k.buffOf(k.objects[k.objects.length - 1]).atk).toBe(0);
   });
 });
