@@ -252,6 +252,8 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** エンドレスで、前の波を全部たおしてから次の波までの秒数。 */
+export const WAVE_BREAK = 3;
 /** 「集合」で相棒が主人公のそばにいる秒数。 */
 export const RALLY_TIME = 8;
 /** どけるときの、いちばん安いカリカリ。 */
@@ -496,6 +498,12 @@ export class Battle {
   private readonly blockMask = new Uint8Array(N); // 1 = 通れない（家具・通れないオブジェクト）
   private readonly queues: SpawnQueue[];
   private readonly waveAlive: number[];   // 波ごとの、まだ出ていない虫＋生きている虫の数
+  /** 波ごとの始まった時刻（エンドレスは、始まるまで Infinity）。 */
+  private readonly waveStart: number[];
+  /** 前の波を全部たおしてから次の波（エンドレス）。 */
+  private readonly sequential: boolean;
+  /** 次の波が始まる時刻（エンドレス。まだ決まっていなければ -1）。 */
+  private nextWaveAt = -1;
   private readonly dist = new Float64Array(N);
   private readonly chewDist = new Float64Array(N); // かじる虫の道（通れないオブジェクトも遠回りとして通れる）
   private readonly done = new Uint8Array(N);
@@ -604,6 +612,8 @@ export class Battle {
     };
     this.queues = [];
     this.waveAlive = st.waves.map(() => 0);
+    this.sequential = !!st.endless;
+    this.waveStart = st.waves.map((w) => (this.sequential ? Infinity : w.at));
     const lanes = new Set<number>();
     let anyTop = false;
     let chewers = false;
@@ -1143,12 +1153,29 @@ export class Battle {
   private updateSpawns(): void {
     const s = this.s;
     const waves = this.loadout.stage.waves;
-    while (s.waveIndex < waves.length && s.time >= waves[s.waveIndex].at) {
-      s.waveIndex++;
-      this.emit("wave", COLS / 2, 0, s.waveIndex);
+    if (this.sequential) {
+      // エンドレス: 前の波の虫を全部たおしてから、WAVE_BREAK 秒あけて次の波
+      if (s.waveIndex < waves.length) {
+        const prev = s.waveIndex - 1;
+        if (prev < 0 || this.waveAlive[prev] <= 0) {
+          if (this.nextWaveAt < 0) this.nextWaveAt = prev < 0 ? waves[0].at : s.time + WAVE_BREAK;
+          if (s.time >= this.nextWaveAt) {
+            this.waveStart[s.waveIndex] = s.time;
+            s.waveIndex++;
+            this.nextWaveAt = -1;
+            this.emit("wave", COLS / 2, 0, s.waveIndex);
+          }
+        }
+      }
+    } else {
+      while (s.waveIndex < waves.length && s.time >= waves[s.waveIndex].at) {
+        s.waveIndex++;
+        this.emit("wave", COLS / 2, 0, s.waveIndex);
+      }
     }
     for (const q of this.queues) {
-      while (q.spawned < q.count && s.time >= q.start + q.spawned * q.every) {
+      const start = this.waveStart[q.wave];
+      while (q.spawned < q.count && s.time >= start + q.spawned * q.every) {
         const lane = q.lanes ? q.lanes[q.spawned % q.lanes.length] : -1;
         q.spawned++;
         this.spawnPack(q.def, lane, q.wave);
