@@ -254,6 +254,10 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** この秒数より新しい、近くの同じ種類のダメージの数字には、足してまとめる。 */
+export const FLOAT_MERGE_AGE = 0.25;
+/** 1コマに出す「当たり」のイベントの上限。 */
+export const MAX_HIT_EVENTS = 24;
 /** 1回の押し戻しの上限（マス）。 */
 export const KNOCK_MAX = 0.8;
 /** 押し戻されるたびに増える「なれ」。 */
@@ -993,6 +997,7 @@ export class Battle {
     const s = this.s;
     // step の外（place・upgrade）で起きたイベントは残す
     const ev = s.events;
+    this.hitEvents = 0;
     const keep = ev.length - this.stepEnd;
     if (keep > 0) for (let k = 0; k < keep; k++) ev[k] = ev[this.stepEnd + k];
     ev.length = Math.max(0, keep);
@@ -1392,6 +1397,9 @@ export class Battle {
   // ---- 猫 ----
   /** マスごとの、がれきが片づく時刻。 */
   readonly debris = new Float64Array(COLS * ROWS);
+
+  /** このコマで出した「当たり」のイベントの数。 */
+  private hitEvents = 0;
 
   /** 集合の残り秒数（0 なら、相棒はふだんどおり歩きまわる）。 */
   private rallyT = 0;
@@ -2576,7 +2584,8 @@ export class Battle {
     b.hp -= dmg;
     b.hurt = 0.12;
     this.addFloat(dmg, b.x, b.y - 0.3, kind);
-    this.emit("hit", b.x, b.y, dmg, kind === "crit" ? 1 : 0, b.def.boss ? 1 : 0);
+    // 当たりのイベント（音・光）は、1コマに MAX_HIT_EVENTS まで（会心・ぬしはいつも出す）。大群のときの計算と描く量をへらす
+    if (kind === "crit" || b.def.boss || this.hitEvents++ < MAX_HIT_EVENTS) this.emit("hit", b.x, b.y, dmg, kind === "crit" ? 1 : 0, b.def.boss ? 1 : 0);
     if (b.hp <= 0) {
       b.alive = false;
       b.hp = 0;
@@ -2616,6 +2625,16 @@ export class Battle {
   // ---- 表示用 ----
   private addFloat(value: number, x: number, y: number, kind: FloatKind): void {
     const f = this.s.floats;
+    // 重なった攻撃は1つの数字にまとめる（近くで、出たばかりの同じ種類の数字に足す）。描く数も計算もへる
+    if (kind !== "crit") {
+      for (let i = f.length - 1, n = 0; i >= 0 && n < 24; i--, n++) {
+        const o = f[i];
+        if (o.kind === kind && o.age < FLOAT_MERGE_AGE && Math.abs(o.x - x) < 0.6 && Math.abs(o.y - y) < 0.6) {
+          o.value += value;
+          return;
+        }
+      }
+    }
     let it: FloatText;
     if (f.length >= MAX_FLOATS) {
       if (kind === "poison" || kind === "bug") {
