@@ -5,9 +5,13 @@ import { startBattle } from "./battle/screen";
 import { demoLoadout } from "./battle/demo";
 import { debugSpriteSheet } from "./battle/sprites";
 import type { CharRole } from "./core/types";
+import { installAudio, installUiSfx } from "./audio";
 
 const app = document.getElementById("app")!;
 const q = new URLSearchParams(location.search);
+// 音（最初にさわったときに使えるようになる）・ボタンの音
+installAudio();
+installUiSfx(document.body);
 if (q.has("sprites")) {
   app.style.overflow = "auto";
   app.appendChild(debugSpriteSheet());

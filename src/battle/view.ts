@@ -33,7 +33,7 @@ const SIDE_PAD = 0.14;
 const OL = "#2a170d";
 
 interface Fx {
-  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris" | "cloud" | "flash";
+  type: "pop" | "ring" | "spark" | "puff" | "text" | "debris" | "cloud" | "flash" | "rays";
   x: number;      // 盤面の座標（マス）
   y: number;
   vx: number;
@@ -90,7 +90,13 @@ export class BattleView {
   private shx = 0;
   private shy = 0;
   private mamaScared = 0;
-  private banner = { text: "", sub: "", t: 99 };
+  private banner = { text: "", sub: "", t: 99, boss: false };
+  /** 画面ぜんたいの光（必殺技・ぬし）。t が 0 → life で消える。 */
+  private screenFlash = { t: 1, life: 1, color: "#fff", a: 0 };
+  /** 光と影（窓のあかり・まわりのかげ）の重ね絵。resize で作る。 */
+  private lightOv: HTMLCanvasElement | null = null;
+  /** 使い終わった演出（作りなおさないで使いまわす）。 */
+  private fxPool: Fx[] = [];
   private clock = 0;
   /** 戦闘が進んでいるあいだだけ進む時計（止めているあいだは、虫のゆれ・猫の歩きも止める）。 */
   private simClock = 0;
@@ -169,6 +175,7 @@ export class BattleView {
     this.L = { w, h, cw: cell, ch: cell, u: cell, ox, oy };
     this.scaled.clear();
     this.bg = this.renderBackground();
+    this.lightOv = this.renderLight();
     this.furnVer = -1;
   }
 
@@ -207,25 +214,71 @@ export class BattleView {
 
   /** 波の始まりなどの大きな文字。 */
   showBanner(text: string, sub = ""): void {
-    this.banner = { text, sub, t: 0 };
+    if (this.banner.boss && this.banner.t < 1.8) return;
+    this.banner = { text, sub, t: 0, boss: false };
+  }
+
+  /** ぬしが出てきた: 赤いおび・画面がゆれる・赤く光る。 */
+  bossEntrance(): void {
+    this.banner = { text: "ぬしが来た！", sub: "猫の攻撃がよく効くよ", t: 0, boss: true };
+    this.flashScreen("#ff5a4a", 0.35, 0.5);
+    this.shake = Math.max(this.shake, 0.45);
+  }
+
+  private flashScreen(color: string, a: number, life: number): void {
+    if (this.screenFlash.t < this.screenFlash.life && this.screenFlash.a > a) return;
+    this.screenFlash.color = color;
+    this.screenFlash.a = a;
+    this.screenFlash.life = life;
+    this.screenFlash.t = 0;
   }
 
   /** エンジンの出来事から、演出を足す。 */
   onEvents(events: readonly BattleEvent[]): void {
     let kills = 0;
+    let crits = 0;
     for (const e of events) {
       switch (e.type) {
         case "kill": {
           kills++;
+          if (e.value === 1) {
+            // ぬしを倒した: 大きな光・輪・たくさんのかけら
+            this.addFx({ type: "flash", x: e.x, y: e.y, r: 2.4, life: 0.4, color: "#fff6c0" });
+            this.addFx({ type: "ring", x: e.x, y: e.y, r: 3.2, life: 0.6, color: "#ffd84a" });
+            this.addFx({ type: "rays", x: e.x, y: e.y, r: 3.5, life: 0.8, color: "255,240,170" });
+            for (let i = 0; i < 18; i++) {
+              const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 4;
+              this.addFx({ type: i % 3 ? "pop" : "debris", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.5, r: 0.1 + Math.random() * 0.08, life: 0.7, color: i % 3 ? POP_COLORS[i % POP_COLORS.length] : "#5a3b27" });
+            }
+            this.flashScreen("#fff6d0", 0.4, 0.45);
+            this.shake = Math.max(this.shake, 0.4);
+            break;
+          }
           if (kills > 24) break;
           this.addFx({ type: "puff", x: e.x, y: e.y, r: 0.4, life: 0.3, color: "#fff" });
-          const n = this.fx.length > 220 ? 1 : 4;
+          const busy = this.fx.length > 220;
+          const n = busy ? 1 : 4;
           for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2;
             this.addFx({ type: "pop", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, r: 0.08, life: 0.4, color: POP_COLORS[i % POP_COLORS.length] });
           }
+          // 小さなかけら（虫のからだ）と、ふわっと煙
+          if (!busy && kills <= 10) {
+            for (let i = 0; i < 3; i++) {
+              const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 1.8;
+              this.addFx({ type: "debris", x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1.4, r: 0.045 + Math.random() * 0.03, life: 0.45, color: i % 2 ? "#4a3121" : "#8a6a4a" });
+            }
+            this.addFx({ type: "cloud", x: e.x, y: e.y, r: 0.35, life: 0.45, color: "255,245,230" });
+          }
           break;
         }
+        case "hit":
+          // 会心: 当たった所が一瞬光る
+          if (e.x2 === 1 && crits++ < 3 && this.fx.length < 280) {
+            this.addFx({ type: "flash", x: e.x, y: e.y, r: e.y2 === 1 ? 0.9 : 0.55, life: 0.12, color: "#fff8d0" });
+            this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.3, life: 0.22, color: "#ffe14a" });
+          }
+          break;
         case "kibble":
           if (this.fx.length < 200 && kills < 12) this.addFx({ type: "text", x: e.x, y: e.y - 0.35, vy: -0.6, r: 0.42, life: 0.6, color: "#ffd84a", text: `+${dmgText(e.value)}` });
           break;
@@ -322,9 +375,13 @@ export class BattleView {
             const a = (k / np) * Math.PI * 2, v = 2.5 + Math.random() * 3;
             this.addFx({ type: "pop", x: cxp, y: cyp, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, r: 0.11, life: 0.6, color: `hsl(${(k * 360) / np},100%,70%)` });
           }
+          // 光の筋・二重の衝撃波・画面の光
+          this.addFx({ type: "rays", x: cxp, y: cyp, r: line ? 3 : Math.max(2.5, e.x2 * 1.4), life: 0.75, color: "255,236,160" });
+          this.addFx({ type: "ring", x: cxp, y: cyp, r: (line ? 2.2 : e.x2) * 1.8, life: 0.7, color: "rgba(255,255,255,0.8)" });
+          this.flashScreen("#fff4c8", 0.45, 0.35);
           const tx = cat ? cat.x : e.x, ty = cat ? cat.y : e.y;
           this.addFx({ type: "text", x: tx, y: ty - 1.2, r: 0.55, life: 1.1, color: "#ffe14a", text: name + "!" });
-          this.shake = Math.max(this.shake, 0.22);
+          this.shake = Math.max(this.shake, 0.3);
           break;
         }
         case "wakeUp":
@@ -399,8 +456,56 @@ export class BattleView {
   }
 
   private addFx(f: Partial<Fx> & Pick<Fx, "type" | "x" | "y" | "life" | "color">): void {
-    if (this.fx.length >= MAX_FX) this.fx.shift();
-    this.fx.push({ vx: 0, vy: 0, t: 0, r: 0.2, ...f });
+    if (this.fx.length >= MAX_FX) { const old = this.fx.shift(); if (old) this.fxPool.push(old); }
+    const o = this.fxPool.pop() ?? { type: "pop", x: 0, y: 0, vx: 0, vy: 0, t: 0, life: 1, r: 0.2, color: "" };
+    o.type = f.type; o.x = f.x; o.y = f.y; o.vx = f.vx ?? 0; o.vy = f.vy ?? 0; o.t = 0;
+    o.life = f.life; o.r = f.r ?? 0.2; o.color = f.color; o.text = f.text;
+    this.fx.push(o);
+  }
+
+  /**
+   * 光と影の重ね絵: 上の窓から床へさすあたたかい光、部屋のすみの暗さ（ビネット）。
+   * 毎コマ1回 drawImage するだけ（作るのは大きさが変わったときだけ）。
+   */
+  private renderLight(): HTMLCanvasElement {
+    const { w, h, cw, ch, ox, oy } = this.L;
+    const c = document.createElement("canvas");
+    c.width = this.canvas.width;
+    c.height = this.canvas.height;
+    const g = c.getContext("2d")!;
+    g.scale(this.dpr, this.dpr);
+    const bw = cw * COLS, bh = ch * ROWS;
+    // 窓からの光（2本。下へ広がって、うすれていく）
+    for (const wx0 of [3.6, 10.4]) {
+      const x = ox + wx0 * cw;
+      const grd = g.createLinearGradient(0, oy, 0, oy + bh * 0.85);
+      grd.addColorStop(0, "rgba(255,228,165,0.24)");
+      grd.addColorStop(1, "rgba(255,226,160,0)");
+      g.fillStyle = grd;
+      g.beginPath();
+      g.moveTo(x - cw * 1.6, oy);
+      g.lineTo(x + cw * 1.6, oy);
+      g.lineTo(x + cw * 3.4, oy + bh * 0.85);
+      g.lineTo(x - cw * 0.4, oy + bh * 0.85);
+      g.closePath();
+      g.fill();
+    }
+    // ママのまわりは、ほんのり明るく
+    const mx = ox + GOAL_X * cw, my = oy + (GOAL_ROW + GOAL_H / 2) * ch;
+    const warm = g.createRadialGradient(mx, my, 0, mx, my, cw * 4);
+    warm.addColorStop(0, "rgba(255,200,150,0.10)");
+    warm.addColorStop(1, "rgba(255,200,150,0)");
+    g.fillStyle = warm;
+    g.fillRect(mx - cw * 4, my - cw * 4, cw * 8, cw * 8);
+    // まわりのかげ（ビネット）
+    const cx = w / 2, cy = oy + bh * 0.55;
+    const rad = Math.hypot(w, h) * 0.62;
+    const vg = g.createRadialGradient(cx, cy, rad * 0.45, cx, cy, rad);
+    vg.addColorStop(0, "rgba(20,8,2,0)");
+    vg.addColorStop(1, "rgba(20,8,2,0.42)");
+    g.fillStyle = vg;
+    g.fillRect(0, 0, w, h);
+    return c;
   }
 
   // -------------------------------------------------------------------------
@@ -693,6 +798,21 @@ export class BattleView {
 
     // 虫 → 猫
     const bugs = b.bugs;
+    // 虫の足もとの影（まとめて1回でぬる。数百ひきでも軽い）
+    if (bugs.length > 0) {
+      g.fillStyle = "rgba(10,5,2,0.3)";
+      g.beginPath();
+      for (let i = 0; i < bugs.length; i++) {
+        const bg = bugs[i];
+        if (bg.y < -0.2 || bg.x < -0.2 || bg.x > COLS + 0.2) continue;
+        const kk = bg.knock > 0 ? bg.knock / KNOCK_TIME : 0;
+        const sx = X(bg.x + bg.knockX * kk * kk), sy = Y(bg.y + bg.knockY * kk * kk);
+        const rr = u * (bg.def.boss ? 0.52 : 0.27);
+        g.moveTo(sx + rr, sy + rr * 0.55);
+        g.ellipse(sx, sy + rr * 0.55, rr, rr * 0.42, 0, 0, Math.PI * 2);
+      }
+      g.fill();
+    }
     for (let i = 0; i < bugs.length; i++) this.drawBug(g, bugs[i], sdt);
     this.resetTf();
     this.drawLinks(g);
@@ -738,6 +858,12 @@ export class BattleView {
     }
     this.resetTf();
 
+    // 窓の光・まわりのかげ（猫・虫・オブジェクトの上に、うすく重ねる）
+    if (this.lightOv) {
+      g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      g.drawImage(this.lightOv, 0, 0, this.L.w, this.L.h);
+      this.resetTf();
+    }
     // 電撃
     this.drawBolts(g, dt);
     // 演出
@@ -755,13 +881,19 @@ export class BattleView {
       const k = f.age / FLOAT_LIFE;
       const alpha = k > 0.7 ? (1 - k) / 0.3 : 1;
       const crit = f.kind === "crit";
-      const big = crit ? 1.6 : f.kind === "poison" || f.kind === "resist" ? 0.8 : f.kind === "object" ? 0.75 : 1;
-      const sc = (k < 0.15 ? 0.7 + k * 3 : 1.15 - Math.min(0.15, (k - 0.15) * 0.4)) * big;
+      const big = crit ? 1.75 : f.kind === "poison" || f.kind === "resist" ? 0.8 : f.kind === "object" ? 0.75 : 1;
+      // ぽよんと出る（大きくなりすぎてから、もどる）
+      const sc = (k < 0.1 ? 0.4 + k * 10 : k < 0.22 ? 1.4 - (k - 0.1) * 3.3 : 1) * big;
       const x = X(f.x), y = Y(f.y) - k * ch * 0.8;
       g.globalAlpha = Math.max(0, alpha);
       const t = (f.kind === "heal" ? "+" : "") + dmgText(f.value) + (crit ? "!" : "");
       this.tf(x, y, crit ? Math.sin(f.age * 40) * 0.08 : 0, sc);
-      if (crit) { g.strokeStyle = "#c2300a"; g.lineWidth = Math.max(3, fs * 0.3); }
+      if (crit) {
+        // 会心: 太いふち＋外がわに白いふち
+        g.strokeStyle = "#fff6d8"; g.lineWidth = Math.max(5, fs * 0.5);
+        g.strokeText(t, 0, 0);
+        g.strokeStyle = "#c2300a"; g.lineWidth = Math.max(3, fs * 0.3);
+      }
       g.strokeText(t, 0, 0);
       g.fillStyle = FLOAT_COLORS[f.kind];
       g.fillText(t, 0, 0);
@@ -773,8 +905,18 @@ export class BattleView {
     // 置こうとしているカードの影
     if (this.ghost) this.drawGhost(g, this.ghost);
 
-    // 波の文字
+    // 画面ぜんたいの光
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const sf = this.screenFlash;
+    if (sf.t < sf.life) {
+      sf.t += dt;
+      const k = Math.min(1, sf.t / sf.life);
+      g.globalAlpha = sf.a * (1 - k) * (1 - k);
+      g.fillStyle = sf.color;
+      g.fillRect(0, 0, this.L.w, this.L.h);
+      g.globalAlpha = 1;
+    }
+    // 波の文字
     this.drawBanner(g, dt);
   }
 
@@ -995,6 +1137,9 @@ export class BattleView {
     g.beginPath(); g.roundRect(x - fw / 2, y - fh / 2, fw, fh, rad); g.fill(); g.stroke();
     g.fillStyle = "rgba(0,0,0,0.14)";
     g.fillRect(x - fw / 2 + 2, y + fh / 2 - u * 0.12, fw - 4, u * 0.09);
+    // 上のふちの光（窓からの光が当たっているように）
+    g.fillStyle = "rgba(255,250,235,0.45)";
+    g.beginPath(); g.roundRect(x - fw / 2 + rad * 0.6, y - fh / 2 + 1.5, fw - rad * 1.2, Math.max(1.5, u * 0.06), 2); g.fill();
     if (this.battle.auraActive(o)) {
       g.strokeStyle = `rgba(255,216,74,${0.55 + Math.sin(this.clock * 6) * 0.25})`;
       g.lineWidth = 2.5;
@@ -1367,7 +1512,7 @@ export class BattleView {
     for (let i = 0; i < this.fx.length; i++) {
       const f = this.fx[i];
       f.t += dt;
-      if (f.t >= f.life) continue;
+      if (f.t >= f.life) { this.fxPool.push(f); continue; }
       this.fx[w++] = f;
       const k = f.t / f.life;
       f.x += f.vx * dt;
@@ -1424,6 +1569,26 @@ export class BattleView {
           g.beginPath(); g.arc(x + r * 0.45, y - r * 0.2 - k * u * 0.3, r * 0.55, 0, Math.PI * 2); g.fill();
           break;
         }
+        case "rays": {
+          // 光の筋（まわりながら広がる。中心はあかるく）
+          const a = (k < 0.15 ? k / 0.15 : (1 - k) / 0.85) * 0.5;
+          const R = f.r * u * (0.6 + k * 0.6);
+          const rot = f.x * 1.7 + k * 0.9;
+          g.globalAlpha = 1;
+          g.fillStyle = `rgba(${f.color},${(a * 0.7).toFixed(3)})`;
+          g.beginPath();
+          for (let j = 0; j < 10; j++) {
+            const a0 = rot + (j / 10) * Math.PI * 2, wdt = 0.09 + (j % 2) * 0.05;
+            g.moveTo(x, y);
+            g.lineTo(x + Math.cos(a0 - wdt) * R, y + Math.sin(a0 - wdt) * R);
+            g.lineTo(x + Math.cos(a0 + wdt) * R * 0.92, y + Math.sin(a0 + wdt) * R * 0.92);
+            g.closePath();
+          }
+          g.fill();
+          g.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+          g.beginPath(); g.arc(x, y, u * 0.5 * (1 - k * 0.5), 0, Math.PI * 2); g.fill();
+          break;
+        }
         case "text": {
           g.globalAlpha = k > 0.7 ? (1 - k) / 0.3 : 1;
           const fs = f.r * u * (k < 0.15 ? 0.6 + k * 2.7 : 1);
@@ -1454,16 +1619,33 @@ export class BattleView {
     const y = oy + ch * 5;
     const bu = Math.max(u * 1.6, 40);
     g.globalAlpha = Math.max(0, alpha) * 0.85;
-    g.fillStyle = "#2a170d";
-    g.fillRect(0, y - bu * 0.55, w, bu * (bn.sub ? 1.3 : 1.1));
+    const bandH = bu * (bn.sub ? 1.3 : 1.1);
+    // ぬしのときは、おびが横からすべりこむ・赤と黒のしま
+    const slide = bn.boss && k < 0.12 ? (1 - k / 0.12) * w : 0;
+    g.fillStyle = bn.boss ? "#5a0f0f" : "#2a170d";
+    g.fillRect(-slide, y - bu * 0.55, w, bandH);
+    if (bn.boss) {
+      g.fillStyle = "rgba(255,90,70,0.35)";
+      const st = bu * 0.4, off = (this.clock * 60) % (st * 2);
+      g.beginPath();
+      for (let sx = -st * 2 + off - slide; sx < w; sx += st * 2) {
+        g.moveTo(sx, y - bu * 0.55); g.lineTo(sx + st, y - bu * 0.55); g.lineTo(sx + st * 0.6, y - bu * 0.55 + bandH); g.lineTo(sx - st * 0.4, y - bu * 0.55 + bandH);
+      }
+      g.fill();
+      g.fillStyle = "#ffd84a";
+      g.fillRect(-slide, y - bu * 0.55, w, 3);
+      g.fillRect(-slide, y - bu * 0.55 + bandH - 3, w, 3);
+    }
     g.globalAlpha = Math.max(0, alpha);
     const sc = k < 0.1 ? 1.4 - k * 4 : 1;
     const fs = bu * 0.55 * sc;
     g.font = `900 ${fs}px system-ui, "Hiragino Maru Gothic ProN", sans-serif`;
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.fillStyle = "#ffd84a";
-    g.fillText(bn.text, w / 2, y);
+    const jx = bn.boss && k < 0.5 ? (Math.random() - 0.5) * u * 0.15 : 0;
+    if (bn.boss) { g.lineWidth = Math.max(3, fs * 0.14); g.strokeStyle = "#2a0505"; g.lineJoin = "round"; g.strokeText(bn.text, w / 2 + jx, y); }
+    g.fillStyle = bn.boss ? "#ffec6a" : "#ffd84a";
+    g.fillText(bn.text, w / 2 + jx, y);
     if (bn.sub) {
       g.font = `800 ${bu * 0.26}px system-ui, sans-serif`;
       g.fillStyle = "#fff";

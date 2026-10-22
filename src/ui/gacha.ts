@@ -10,6 +10,7 @@ import type { Ctx } from "./ctx";
 import { bar, h, svgIcon } from "./dom";
 import { ICONS, bagSvg } from "./icons";
 import { rarityPill, roleTag, wazaIcon, wazaStars } from "./parts";
+import { sfx, sfxGachaOpen } from "../audio";
 
 export { rarityPill, bondHearts } from "./parts";
 
@@ -136,6 +137,7 @@ export function showPullAnim(ctx: Ctx, results: PullResult[]): void {
       }
     }
     body.classList.add("all-open");
+    if (results.some((r) => r.isNew)) setTimeout(() => sfx(best >= 3 ? "unlock" : "levelUp"), 150);
     head.textContent = best >= 3 ? "すごいわざが出た！" : best >= 2 ? "いいわざが出たよ！" : "わざを覚えたよ！";
     okBtn.textContent = "OK";
   };
@@ -145,10 +147,13 @@ export function showPullAnim(ctx: Ctx, results: PullResult[]): void {
     const b = cells[next];
     const rank = RARITY_RANK[results[next].rarity];
     b.classList.add("shaking");
+    sfx("bagShake");
+    if (rank >= 3) setTimeout(() => { if (!done) sfx("bagShake", 1.2); }, 380);
     const wait = rank >= 3 ? 900 : rank >= 2 ? 520 : 300;
     timer = setTimeout(() => {
       b.classList.remove("shaking");
       b.classList.add("opened");
+      sfxGachaOpen(rank);
       next++;
       timer = setTimeout(step, results.length === 1 ? 200 : 170);
     }, wait);

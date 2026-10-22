@@ -24,6 +24,7 @@ import { renderGachaTab } from "./gacha";
 import { equipCard } from "./grow-equip";
 import { openSetup } from "./cat-form";
 import { bondHearts } from "./parts";
+import { getAudioSettings, setAudioSettings, setBgm, sfx } from "../audio";
 
 // 戦闘画面は別のモジュール。まだないときは、かんたんな代わりを使う。
 const battleModules = import.meta.glob<{ startBattle: StartBattle }>("../battle/screen.ts");
@@ -125,6 +126,7 @@ export function createApp(root: HTMLElement): AppHandle {
   };
 
   function toast(msg: string, kind: "ok" | "ng" = "ok"): void {
+    if (kind === "ng") sfx("error");
     const t = h("div", { class: `toast toast-${kind}` }, msg);
     toastBox.appendChild(t);
     while (toastBox.childElementCount > 3) toastBox.firstElementChild?.remove();
@@ -204,6 +206,7 @@ export function createApp(root: HTMLElement): AppHandle {
       render: () => {
         const ta = h("textarea", { class: "save-text", rows: "4", placeholder: "ここにセーブの文字をはりつけて「読みこむ」" }) as HTMLTextAreaElement;
         return h("div", { class: "settings" },
+          soundSettings(),
           h("div", { class: "panel-title" }, "セーブのバックアップ"),
           h("div", { class: "foot-row" },
             h("button", {
@@ -238,6 +241,42 @@ export function createApp(root: HTMLElement): AppHandle {
     });
   }
 
+  /** 音の設定（効果音・BGM の大きさ、消音）。変えたらすぐ保存する。 */
+  function soundSettings(): HTMLElement {
+    const st = getAudioSettings();
+    const slider = (label: string, key: "sfx" | "bgm") => {
+      const val = h("span", { class: "snd-val" }, `${Math.round(st[key] * 100)}`);
+      const input = h("input", { class: "snd-range", type: "range", min: "0", max: "100", step: "5", value: String(Math.round(st[key] * 100)), "aria-label": label }) as HTMLInputElement;
+      input.style.setProperty("--p", `${input.value}%`);
+      input.addEventListener("input", () => {
+        setAudioSettings({ [key]: Number(input.value) / 100 });
+        val.textContent = input.value;
+        input.style.setProperty("--p", `${input.value}%`);
+      });
+      // 効果音は、手をはなしたときに試しに鳴らす
+      if (key === "sfx") input.addEventListener("change", () => sfx("kibble"));
+      return h("label", { class: "snd-row" }, h("span", { class: "snd-k" }, label), input, val);
+    };
+    const mute = h("button", {
+      class: `btn btn-small snd-mute ${st.mute ? "on" : ""}`,
+      "aria-pressed": String(st.mute),
+      dataset: { sfx: "none" },
+      onclick: () => {
+        const m = !getAudioSettings().mute;
+        setAudioSettings({ mute: m });
+        mute.classList.toggle("on", m);
+        mute.setAttribute("aria-pressed", String(m));
+        mute.textContent = m ? "音を出す" : "音を消す";
+        if (!m) sfx("confirm");
+      },
+    }, st.mute ? "音を出す" : "音を消す") as HTMLButtonElement;
+    return h("div", { class: "snd" },
+      h("div", { class: "panel-title" }, "音"),
+      slider("効果音", "sfx"),
+      slider("BGM", "bgm"),
+      h("div", { class: "snd-foot" }, h("span", { class: "muted small" }, "音は、はじめて画面をさわったときから鳴ります"), mute));
+  }
+
   // ---------- 戦闘 ----------
 
   let battle: { destroy(): void } | null = null;
@@ -264,6 +303,7 @@ export function createApp(root: HTMLElement): AppHandle {
   }
 
   function showEndless(r: EndlessResult): void {
+    if (r.unlocked.length > 0 || r.newBest) sfx("unlock");
     const rank = { v: null as number | null, done: false };
     void submitScore(ctx, r.best).then((v) => { rank.v = v; rank.done = true; modals.rerenderAll(); });
     const m = modals.open({
@@ -302,6 +342,7 @@ export function createApp(root: HTMLElement): AppHandle {
         host.remove();
         app.style.display = "";
         inBattle = false;
+        setBgm("cafe");
         render();
         after();
       }, 0);
@@ -349,6 +390,9 @@ export function createApp(root: HTMLElement): AppHandle {
   }
 
   function showRewards(res: RewardResult): void {
+    const anyUp = Object.keys(res.levelUps).length > 0;
+    if (res.newObjects.length > 0) sfx("unlock");
+    else if (anyUp) sfx("levelUp");
     const m = modals.open({
       title: `${res.stageId} クリア！`,
       cls: "modal-reward",
@@ -405,6 +449,7 @@ export function createApp(root: HTMLElement): AppHandle {
   window.addEventListener("keydown", onKey);
 
   loadCatSprites(() => render());
+  setBgm("cafe");
   render();
   if (!save.setupDone) openSetup(ctx);
 

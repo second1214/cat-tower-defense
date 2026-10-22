@@ -1,6 +1,7 @@
 // レリック（全体の永続強化）の道。
 import { canUnlockRelic, nextRelic, relicBonus, unlockRelic, type RelicBonus } from "../core/progress";
 import { fmt } from "../core/num";
+import { sfx } from "../audio";
 import { RELICS, type RelicStat } from "../data/relics";
 import type { Ctx } from "./ctx";
 import { bar, h, svgIcon } from "./dom";
@@ -51,7 +52,7 @@ export function renderRelic(ctx: Ctx): HTMLElement {
       if (unlocked) { ctx.toast(`「${n.name}」は解放ずみ`); return; }
       if (!isNext) { ctx.toast("先に前のレリックを解放してね", "ng"); return; }
       const r = unlockRelic(ctx.save, n.id);
-      if (r.ok) { ctx.commit(); ctx.toast(`「${n.name}」を解放！ ${n.desc}`); } else ctx.toast(r.reason, "ng");
+      if (r.ok) { sfx("unlock"); ctx.commit(); ctx.toast(`「${n.name}」を解放！ ${n.desc}`); } else ctx.toast(r.reason, "ng");
     };
     const card = h("div", { class: "rl-card" },
       h("div", { class: "rl-name" }, n.name),
