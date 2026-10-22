@@ -2,6 +2,7 @@
 import { ENDLESS_REWARDS } from "../data/endless";
 import { canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
 import { fmt } from "../core/num";
+import { sfx } from "../audio";
 import { MAX_LOADOUT, type SaveData } from "../core/save";
 import type { ResolvedObject } from "../core/types";
 import { KIND_NAMES, OBJECTS, OBJECT_MAP } from "../data/objects";
@@ -173,7 +174,7 @@ export function openObjDetail(ctx: Ctx, id: string): void {
           class: `btn btn-lvup ${can.ok ? "btn-gold" : "btn-gray is-off"}`, disabled: !can.ok,
           onclick: () => {
             const r = levelUpObject(ctx.save, id);
-            if (r.ok) { ctx.commit(); ctx.toast(`${def.name}が Lv${ctx.save.objects[id].level} になった！`); } else ctx.toast(r.reason, "ng");
+            if (r.ok) { sfx("levelUp"); ctx.commit(); ctx.toast(`${def.name}が Lv${ctx.save.objects[id].level} になった！`); } else ctx.toast(r.reason, "ng");
           },
         },
           h("span", { class: "lvup-t" }, "レベルアップ"),

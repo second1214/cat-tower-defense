@@ -24,6 +24,7 @@ import { BattleView } from "./view";
 import { createAutoPilot } from "./auto";
 import { getCatPose, getSprite, imageSize, loadCatIdlePoses, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
+import { battleSfx, setBgm, setBgmIntensity, sfx } from "../audio";
 
 export interface BattleScreenOptions {
   /** 戦闘が終わって「つぎへ」を押したとき（1回だけ呼ぶ）。ごほうびの画面は呼び出し側で出す。 */
@@ -439,10 +440,12 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     updatePop();
   });
 
+  rmBtn.dataset.sfx = "none";
   rmBtn.addEventListener("click", () => {
     if (!popObj || paused || endShown) return;
     const r = battle.remove(popObj);
-    if (!r.ok) { showToast(r.reason ?? "どけられません"); bump(rmBtn, "shake"); return; }
+    if (!r.ok) { sfx("error"); showToast(r.reason ?? "どけられません"); bump(rmBtn, "shake"); return; }
+    sfx("remove");
     showToast(`どけた（次は ${fmt(battle.removeCost(r.obj!))} カリカリ）`);
     closePop();
   });
@@ -769,16 +772,35 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   // ---- 出来事 ----
   function onEvents(evs: readonly BattleEvent[]): void {
     view.onEvents(evs);
+    battleSfx(evs, roles);
     let flyN = 0;
     for (const e of evs) {
       switch (e.type) {
+        case "hit":
+          // 会心・ぬしへの強い一撃で、ほんの少しだけ止める（ヒットストップ）
+          if (e.x2 === 1 && hitStopCd <= 0) hitStopReq(e.y2 === 1 ? 0.06 : 0.04, 0.45);
+          break;
+        case "special":
+          hitStopReq(0.07, 0.3);
+          break;
+        case "spawn":
+          if (e.value === 1) { setBgm("boss"); view.bossEntrance(); }
+          break;
+        case "kill":
+          if (e.value === 1) {
+            hitStopReq(0.09, 0.3);
+            if (!battle.bugs.some((b) => b.alive && b.def.boss)) setBgm(baseMood);
+          }
+          break;
         case "wave": {
           const last = e.value === battle.waveTotal;
+          if (endless) setBgmIntensity((endlessBase + e.value) / 40);
           if (endless) view.showBanner(`なみ ${endlessBase + e.value}`, (endlessBase + e.value) % 10 === 0 ? "ぬしが来る！" : "");
           else view.showBanner(last ? "さいごのなみ！" : `なみ ${e.value}`, `${e.value}/${battle.waveTotal}`);
           break;
         }
         case "mamaHit":
+          hitStopReq(0.05, 0.4);
           mamaScaredT = 1.2;
           bump(mamaBox, "hit");
           bump(wrap, "hurt");
@@ -793,6 +815,13 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
           break;
       }
     }
+  }
+
+  /** ヒットストップを頼む（秒。続けて起きすぎないよう cd 秒あける）。 */
+  function hitStopReq(t: number, cd: number): void {
+    if (hitStopCd > 0 && t < 0.07) return;
+    hitStop = Math.min(0.1, Math.max(hitStop, t));
+    hitStopCd = cd;
   }
 
   function addFly(bx: number, by: number): void {
@@ -823,6 +852,21 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
       if (f.t >= f.life) { arrived = true; continue; }
       flies[w++] = f;
       const k = f.t / f.life;
+      // きらきらの尾（少し前にいた所に、小さな光）
+      for (let j = 1; j <= 3; j++) {
+        const kj = k - j * 0.06;
+        if (kj <= 0) break;
+        const ej = kj * kj * (3 - 2 * kj);
+        const tx = f.x0 + (f.x1 - f.x0) * ej, ty = f.y0 + (f.y1 - f.y0) * ej - Math.sin(kj * Math.PI) * 50;
+        const r = (4 - j) * 1.3;
+        fxG.globalAlpha = 0.75 - j * 0.2;
+        fxG.fillStyle = j === 1 ? "#fff6c0" : "#ffd84a";
+        fxG.beginPath();
+        fxG.moveTo(tx, ty - r * 1.6); fxG.lineTo(tx + r * 0.45, ty); fxG.lineTo(tx, ty + r * 1.6); fxG.lineTo(tx - r * 0.45, ty); fxG.closePath();
+        fxG.moveTo(tx - r * 1.6, ty); fxG.lineTo(tx, ty + r * 0.45); fxG.lineTo(tx + r * 1.6, ty); fxG.lineTo(tx, ty - r * 0.45); fxG.closePath();
+        fxG.fill();
+      }
+      fxG.globalAlpha = 1;
       const e = k * k * (3 - 2 * k);
       const x = f.x0 + (f.x1 - f.x0) * e;
       const y = f.y0 + (f.y1 - f.y0) * e - Math.sin(k * Math.PI) * 50;
@@ -880,6 +924,14 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     updatePop();
   }
 
+  // ---- 音・ヒットストップ ----
+  const roles = battle.cats.map((c) => c.char.role);
+  const baseMood = wall >= 1 ? "boss" : "battle";
+  let hitStop = 0;
+  let hitStopCd = 0;
+  setBgm(baseMood);
+  if (endless) setBgmIntensity(endlessBase / 40);
+
   // ---- ループ ----
   let raf = 0;
   let prev = performance.now();
@@ -903,13 +955,17 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
       if (holdText.textContent !== t) holdText.textContent = t;
     }
     if (mamaScaredT > 0 && !paused && !holding) mamaScaredT -= dt;
+    // ヒットストップ中は、時間をほとんど止める（ほんの一瞬。実時間で数える）
+    let ts = 1;
+    if (hitStop > 0) { hitStop -= dt; ts = 0.06; }
+    if (hitStopCd > 0) hitStopCd -= dt;
     if (!paused) {
       input.move = readMove();
       if (autoOn && !holding && !battle.result) {
         if (battle.time >= autoThink) { pilot.decide(); autoThink = battle.time + 0.5; }
         if (input.move.x === 0 && input.move.y === 0) input.move = pilot.steer();
       }
-      battle.step(dt * speed, input);
+      battle.step(dt * speed * ts, input);
       const g = Math.round((battle.cats[0]?.gauge ?? 0) * 100);
       if (g !== specShown) {
         specShown = g;
@@ -924,7 +980,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
         endTimer -= dt;
         if (endTimer <= 0) showResult(battle.result);
       }
-      view.render(dt);
+      view.render(dt * ts);
       drawFlies(dt);
       if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) toast.classList.remove("show"); }
     }

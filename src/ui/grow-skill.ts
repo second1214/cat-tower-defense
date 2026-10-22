@@ -6,6 +6,7 @@ import {
   catRole, resetSkills, skillSpent, skillTreeOf,
 } from "../core/progress";
 import { fmt } from "../core/num";
+import { sfx } from "../audio";
 import { ROLES, type SaveData } from "../core/save";
 import type { CharRole } from "../core/types";
 import { ROLE_NAMES } from "../data/chars";
@@ -266,7 +267,7 @@ function renderNodePanel(ctx: Ctx, role: CharRole, spent: number): HTMLElement {
   const combo = n.combo ? n.effects.find((e) => e.combo)?.combo : undefined;
   const learnOnce = () => {
     const r = learnSkill(ctx.save, role, n.id);
-    if (r.ok) ctx.commit(); else ctx.toast(r.reason, "ng");
+    if (r.ok) { sfx("levelUp"); ctx.commit(); } else ctx.toast(r.reason, "ng");
   };
   const learnMax = () => {
     let last = 0;
@@ -275,7 +276,7 @@ function renderNodePanel(ctx: Ctx, role: CharRole, spent: number): HTMLElement {
       if (!r.ok) break;
       last = r.value;
     }
-    if (last) ctx.commit();
+    if (last) { sfx("levelUp"); ctx.commit(); }
   };
   return h("div", { class: `np br-${n.branch} ${n.combo ? "np-combo" : ""}` },
     h("div", { class: "np-head" },

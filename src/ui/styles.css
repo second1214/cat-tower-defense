@@ -708,6 +708,23 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 
 /* 設定 */
 .settings .panel-title { margin-top: 6px; }
+/* 音の設定（つまみは、はちみつ色。木のみぞの上をすべる） */
+.snd { margin-bottom: 10px; }
+.snd-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.snd-k { width: 4.5em; flex: none; font-weight: var(--fw-b); font-size: var(--fs-s); color: var(--c-ink); }
+.snd-val { width: 2.4em; flex: none; text-align: right; font-weight: var(--fw-x); font-size: var(--fs-s); color: var(--c-ink-2); font-variant-numeric: tabular-nums; }
+.snd-range { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.snd-range::-webkit-slider-runnable-track { height: 10px; border-radius: 999px; border: 2px solid var(--c-line-soft);
+  background: linear-gradient(90deg, var(--c-honey) 0 var(--p, 50%), var(--c-well-2) var(--p, 50%) 100%); }
+.snd-range::-moz-range-track { height: 10px; border-radius: 999px; border: 2px solid var(--c-line-soft); background: var(--c-well-2); }
+.snd-range::-moz-range-progress { height: 10px; border-radius: 999px; background: var(--c-honey); }
+.snd-range::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -9px; border-radius: 50%;
+  background: var(--c-card); border: 3px solid var(--c-honey-d); box-shadow: 0 2px 0 var(--c-wood-2); }
+.snd-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--c-card); border: 3px solid var(--c-honey-d); }
+.snd-range:focus-visible { outline: 2px solid var(--c-honey-d); outline-offset: 2px; border-radius: 999px; }
+.snd-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.snd-mute { flex: none; white-space: nowrap; }
+.snd-mute.on { background: var(--c-terra); color: #fff; border-color: var(--c-terra-d); }
 .save-text { width: 100%; margin-top: 8px; border-radius: var(--rad-s); border: 2px solid var(--c-line-soft); background: var(--c-card); color: var(--c-ink); font-size: var(--fs-2xs); padding: 8px; resize: none; user-select: text; -webkit-user-select: text; font-family: ui-monospace, monospace; }
 .save-text:focus { outline: none; border-color: var(--c-honey-d); box-shadow: var(--glow-honey); }
 .danger-title { color: var(--t-danger); margin-top: 16px !important; }

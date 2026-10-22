@@ -348,11 +348,11 @@ export interface FloatText {
 
 export type BattleEventType =
   | "wave"         // 波が始まった（value = 波の番号 1〜）
-  | "spawn"        // 虫が出た
-  | "catAttack"    // 猫が攻撃した
+  | "spawn"        // 虫が出た（value = 1 ならぬし）
+  | "catAttack"    // 猫が攻撃した（value = 猫の添字）
   | "shoot"        // オブジェクトが弾を撃った（value = 弾の数）
-  | "hit"          // 虫にダメージ（value = ダメージ）
-  | "kill"         // 虫を倒した
+  | "hit"          // 虫にダメージ（value = ダメージ。x2 = 1 なら会心、y2 = 1 ならぬし）
+  | "kill"         // 虫を倒した（value = 1 ならぬし）
   | "kibble"       // カリカリが手に入った（value = 量。x, y は出どころ）
   | "aoe"          // 範囲攻撃（value = 半径）
   | "splash"       // 弾・電撃が当たった所のまわりへの範囲ダメージ（value = 半径）
@@ -1255,7 +1255,7 @@ export class Battle {
       resistAt: -99,
     };
     this.s.bugs.push(b);
-    this.emit("spawn", b.x, b.y, 0);
+    this.emit("spawn", b.x, b.y, def.boss ? 1 : 0);
   }
 
   // ---- spatial hash ----
@@ -2496,7 +2496,7 @@ export class Battle {
     b.hp -= dmg;
     b.hurt = 0.12;
     this.addFloat(dmg, b.x, b.y - 0.3, kind);
-    this.emit("hit", b.x, b.y, dmg);
+    this.emit("hit", b.x, b.y, dmg, kind === "crit" ? 1 : 0, b.def.boss ? 1 : 0);
     if (b.hp <= 0) {
       b.alive = false;
       b.hp = 0;
@@ -2509,7 +2509,7 @@ export class Battle {
         this.emit("kibble", kx, ky, drop);
         if (this.feverCats.length > 0) this.onKibble();
       }
-      this.emit("kill", kx, ky, 0);
+      this.emit("kill", kx, ky, b.def.boss ? 1 : 0);
       const c = this.curCat;
       if (c) this.onCatKill(c, b, dmg - before);
       const bc = this.burstCat;
