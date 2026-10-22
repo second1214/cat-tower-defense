@@ -31,7 +31,7 @@ export interface BotOpts {
  * これより長くかかったら打ち切り（負け）。戦闘には時間の上限が無いので、猫が虫をかじらせて足止めしあうと、
  * 弱い守りでも何十分もかけて勝ててしまう。ふつうのステージは 400 秒くらい・大難関でも 600 秒くらいで終わるので、その少し上。
  */
-export const BOT_MAX_TIME = 700;
+export const BOT_MAX_TIME = 900;
 
 const DT = 0.1;
 const THINK = 0.5;
@@ -48,6 +48,7 @@ export function runBot(lo: Loadout, opts: BotOpts): BotResult {
   let objNominal = 0;
   while (!b.result && b.time < maxTime) {
     if (opts.objects && b.time >= think) { ap.decide(); think = b.time + THINK; }
+    if (!opts.objects && (b.cats[0]?.gauge ?? 0) >= 1) b.useSpecial(0);
     input.move = ap.steer();
     b.step(DT, input);
     for (const o of b.objects) if (attacks(o.def)) objNominal += (o.atk / Math.max(0.1, o.def.interval)) * DT;

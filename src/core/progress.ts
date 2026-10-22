@@ -1,6 +1,6 @@
 // 成長の計算（セーブデータをさわる純粋な関数たち）。
 // 関数は save をその場で書きかえる。保存（writeSave）は呼ぶ側でする。
-import type { BugDef, CharRole, ComboId, Loadout, ObjectKind, Personality, ResolvedChar, ResolvedObject, StageDef } from "./types";
+import type { BugDef, CatSpecial, CharRole, ComboId, Loadout, ObjectKind, Personality, Rarity, ResolvedChar, ResolvedObject, StageDef } from "./types";
 import { type Rng, pickWeighted, randInt } from "./rng";
 import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
 import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bondToNext } from "../data/chars";
@@ -656,6 +656,13 @@ export function nextRelic(save: SaveData) {
 
 // ================= 計算ずみの強さ =================
 
+/** 必殺技の形（役割で決まる）。 */
+export const SPECIAL_KIND: Record<CharRole, CatSpecial["kind"]> = { melee: "burst", ranged: "line", aoe: "nova", fast: "dash" };
+/** 必殺技の威力（猫の攻撃力の何倍か。メインのわざのレアリティ）。レアなわざほど、ここで大きく差がつく。 */
+export const SPECIAL_POWER: Record<Rarity, number> = { N: 5, R: 7, SR: 10, SSR: 14, UR: 20 };
+/** 必殺技のゲージがたまる秒数。 */
+export const SPECIAL_CHARGE: Record<Rarity, number> = { N: 18, R: 16, SR: 14, SSR: 12, UR: 10 };
+
 /** 猫がいないときの仮の猫（ふつうは使われない）。 */
 const FALLBACK_CAT: CatSave = newCatSave("c1", CHAR_MAP.chatora.name, "chatora", CHAR_MAP.chatora.personality);
 
@@ -683,6 +690,12 @@ export function resolveCat(save: SaveData, uid: string = heroUid(save), companio
     role,
     companion,
     combos,
+    special: {
+      kind: SPECIAL_KIND[role],
+      name: w.name,
+      power: SPECIAL_POWER[w.rarity] * wazaLevelMul(save.wazas[w.id]?.level ?? 1),
+      charge: SPECIAL_CHARGE[w.rarity],
+    },
     maxHp: b.maxHp * baseMul * Math.pow(CHAR_GROWTH.hp, lv - 1) * m.hpMul * (1 + p.hp) * eq.charHpMul * rel.charHp,
     atk: b.atk * baseMul * Math.pow(CHAR_GROWTH.atk, lv - 1) * m.atkMul * (1 + p.atk) * eq.charAtkMul * rel.dmg,
     atkInterval: Math.max(0.15, (b.atkInterval * m.intervalMul) / (1 + p.atkSpd)),
