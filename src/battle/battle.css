@@ -548,3 +548,12 @@
 /* どけるボタン（強化の下。少し控えめ） */
 .bt-pop-rm { display: flex; width: 100%; margin-top: 6px; justify-content: space-between; align-items: center; padding: 4px 10px; border: 2px solid var(--bt-ink); border-radius: 10px; background: #f3e6dc; font-weight: 900; font-size: 13px; cursor: pointer; }
 .bt-pop-rm.disabled { opacity: .5; }
+
+/* 集合ボタン（必殺のボタンの上・小さめ） */
+.bt-rally { position: absolute; right: 18px; bottom: 92px; z-index: 6; width: 56px; height: 56px; border-radius: 50%;
+  border: 3px solid var(--bt-ink); box-shadow: 0 3px 0 var(--bt-ink); background: #e6f3ff; color: var(--bt-ink);
+  font-weight: 900; font-size: 14px; cursor: pointer; opacity: .9; }
+.bt-rally[hidden] { display: none; }
+.bt-rally:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--bt-ink); }
+.bt-rally.on { background: #8fd0ff; animation: bt-spec-glow 0.9s ease-in-out infinite alternate; }
+.bt-hint[hidden] { display: none; }
