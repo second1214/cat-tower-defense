@@ -150,7 +150,7 @@ describe("データ", () => {
     };
     expect(comboCount("UR")).toBeGreaterThan(comboCount("SR"));
     expect(comboCount("SR")).toBeGreaterThan(comboCount("N"));
-    expect(RARITY_MUL).toEqual({ N: 1, R: 1.2, SR: 1.45, SSR: 1.75, UR: 2.1 });
+    expect(RARITY_MUL).toEqual({ N: 1, R: 1.2, SR: 1.45, SSR: 1.75, UR: 2.1, EX: 2.5 });
     expect(wazaLevelMul(1)).toBe(1);
     expect(wazaLevelMul(5)).toBeCloseTo(1.8);
     expect(wazaLevelMul(9)).toBeCloseTo(1.8);
@@ -907,16 +907,18 @@ describe("ねこ福袋", () => {
       const r = rollRarity(rng);
       cnt[r] = (cnt[r] ?? 0) + 1;
     }
-    const total = Object.values(GACHA_RATES).reduce((a, b) => a + b, 0);
-    for (const r of RARITIES) {
+    // EX は、エンドレスで手に入れるまで出ない
+    const list = RARITIES.filter((r) => r !== "EX");
+    const total = list.reduce((a, r) => a + GACHA_RATES[r], 0);
+    for (const r of list) {
       const expect_ = GACHA_RATES[r] / total;
       expect(Math.abs(cnt[r] / n - expect_)).toBeLessThan(Math.max(0.005, expect_ * 0.08));
     }
-    expect(GACHA_RATES).toEqual({ N: 50, R: 30, SR: 14, SSR: 5, UR: 1 });
+    expect(GACHA_RATES).toEqual({ N: 50, R: 30, SR: 14, SSR: 5, UR: 1, EX: 0.6 });
     const rates = pullRates();
     expect(rates.reduce((s, x) => s + x.rate, 0)).toBeCloseTo(1);
     expect(rates.flatMap((x) => x.wazas).reduce((s, w) => s + w.rate, 0)).toBeCloseTo(1);
-    expect(rates.flatMap((x) => x.wazas).length).toBe(WAZAS.length); // わざは全部出る
+    expect(rates.flatMap((x) => x.wazas).length).toBe(WAZAS.filter((w) => w.rarity !== "EX").length); // EX 以外のわざは全部出る
   });
   test("1回 10・10回 90 のちゅ〜る", () => {
     expect(pullCost(1)).toBe(10);
@@ -992,8 +994,9 @@ describe("ねこ福袋", () => {
       maxGap = Math.max(maxGap, gap);
     }
     expect(maxGap).toBeLessThan(PITY_PULLS);
-    // たくさん回せば、わざは全部そろって、みんな最大レベル
-    for (const w of WAZAS) expect(u.wazas[w.id]?.level).toBe(MAX_WAZA_LEVEL);
+    // たくさん回せば、わざは全部そろって、みんな最大レベル（EX はエンドレスで手に入れたものだけ出る）
+    for (const w of WAZAS) if (w.rarity !== "EX") expect(u.wazas[w.id]?.level).toBe(MAX_WAZA_LEVEL);
+
   });
   test("かぶったら、わざのレベル +1（最大5）・そのあとはちゅ〜るに", () => {
     const s = newSave();

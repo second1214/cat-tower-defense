@@ -3,9 +3,10 @@
 // range は、オブジェクトの真ん中から測った半径（マス）。
 import type { ObjectKind, ResolvedObject } from "../core/types";
 
-export type ObjRarity = "N" | "R" | "SR" | "SSR";
+/** EX はエンドレスでだけ手に入る（虹色。手に入れたあとは、ストーリーでもかけらが落ちる）。 */
+export type ObjRarity = "N" | "R" | "SR" | "SSR" | "EX";
 
-export const OBJ_RARITY_ORDER: ObjRarity[] = ["N", "R", "SR", "SSR"];
+export const OBJ_RARITY_ORDER: ObjRarity[] = ["N", "R", "SR", "SSR", "EX"];
 
 /** レベル1の基本ステータス。range は届く半径（マス）。shooter は半径の中のいちばん近い虫をねらう。 */
 export type ObjectBase = Omit<ResolvedObject, "id" | "name" | "kind" | "perks">;
@@ -66,10 +67,13 @@ export const OBJ_LEVEL_GROWTH = 1.25;
 export const OBJ_PRODUCE_PER_LEVEL = 0.02;
 
 /** レアリティごとの、レベルアップに使うお金の倍率。 */
-export const OBJ_RARITY_COST: Record<ObjRarity, number> = { N: 1, R: 1.5, SR: 2.5, SSR: 4 };
+export const OBJ_RARITY_COST: Record<ObjRarity, number> = { N: 1, R: 1.5, SR: 2.5, SSR: 4, EX: 6 };
 
 /** ドロップのしやすさ（かけら）。 */
-export const OBJ_RARITY_DROP: Record<ObjRarity, number> = { N: 10, R: 7, SR: 4, SSR: 2 };
+export const OBJ_RARITY_DROP: Record<ObjRarity, number> = { N: 10, R: 7, SR: 4, SSR: 2, EX: 2 };
+
+/** ストーリーでは手に入らない（エンドレスで手に入れる）オブジェクトの unlockStage。 */
+export const EX_ONLY = 99999;
 
 /** 次のレベルに必要なかけら（10, 15, 20, …）。 */
 export function shardsToNext(level: number): number {
@@ -323,6 +327,67 @@ export const OBJECTS: ObjectDef[] = [
       P(30, "wide2", "大ぶり+", "範囲 +0.4", add("range", 0.4)),
       P(40, "combo2", "往復ビンタ", "間隔 -20%", mul("interval", 0.8)),
       P(50, "final", "本気のママ", "会心 +15%・会心の倍率 +1", add("crit", 0.15), add("critMul", 1)),
+    ],
+  },
+  // ======== エンドレスでだけ手に入る（EX）。unlockStage はストーリーでは来ない数 ========
+  {
+    id: "laser", name: "レーザーポインター", kind: "shooter", rarity: "EX", unlockStage: EX_ONLY,
+    desc: "赤い点がビュンビュン走る。光は虫をまっすぐつらぬく。",
+    base: B("shooter", { cost: 45, maxHp: 14, atk: 2.2, interval: 0.3, range: 6, pierce: 4 }),
+    perks: [
+      P(3, "focus", "しぼる", "攻撃 ×1.3", mul("atk", 1.3)),
+      P(6, "twin", "ふたつの点", "弾 +1", add("multishot", 1), add("spread", 0.25)),
+      P(10, "through", "どこまでも", "貫通 +4", add("pierce", 4)),
+      P(15, "crit", "急所を照らす", "会心 15%・×2.5", add("crit", 0.15), add("critMul", 2.5)),
+      P(20, "fast", "高速点滅", "間隔 -25%", mul("interval", 0.75)),
+      P(30, "prism", "プリズム", "弾 +2", add("multishot", 2), add("spread", 0.5)),
+      P(40, "max", "最大出力", "攻撃 ×1.6", mul("atk", 1.6)),
+      P(50, "rainbow", "虹の光", "貫通 +8・会心 +15%", add("pierce", 8), add("crit", 0.15)),
+    ],
+  },
+  {
+    id: "hotcarpet", name: "ホットカーペット", kind: "poison", rarity: "EX", unlockStage: EX_ONLY,
+    desc: "上を通る虫はぽかぽか…じわじわ。倒れた虫から熱がうつる。虫は上を通れる。",
+    base: B("poison", { cost: 40, maxHp: 60, atk: 1.6, interval: 0.8, range: 1.2, poison: 0.8, poisonSpread: 1.2, slow: 0.8, block: false, w: 2, h: 2 }),
+    perks: [
+      P(3, "warm", "あったか", "毒 +40%", add("poison", 0.4)),
+      P(6, "wide", "ひろがる熱", "範囲 +0.4・うつる距離 +0.5", add("range", 0.4), add("poisonSpread", 0.5)),
+      P(10, "slow", "とろける", "虫を 0.8 倍の速さに", mul("slow", 0.8)),
+      P(15, "hot", "「強」", "攻撃 ×1.5", mul("atk", 1.5)),
+      P(20, "spread", "熱がめぐる", "うつる距離 +0.8", add("poisonSpread", 0.8)),
+      P(30, "hotter", "ぽかぽか+", "毒 +80%", add("poison", 0.8)),
+      P(40, "max", "最高温度", "攻撃 ×1.6", mul("atk", 1.6)),
+      P(50, "sauna", "サウナ", "範囲 +0.6・攻撃 ×1.5", add("range", 0.6), mul("atk", 1.5)),
+    ],
+  },
+  {
+    id: "robot", name: "お掃除ロボ", kind: "aoe", rarity: "EX", unlockStage: EX_ONLY,
+    desc: "ウィーン。まわりの虫をまとめて吸いこみ、はじきとばす。",
+    base: B("aoe", { cost: 60, maxHp: 45, atk: 4, interval: 1.1, range: 2.2, knockback: 0.5, w: 2, h: 2 }),
+    perks: [
+      P(3, "turbo", "ターボ", "攻撃 ×1.3", mul("atk", 1.3)),
+      P(6, "wide", "広い掃除", "範囲 +0.4", add("range", 0.4)),
+      P(10, "push", "はじく", "おしもどし +0.5", add("knockback", 0.5)),
+      P(15, "fast", "時短モード", "間隔 -20%", mul("interval", 0.8)),
+      P(20, "crit", "しつこい汚れ", "会心 15%・×2", add("crit", 0.15), add("critMul", 2)),
+      P(30, "wide2", "全部屋モード", "範囲 +0.6", add("range", 0.6)),
+      P(40, "max", "強力吸引", "攻撃 ×1.7", mul("atk", 1.7)),
+      P(50, "storm", "竜巻", "おしもどし +0.8・攻撃 ×1.4", add("knockback", 0.8), mul("atk", 1.4)),
+    ],
+  },
+  {
+    id: "seijouki", name: "空気清浄機", kind: "zap", rarity: "EX", unlockStage: EX_ONLY,
+    desc: "プラズマでお部屋まるごときれいに。電気が虫から虫へどこまでも飛ぶ。",
+    base: B("zap", { cost: 70, maxHp: 40, atk: 3.5, interval: 0.9, range: 3.5, chain: 6, chainRange: 2.4, w: 2, h: 2 }),
+    perks: [
+      P(3, "chain", "つながる", "電撃 +3匹", add("chain", 3)),
+      P(6, "far", "遠くまで", "飛ぶ距離 +0.6", add("chainRange", 0.6)),
+      P(10, "power", "プラズマ", "攻撃 ×1.4", mul("atk", 1.4)),
+      P(15, "chain2", "部屋じゅう", "電撃 +5匹", add("chain", 5)),
+      P(20, "fast", "自動運転", "間隔 -20%", mul("interval", 0.8)),
+      P(30, "crit", "イオン", "会心 15%・×2.5", add("crit", 0.15), add("critMul", 2.5)),
+      P(40, "max", "フルパワー", "攻撃 ×1.7", mul("atk", 1.7)),
+      P(50, "storm", "いなずま", "電撃 +8匹・飛ぶ距離 +1", add("chain", 8), add("chainRange", 1)),
     ],
   },
 ];

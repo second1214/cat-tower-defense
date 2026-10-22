@@ -174,7 +174,7 @@ function openRates(ctx: Ctx): void {
     title: "福袋の中身と確率",
     cls: "modal-rates modal-tall",
     render: () => h("div", { class: "rates" },
-      pullRates().map((g) => h("div", { class: `rt-group rt-${g.rarity}` },
+      pullRates(ctx.save).map((g) => h("div", { class: `rt-group rt-${g.rarity}` },
         h("div", { class: "rt-head" }, rarityPill(g.rarity), h("span", { class: "rt-rate" }, pct(g.rate)),
           h("span", { class: "muted small" }, `${g.wazas.length}こ・1つ ${pct(g.wazas[0]?.rate ?? 0)}`)),
         h("div", { class: "rt-wazas" }, g.wazas.map((x) => {

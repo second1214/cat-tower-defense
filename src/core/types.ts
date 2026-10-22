@@ -13,7 +13,8 @@ export const ROWS = 18;
 export type CharRole = "melee" | "ranged" | "aoe" | "fast";
 
 /** レアリティ（わざ・装備に付く。猫そのものには付けない）。 */
-export type Rarity = "N" | "R" | "SR" | "SSR" | "UR";
+/** EX はエンドレスでだけ手に入る（虹色）。 */
+export type Rarity = "N" | "R" | "SR" | "SSR" | "UR" | "EX";
 
 /** 猫の性格（強い・弱いの差はなく、得意・不得意が入れかわるだけ）。 */
 export type Personality = "yancha" | "nonbiri" | "amaenbo" | "kuishinbo" | "kokishin" | "maipace";
@@ -133,6 +134,8 @@ export interface ResolvedObject {
   crit: number;         // 会心の確率
   critMul: number;      // 会心の倍率
   perks: string[];
+  /** エンドレスで手に入る特別なオブジェクト（虹色に光る・弾がきらきら）。 */
+  ex?: boolean;
 }
 
 /** 虫の種類（ステージで使う）。 */

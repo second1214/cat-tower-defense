@@ -66,6 +66,7 @@ export interface SaveData {
   cleared: number;                       // クリアした一番先のステージ（通し番号 0 始まり）。-1 はまだ
   clearCounts: Record<string, number>;   // ステージ id → クリア回数
   endlessBest: number;                   // エンドレスで、こえた波のいちばん先（0 はまだ）
+  exUnlocked: string[];                  // エンドレスで手に入れた EX（わざ・オブジェクトの id）
   playerName: string;                    // ランキングに出す名前（空なら主人公の名前）
   selectedStage: string;                 // メイン画面で選んでいるステージ
   nextUid: number;                       // 装備の uid の連番
@@ -112,6 +113,7 @@ export function newSave(): SaveData {
     cleared: -1,
     clearCounts: {},
     endlessBest: 0,
+    exUnlocked: [],
     playerName: "",
     selectedStage: "1-1",
     nextUid: 1,
@@ -349,6 +351,8 @@ export function migrate(raw: unknown): SaveData {
   }
   if (!Array.isArray(out.relics)) out.relics = [];
   out.endlessBest = Math.max(0, Math.floor(num(out.endlessBest, 0)));
+  if (!Array.isArray(out.exUnlocked)) out.exUnlocked = [];
+  out.exUnlocked = out.exUnlocked.filter((x) => typeof x === "string");
   if (typeof out.playerName !== "string") out.playerName = "";
   out.playerName = out.playerName.slice(0, 12);
   if (typeof out.cleared !== "number") out.cleared = -1;

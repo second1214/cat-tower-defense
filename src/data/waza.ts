@@ -5,11 +5,11 @@
 import type { CharRole, Rarity, ResolvedChar } from "../core/types";
 import { type SkillEffect, type SkillStat, effectsText } from "./skills";
 
-export const RARITIES: Rarity[] = ["N", "R", "SR", "SSR", "UR"];
+export const RARITIES: Rarity[] = ["N", "R", "SR", "SSR", "UR", "EX"];
 /** レアリティの順番（N = 0 … UR = 4）。 */
-export const RARITY_RANK: Record<Rarity, number> = { N: 0, R: 1, SR: 2, SSR: 3, UR: 4 };
+export const RARITY_RANK: Record<Rarity, number> = { N: 0, R: 1, SR: 2, SSR: 3, UR: 4, EX: 5 };
 /** メインのわざのレアリティで、基本の体力・攻撃に掛ける倍率。 */
-export const RARITY_MUL: Record<Rarity, number> = { N: 1, R: 1.2, SR: 1.45, SSR: 1.75, UR: 2.1 };
+export const RARITY_MUL: Record<Rarity, number> = { N: 1, R: 1.2, SR: 1.45, SSR: 1.75, UR: 2.1, EX: 2.5 };
 
 /** レベル1の基本ステータス（倍率・なかよし度を掛ける前）。 */
 export type CharBase = Omit<ResolvedChar, "id" | "name" | "look" | "role" | "companion" | "combos">;
@@ -144,6 +144,19 @@ export const WAZAS: WazaDef[] = [
     [["crit", 0.06], ["combo:critChain", 2], ["combo:zapVenom", 0.5]]),
   sub("ooabare", "大暴れ", "UR", "攻撃の速さ +10%・倒すたびノリノリ・カリカリでやる気・連続攻撃の最後が範囲に",
     [["atkSpd", 0.1], ["combo:frenzy", 0.08], ["combo:kibbleFever", 0.08], ["combo:multiEcho", 1]]),
+  // ======== エンドレスでだけ手に入る（EX）。手に入れたあとは、ねこ福袋からも出る ========
+  sub("nijiironokenami", "虹色の毛並み", "EX", "会心 +8%・会心で電撃が3回とぶ・電撃に毒をのせる",
+    [["crit", 0.08], ["combo:critChain", 3], ["combo:zapVenom", 0.3]]),
+  main("hyakuretsu", "猫キック百烈", "EX", "melee", "目にもとまらぬ猫キック。連続攻撃 +2・押しもどした虫が壁にぶつかると大ダメージ",
+    [["multiHit", 2], ["knockback", 0.4], ["combo:knockSlam", 1.5], ["combo:frenzy", 0.06]]),
+  main("ryusei", "流星の毛玉", "EX", "ranged", "毛玉が流れ星のように飛ぶ。つらぬく +3・つらぬくたびに強くなる",
+    [["pierce", 3], ["combo:pierceGrow", 0.4], ["combo:overkill", 0.5]], { range: 4 }),
+  main("ginganoshippo", "銀河のしっぽ", "EX", "aoe", "しっぽのひとふりが銀河のうず。衝撃波・毒の虫が倒れると爆発",
+    [["combo:shockwave", 0.8], ["combo:poisonBurst", 2], ["poison", 0.3]], { aoe: 1.6 }),
+  main("kousoku", "光速ねこダッシュ", "EX", "fast", "光より速い。よける +15%・よけたら反撃・倒すたびノリノリ",
+    [["dodge", 0.15], ["combo:dodgeCounter", 2], ["combo:frenzy", 0.1], ["multiHit", 1]]),
+  sub("densetsunomaneki", "伝説のまねき猫", "EX", "カリカリ +30%・カリカリでやる気・ぬしへのダメージ +100%・余ったダメージを次の虫へ",
+    [["kibble", 0.3], ["combo:kibbleFever", 0.1], ["combo:bossHunter", 1], ["combo:overkill", 0.6]]),
 ];
 
 export const WAZA_MAP: Record<string, WazaDef> = Object.fromEntries(WAZAS.map((w) => [w.id, w]));

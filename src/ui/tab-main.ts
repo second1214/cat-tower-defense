@@ -1,6 +1,6 @@
 // メイン（ステージを選ぶ）。
 import {
-  FIRST_CLEAR_CHURU_MUL, buildLoadout, catRole, estimateDps, heroUid, isStageUnlocked, mainWazaOf, nextStageId, partyUids,
+  FIRST_CLEAR_CHURU_MUL, buildLoadout, nextEndlessReward, catRole, estimateDps, heroUid, isStageUnlocked, mainWazaOf, nextStageId, partyUids,
   relicBonus, setParty, stageById, stageIndexOf, stageLoad, STAGES,
 } from "../core/progress";
 import { fmt } from "../core/num";
@@ -126,11 +126,13 @@ export function renderMain(ctx: Ctx): HTMLElement {
 
   // エンドレス（1-5 をこえたら）とランキング
   const endlessOpen = save.cleared >= ENDLESS_UNLOCK;
+  const exNext = nextEndlessReward(save);
   const modeBtns = h("div", { class: "mn-modes" },
     h("button", {
       class: `btn mn-mode ${endlessOpen ? "" : "is-off"}`, disabled: !endlessOpen,
       onclick: () => ctx.playEndless(),
-    }, h("b", null, "エンドレス"), h("small", null, endlessOpen ? `記録 ${save.endlessBest}波` : "1-5 クリアで")),
+    }, h("b", null, "エンドレス"), h("small", null, endlessOpen ? `記録 ${save.endlessBest}波` : "1-5 クリアで"),
+      endlessOpen && exNext ? h("small", { class: "ex-next" }, `${exNext.wave}波でEX`) : null),
     h("button", { class: "btn mn-mode", onclick: () => openRanking(ctx) }, h("b", null, "ランキング"), h("small", null, "みんなの記録")));
 
   // ---- まん中: 猫カフェ ----

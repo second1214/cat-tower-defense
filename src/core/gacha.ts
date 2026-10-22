@@ -12,11 +12,11 @@ export const PULL_COST = 10;
 /** 10回まとめてのちゅ〜る（1回ぶんおとく。SR 以上が1つ確定）。 */
 export const PULL10_COST = 90;
 /** レアリティごとの出やすさ（%）。 */
-export const GACHA_RATES: Record<Rarity, number> = { N: 50, R: 30, SR: 14, SSR: 5, UR: 1 };
+export const GACHA_RATES: Record<Rarity, number> = { N: 50, R: 30, SR: 14, SSR: 5, UR: 1, EX: 0.6 };
 /** SSR 以上が来ないままこの回数目になると、かならず SSR 以上（天井）。 */
 export const PITY_PULLS = 50;
 /** わざのレベルが最大のときに、また出たら返すちゅ〜る。 */
-export const WAZA_REFUND: Record<Rarity, number> = { N: 1, R: 2, SR: 5, SSR: 15, UR: 40 };
+export const WAZA_REFUND: Record<Rarity, number> = { N: 1, R: 2, SR: 5, SSR: 15, UR: 40, EX: 60 };
 
 export interface PullResult {
   wazaId: string;
@@ -45,23 +45,32 @@ function rollFrom(rng: Rng, list: Rarity[]): Rarity {
   return list[list.length - 1];
 }
 
-/** レアリティを抽選する。atLeast を指定すると、それ以上の中から（比率はそのまま）。 */
-export function rollRarity(rng: Rng, atLeast: Rarity = "N"): Rarity {
-  return rollFrom(rng, RARITIES.filter((r) => RARITY_RANK[r] >= RARITY_RANK[atLeast]));
+/** ねこ福袋に入っている EX のわざ（エンドレスで手に入れたものだけ）。 */
+export function exWazaPool(save: SaveData | null): string[] {
+  if (!save) return [];
+  return WAZAS.filter((w) => w.rarity === "EX" && save.exUnlocked.includes(w.id)).map((w) => w.id);
 }
 
-/** そのレアリティのわざから1つ（メイン・サブまとめて、同じ確率）。 */
-export function rollWazaOf(rng: Rng, rarity: Rarity): string {
-  const pool = WAZAS.filter((w) => w.rarity === rarity);
-  return pick(rng, pool.length ? pool : WAZAS).id;
+/** レアリティを抽選する。atLeast を指定すると、それ以上の中から（比率はそのまま）。ex が false なら EX は出ない。 */
+export function rollRarity(rng: Rng, atLeast: Rarity = "N", ex = false): Rarity {
+  return rollFrom(rng, RARITIES.filter((r) => RARITY_RANK[r] >= RARITY_RANK[atLeast] && (ex || r !== "EX")));
+}
+
+/** そのレアリティのわざから1つ（メイン・サブまとめて、同じ確率）。EX は手に入れたものだけ。 */
+export function rollWazaOf(rng: Rng, rarity: Rarity, save: SaveData | null = null): string {
+  const ex = exWazaPool(save);
+  const pool = rarity === "EX" ? WAZAS.filter((w) => ex.includes(w.id)) : WAZAS.filter((w) => w.rarity === rarity);
+  return pick(rng, pool.length ? pool : WAZAS.filter((w) => w.rarity === "UR")).id;
 }
 
 /** 表示用: レアリティごとの確率（0〜1）と、そのレアリティのわざごとの確率。 */
-export function pullRates(): { rarity: Rarity; rate: number; wazas: { id: string; rate: number }[] }[] {
-  const total = RARITIES.reduce((s, r) => s + GACHA_RATES[r], 0);
-  return RARITIES.map((rarity) => {
+export function pullRates(save: SaveData | null = null): { rarity: Rarity; rate: number; wazas: { id: string; rate: number }[] }[] {
+  const ex = exWazaPool(save);
+  const list = RARITIES.filter((r) => r !== "EX" || ex.length > 0);
+  const total = list.reduce((s, r) => s + GACHA_RATES[r], 0);
+  return list.map((rarity) => {
     const rate = GACHA_RATES[rarity] / total;
-    const pool = WAZAS.filter((w) => w.rarity === rarity);
+    const pool = rarity === "EX" ? WAZAS.filter((w) => ex.includes(w.id)) : WAZAS.filter((w) => w.rarity === rarity);
     return { rarity, rate, wazas: pool.map((w) => ({ id: w.id, rate: rate / pool.length })) };
   });
 }
@@ -107,28 +116,29 @@ export function pull(save: SaveData, rng: Rng, count: 1 | 10): Result<PullResult
   // 先にレアリティを全部決める（10回まとめての SR 以上のおまけのため）
   const rolls: { rarity: Rarity; pity: boolean; guaranteed: boolean }[] = [];
   let pity = save.gachaPity;
+  const ex = exWazaPool(save).length > 0;
   for (let i = 0; i < count; i++) {
     let rarity: Rarity;
     let isPity = false;
     if (pity + 1 >= PITY_PULLS) {
-      rarity = rollRarity(rng, "SSR");
+      rarity = rollRarity(rng, "SSR", ex);
       isPity = true;
     } else {
-      rarity = rollRarity(rng);
+      rarity = rollRarity(rng, "N", ex);
     }
     pity = RARITY_RANK[rarity] >= RARITY_RANK.SSR ? 0 : pity + 1;
     rolls.push({ rarity, pity: isPity, guaranteed: false });
   }
   if (count === 10 && !rolls.some((r) => RARITY_RANK[r.rarity] >= RARITY_RANK.SR)) {
     const last = rolls[rolls.length - 1];
-    last.rarity = rollRarity(rng, "SR");
+    last.rarity = rollRarity(rng, "SR", ex);
     last.guaranteed = true;
     if (RARITY_RANK[last.rarity] >= RARITY_RANK.SSR) pity = 0;
   }
   save.gachaPity = pity;
   save.totalPulls += count;
   const out: PullResult[] = rolls.map((r) => ({
-    ...gainWaza(save, rollWazaOf(rng, r.rarity)),
+    ...gainWaza(save, rollWazaOf(rng, r.rarity, save)),
     pity: r.pity,
     guaranteed: r.guaranteed,
   }));

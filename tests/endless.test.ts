@@ -47,3 +47,28 @@ describe("オブジェクトをどける", () => {
     expect(b.removeCost(o2)).toBe(Math.ceil(c1 * REMOVE_COST_GROWTH));
   });
 });
+
+import { syncEndlessRewards } from "../src/core/progress";
+import { pull } from "../src/core/gacha";
+import { mulberry32 } from "../src/core/rng";
+import { ENDLESS_REWARDS } from "../src/data/endless";
+
+describe("エンドレスの EX", () => {
+  test("記録に届くと手に入る・EX のわざは福袋から出る・EX のオブジェクトはストーリーでも持てる", () => {
+    const s = newSave();
+    const rng = mulberry32(5);
+    // まだ EX が無いうちは、福袋から EX は出ない
+    s.churu = 1e6;
+    for (let i = 0; i < 30; i++) for (const r of (pull(s, rng, 10) as { ok: true; value: { rarity: string }[] }).value) expect(r.rarity).not.toBe("EX");
+    s.endlessBest = 25;
+    const got = syncEndlessRewards(s);
+    expect(got.map((g) => g.id)).toEqual(["laser", "nijiironokenami"]);
+    expect(s.objects.laser).toBeTruthy();
+    expect(s.wazas.nijiironokenami).toBeTruthy();
+    expect(syncEndlessRewards(s)).toEqual([]);
+    let ex = 0;
+    for (let i = 0; i < 200; i++) for (const r of (pull(s, rng, 10) as { ok: true; value: { rarity: string; wazaId: string }[] }).value) if (r.rarity === "EX") { ex++; expect(r.wazaId).toBe("nijiironokenami"); }
+    expect(ex).toBeGreaterThan(0);
+    expect(ENDLESS_REWARDS.length).toBeGreaterThanOrEqual(8);
+  });
+});
