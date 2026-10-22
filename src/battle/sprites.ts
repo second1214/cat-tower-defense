@@ -255,7 +255,7 @@ function drawSprite(kind: SpriteKind, id: string, hint?: SpriteHint): HTMLCanvas
     case "catRest": return drawCat(coatOf(id, hint?.role), true);
     case "object": return drawObject(id, hint?.kind);
     case "bug": return drawBug(bugShapeOf(id), id);
-    case "projectile": return drawProjectile(id);
+    case "projectile": return drawShot(id, hint?.kind);
     case "pickup": return drawKibble();
     case "mama": return drawMama(id === "scared");
   }
@@ -661,6 +661,16 @@ function drawPoison(g: G, id: string): void {
 }
 
 function drawShooter(g: G, id: string): void {
+  if (id === "laser") {
+    // レーザーポインター（ペン型。先から赤い光）
+    rr(g, 54, 34, 20, 74, 9);
+    fs(g, "#8a8fa0", () => { line(g, [60, 42, 60, 100], 3, "rgba(255,255,255,0.45)"); rr(g, 58, 60, 12, 10, 3); g.fillStyle = "#ff5a5a"; g.fill(); });
+    const gr = g.createRadialGradient(64, 26, 0, 64, 26, 24);
+    gr.addColorStop(0, "rgba(255,70,70,0.95)"); gr.addColorStop(1, "rgba(255,70,70,0)");
+    g.fillStyle = gr; g.beginPath(); g.arc(64, 26, 24, 0, Math.PI * 2); g.fill();
+    dot(g, 64, 26, 7, "#ffe9e9");
+    return;
+  }
   const water = id.includes("deppo") || id.includes("mizu");
   const fan = id.includes("senpuki");
   if (fan) {
@@ -1219,6 +1229,39 @@ function drawBug(shape: BugShape, id: string): HTMLCanvasElement {
 // ---------------------------------------------------------------------------
 // 弾・カリカリ
 // ---------------------------------------------------------------------------
+
+/** オブジェクトごとの弾（id で決まるものは id の絵、それ以外は種類の絵）。 */
+function drawShot(id: string, kind?: string): HTMLCanvasElement {
+  const [cv, g] = mk();
+  const glow = (color: string, r: number) => {
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, r);
+    gr.addColorStop(0, color); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.beginPath(); g.arc(64, 64, r, 0, Math.PI * 2); g.fill();
+  };
+  switch (id) {
+    case "mizudeppo": {
+      // 水のしずく（光って立体的に）
+      path((p) => { p.moveTo(64, 18); p.bezierCurveTo(96, 60, 96, 104, 64, 106); p.bezierCurveTo(32, 104, 32, 60, 64, 18); });
+      fs(g, "#6ec4f5", () => { ell(g, 54, 70, 9, 14, -0.4); g.fillStyle = "rgba(255,255,255,0.75)"; g.fill(); });
+      return cv;
+    }
+    case "senpuki": {
+      // 風のうず
+      glow("rgba(200,235,255,0.9)", 54);
+      for (let i = 0; i < 3; i++) curve(g, 20 + i * 6, 44 + i * 18, 64, 20 + i * 18, 108 - i * 6, 44 + i * 18, 7, i === 1 ? "#5aa8e0" : "#9fd3f5");
+      return cv;
+    }
+    case "laser": {
+      // 赤い光の点
+      glow("rgba(255,60,60,0.95)", 58);
+      dot(g, 64, 64, 18, "#ff3b3b");
+      dot(g, 60, 60, 8, "#fff2f2");
+      return cv;
+    }
+    case "oyatsu": case "esara": break;
+  }
+  return drawProjectile(kind ?? id);
+}
 
 function drawProjectile(kind: string): HTMLCanvasElement {
   const [cv, g] = mk();

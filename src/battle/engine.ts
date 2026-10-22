@@ -252,6 +252,8 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** 「集合」で相棒が主人公のそばにいる秒数。 */
+export const RALLY_TIME = 8;
 /** どけるときの、いちばん安いカリカリ。 */
 export const REMOVE_MIN_COST = 10;
 /** どけるたびに、次にどけるカリカリに掛ける倍率。 */
@@ -1324,6 +1326,12 @@ export class Battle {
   }
 
   // ---- 猫 ----
+  /** 集合の残り秒数（0 なら、相棒はふだんどおり歩きまわる）。 */
+  private rallyT = 0;
+  get rallyLeft(): number { return this.rallyT; }
+  /** 相棒を主人公のそばに集める（sec 秒のあいだ）。 */
+  rally(sec = RALLY_TIME): void { if (!this.s.result) this.rallyT = sec; }
+
   /** 必殺技のたのみ（猫の添字のビット）。 */
   private specialReq = 0;
   /** 必殺技をたのむ（i = cats の添字。0 が主人公）。次のコマで撃つ。ゲージが足りない・休けい中なら false。 */
@@ -1391,6 +1399,7 @@ export class Battle {
 
   private updateCats(h: number, input: BattleInput): void {
     const cats = this.s.cats;
+    if (this.rallyT > 0) this.rallyT = Math.max(0, this.rallyT - h);
     // 複合効果の状態（重ねの時間・ママの近く・体力が少ない・ほかの猫が近い）
     for (let i = 0; i < cats.length; i++) {
       const c = cats[i];
@@ -1436,6 +1445,25 @@ export class Battle {
   private companionSteer(c: CatState, rt: CatRt, h: number): void {
     const p = this.s.cats[0];
     const ch = c.char;
+    // 集合: 主人公のすぐそばへ急いで来る（来るまでは虫を追わない。そばに着いたら、近くの虫とは戦う）
+    if (this.rallyT > 0) {
+      c.idle = "none";
+      rt.idleT = 0;
+      rt.hasGoal = false;
+      const ox = (c.index === 1 ? -1 : 1) * 0.8, oy = 0.5;
+      const d = Math.hypot(c.x - (p.x + ox), c.y - (p.y + oy));
+      if (d > 1.2) {
+        rt.target = null;
+        this.aiMul = CATCH_UP * 1.3;
+        this.steerTo(c, p.x + ox, p.y + oy, 0.2, h);
+        return;
+      }
+      const near = this.nearestBug(c.x, c.y, Math.max(1.2, ch.range + 0.3));
+      this.aiMul = 1;
+      if (near) { rt.target = near; this.steerTo(c, near.x, near.y, Math.max(0.2, ch.range * 0.75), h); }
+      else { this.aiX = 0; this.aiY = 0; }
+      return;
+    }
     rt.retarget -= h;
     let t = rt.target;
     if (t && (!t.alive || this.giveUp(c, p, t))) t = null;

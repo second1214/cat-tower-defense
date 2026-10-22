@@ -151,9 +151,19 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   for (const ev of ["pointerdown", "touchstart", "mousedown"]) specBtn.addEventListener(ev, (e) => e.stopPropagation());
   specBtn.addEventListener("click", (e) => { e.stopPropagation(); battle.useSpecial(0); });
   let specShown = -1;
+  // 集合ボタン（相棒がいるときだけ。必殺のボタンの上）
+  const rallyBtn = el("button", "bt-rally", board);
+  rallyBtn.type = "button";
+  rallyBtn.hidden = loadout.companions.length === 0;
+  el("span", "bt-rally-t", rallyBtn, "集合");
+  for (const ev of ["pointerdown", "touchstart", "mousedown"]) rallyBtn.addEventListener(ev, (e) => e.stopPropagation());
+  rallyBtn.addEventListener("click", (e) => { e.stopPropagation(); battle.rally(); });
+  let rallyShown = false;
   const knob = el("div", "bt-knob", stick);
   const toast = el("div", "bt-toast", board);
   const hint = el("div", "bt-hint", board);
+  // 操作の説明は、はじめのステージ（1-1）だけ
+  if (loadout.stage.id !== "1-1") hint.hidden = true;
   el("span", "", hint, "カードを盤面へドラッグして置こう");
   el("span", "bt-hint-sub", hint, "盤面をなぞると猫が動くよ");
   // 置いているあいだ（＝止まっている）のしるし。押すとやめる
@@ -906,6 +916,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
         specBtn.style.setProperty("--g", `${g}%`);
         specBtn.classList.toggle("ready", g >= 100);
       }
+      const ral = battle.rallyLeft > 0;
+      if (ral !== rallyShown) { rallyShown = ral; rallyBtn.classList.toggle("on", ral); }
       onEvents(battle.events);
       if (ghostAt) refreshGhost();
       if (battle.result && !endShown) {

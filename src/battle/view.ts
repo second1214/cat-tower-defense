@@ -712,7 +712,7 @@ export class BattleView {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
       const s = (p.fromCat ? u * 0.4 : u * 0.42) * (p.crit ? 1.3 : 1);
-      const img = this.scaledOf(getSprite("projectile", p.kind), s);
+      const img = this.scaledOf(p.src ? getSprite("projectile", p.src.def.id, { kind: p.src.def.kind }) : getSprite("projectile", p.kind), s);
       const sw = img.width / this.dpr;
       if (p.src?.def.ex) {
         // EX の弾: 虹色の尾をひく
@@ -727,7 +727,8 @@ export class BattleView {
         g.fillStyle = `hsla(${hue},100%,80%,0.7)`;
         g.beginPath(); g.arc(X(p.x), Y(p.y), sw * 0.62, 0, Math.PI * 2); g.fill();
       }
-      if (p.kind === "shooter") {
+      // くるくる回すのは輪ゴムだけ（水・風・光は向きを変えない）
+      if (p.kind === "shooter" && (!p.src || p.src.def.id === "wagomu")) {
         const a = this.simClock * 14 + p.uid;
         this.tf(X(p.x), Y(p.y), a);
         g.drawImage(img, -sw / 2, -sw / 2, sw, sw);
@@ -1004,6 +1005,9 @@ export class BattleView {
       g.lineWidth = 3;
       g.beginPath(); g.roundRect(x - fw / 2 - 3, y - fh / 2 - 3, fw + 6, fh + 6, rad); g.stroke();
     }
+    // 床に落ちる影（立体に見せる）
+    g.fillStyle = "rgba(20,10,4,0.32)";
+    g.beginPath(); g.ellipse(x + 2, y + fh * 0.36, fw * 0.5, fh * 0.2, 0, 0, Math.PI * 2); g.fill();
     if (o.def.ex) this.exGlow(g, x, y, fw, fh, rad, o.uid);
     const hint: SpriteHint = { kind: o.def.kind };
     const s = u * Math.min(o.w, o.h) * 1.02 * bounce;
