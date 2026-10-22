@@ -2,7 +2,8 @@
 // - 猫: いちばんママに近い虫（ボスは優先）へ向かう。虫がいないときは置いたオブジェクトのそば（objectAura が効く）で待つ。
 // - オブジェクト: カリカリがあれば「置く」と「強化」のうち、1カリカリあたりの効き目が大きい方をする。
 //   置く場所は、虫の道のマスをいちばん多く届く範囲に入れる所（ほかのオブジェクトと重なる所は少し下げる）。
-//   餌皿（producer）は最初に1つ、道から離れた所に置く。壁（wall）は置かない。
+//   餌皿・おやつ（producer）は最初に1つ、あとは時間とともに3つまで。道から離れた所に置く。壁（wall）は置かない。
+//   電源タップ（buff）は、まだ強化されていない攻撃オブジェクトが2つ以上まとまっている所に置く。
 import { GOAL_X, GOAL_Y, type Battle, type ObjState } from "./engine";
 import { COLS, ROWS, type Loadout, type ResolvedObject } from "../core/types";
 import { objectDps } from "../core/progress";
@@ -97,14 +98,16 @@ export function createAutoPilot(b: Battle, lo: Loadout): AutoPilot {
     // 電源タップ: 攻撃するオブジェクトが2つ以上あれば、いちばん多くに届く所に1つ置く
     const bi = lo.objects.findIndex((d) => d.kind === "buff");
     const atkObjs = b.objects.filter((o) => o.hp > 0 && attacks(o.def) && o.def.kind !== "buff");
-    if (bi >= 0 && atkObjs.length >= 2 && b.kibble >= lo.objects[bi].cost && !b.objects.some((o) => o.hp > 0 && o.def.kind === "buff")) {
+    // まだ電源タップが届いていない攻撃オブジェクトが2つ以上あれば、もう1つ置く（何個でも）
+    const uncovered = atkObjs.filter((o) => b.buffOf(o).atk <= 0);
+    if (bi >= 0 && uncovered.length >= 2 && b.kibble >= lo.objects[bi].cost) {
       const d = lo.objects[bi];
       let best: { col: number; row: number; n: number } | null = null;
       for (let row = 0; row <= ROWS - d.h; row++) for (let col = 0; col <= COLS - d.w; col++) {
         if (!b.placeCheck(bi, col, row).ok) continue;
         const cx = col + d.w / 2, cy = row + d.h / 2;
         let n = 0;
-        for (const o of atkObjs) if (Math.hypot(o.cx - cx, o.cy - cy) <= d.range + Math.max(o.w, o.h) / 2) n++;
+        for (const o of uncovered) if (Math.hypot(o.cx - cx, o.cy - cy) <= d.range + Math.max(o.w, o.h) / 2) n++;
         if (n >= 2 && (!best || n > best.n)) best = { col, row, n };
       }
       if (best) { b.place(bi, best.col, best.row); placed++; }
@@ -115,14 +118,19 @@ export function createAutoPilot(b: Battle, lo: Loadout): AutoPilot {
     for (let guard = 0; guard < 6; guard++) {
       const k = b.kibble;
       let act: (() => void) | null = null, actV = 0;
-      // 餌皿: はじめに1つ
-      const pi = lo.objects.findIndex((d) => d.kind === "producer");
-      if (pi >= 0 && placed === 0 && b.time < 30 && !b.objects.some((o) => o.def.kind === "producer")) {
-        if (lo.objects[pi].cost <= k) {
-          const s = bestSpot(pi);
-          if (s) { b.place(pi, s.col, s.row); placed++; continue; }
-        }
+      // 餌皿・おやつの袋（producer）: はじめに1つ。そのあとは時間とともに増やす（最大3つずつ）。カリカリに余裕があるときだけ
+      let prodPlaced = false;
+      for (let pi = 0; pi < lo.objects.length && !prodPlaced; pi++) {
+        const d = lo.objects[pi];
+        if (d.kind !== "producer") continue;
+        const have = b.objects.filter((o) => o.hp > 0 && o.def.id === d.id).length;
+        const want = Math.min(3, 1 + Math.floor(b.time / 60));
+        const first = have === 0 && b.time < 30;
+        if (have >= want || d.cost > k || (!first && k < d.cost * 2)) continue;
+        const s = bestSpot(pi);
+        if (s) { b.place(pi, s.col, s.row); placed++; prodPlaced = true; }
       }
+      if (prodPlaced) continue;
       for (let i = 0; i < lo.objects.length; i++) {
         const d = lo.objects[i];
         if (!attacks(d) || d.cost > k) continue;

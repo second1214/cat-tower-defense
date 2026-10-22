@@ -258,10 +258,12 @@ export const BOSS_OBJ_MUL = 0.35;
 export const KNOCK_MAX = 0.8;
 /** 押し戻されるたびに増える「なれ」。 */
 export const KNOCK_RES_STEP = 0.25;
-/** 「なれ」が1秒に減る量。 */
-export const KNOCK_RES_DECAY = 0.12;
-/** なれても、これだけは押し戻される（割合）。 */
-export const KNOCK_MIN_FRAC = 0.1;
+/** 「なれ」が1秒に減る量（0: 減らない。4回押し戻されると、その虫にはもう効かない）。 */
+export const KNOCK_RES_DECAY = 0;
+/** なれても、これだけは押し戻される（割合。0: なれきったら効かない）。 */
+export const KNOCK_MIN_FRAC = 0;
+/** オブジェクトがこわれたあと、がれきが残る秒数（そのあいだ、その場所には置けない。虫は通れる）。 */
+export const DEBRIS_TIME = 6;
 /** この体力（基本）以上の虫は重く、押し戻しが半分。 */
 export const HEAVY_BUG_HP = 10;
 /** エンドレスで、前の波を全部たおしてから次の波までの秒数。 */
@@ -885,6 +887,7 @@ export class Battle {
       if (isGoal(c, r)) return { ok: false, reason: "ママのところには置けないよ" };
       if (this.terrain[r * COLS + c]) return { ok: false, reason: "家具があるので置けないよ" };
       if (this.grid[r * COLS + c]) return { ok: false, reason: "もう置いてあります" };
+      if (this.debris[r * COLS + c] > this.s.time) return { ok: false, reason: "がれきが片づくまで置けないよ" };
     }
     if (d.block && this.wouldSeal(col, row, w, h)) return { ok: false, reason: "通り道がなくなるよ" };
     if (this.s.kibble < d.cost) return { ok: false, reason: "カリカリが足りません" };
@@ -1387,6 +1390,9 @@ export class Battle {
   }
 
   // ---- 猫 ----
+  /** マスごとの、がれきが片づく時刻。 */
+  readonly debris = new Float64Array(COLS * ROWS);
+
   /** 集合の残り秒数（0 なら、相棒はふだんどおり歩きまわる）。 */
   private rallyT = 0;
   get rallyLeft(): number { return this.rallyT; }
@@ -2258,7 +2264,11 @@ export class Battle {
       }
     }
     if (changed) this.recomputeFlow();
-    if (broken) this.emit("objectBroken", o.cx, o.cy, Math.max(o.w, o.h));
+    if (broken) {
+      // がれき: しばらくその場所には置けない（こわされる → すぐ置きなおす、のくり返しで虫を止めつづけられないように）
+      for (let r = o.row; r < o.row + o.h; r++) for (let c = o.col; c < o.col + o.w; c++) this.debris[r * COLS + c] = this.s.time + DEBRIS_TIME;
+      this.emit("objectBroken", o.cx, o.cy, Math.max(o.w, o.h));
+    }
   }
 
   // ---- 弾 ----
