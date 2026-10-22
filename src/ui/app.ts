@@ -14,6 +14,7 @@ import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiStat
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, bagSvg, objectSvg } from "./icons";
 import { WAZA_MAP } from "../data/waza";
+import { powerSave, setPowerSave } from "../core/power";
 import { openRanking, submitScore } from "./ranking";
 import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
@@ -270,11 +271,24 @@ export function createApp(root: HTMLElement): AppHandle {
         if (!m) sfx("confirm");
       },
     }, st.mute ? "音を出す" : "音を消す") as HTMLButtonElement;
+    const pw = h("button", {
+      class: `btn btn-small snd-mute ${powerSave() ? "on" : ""}`,
+      "aria-pressed": String(powerSave()),
+      onclick: () => {
+        const on = !powerSave();
+        setPowerSave(on);
+        pw.classList.toggle("on", on);
+        pw.setAttribute("aria-pressed", String(on));
+        pw.textContent = on ? "省電力 ON" : "省電力 OFF";
+      },
+    }, powerSave() ? "省電力 ON" : "省電力 OFF") as HTMLButtonElement;
     return h("div", { class: "snd" },
       h("div", { class: "panel-title" }, "音"),
       slider("効果音", "sfx"),
       slider("BGM", "bgm"),
-      h("div", { class: "snd-foot" }, h("span", { class: "muted small" }, "音は、はじめて画面をさわったときから鳴ります"), mute));
+      h("div", { class: "snd-foot" }, h("span", { class: "muted small" }, "音は、はじめて画面をさわったときから鳴ります"), mute),
+      h("div", { class: "panel-title" }, "電池"),
+      h("div", { class: "snd-foot" }, h("span", { class: "muted small" }, "ON: 戦闘を 30 コマ/秒にして、こまかい演出をへらします（電池が長もち）"), pw));
   }
 
   // ---------- 戦闘 ----------

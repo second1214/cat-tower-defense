@@ -22,6 +22,7 @@ import type { BattleInput, BattleResult, Loadout } from "../core/types";
 import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
 import { createAutoPilot } from "./auto";
+import { powerSave } from "../core/power";
 import { getCatPose, getSprite, imageSize, loadCatIdlePoses, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
 import { battleSfx, setBgm, setBgmIntensity, sfx } from "../audio";
@@ -232,6 +233,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
 
   // ---- 状態 ----
   const view = new BattleView(canvas, battle);
+  // 省電力: 30 コマ/秒（計算も描くのも半分）
+  const lowPower = powerSave();
+  view.lowPower = lowPower;
+  const FRAME_MS = lowPower ? 1000 / 30 : 0;
   let speed = 1;
   function setSpeed(v: number): void {
     speed = v;
@@ -939,6 +944,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   function frame(now: number): void {
     if (destroyed) return;
     raf = requestAnimationFrame(frame);
+    if (FRAME_MS > 0 && now - prev < FRAME_MS - 2) return;
     const dt = Math.min(MAX_DT, Math.max(0, (now - prev) / 1000));
     prev = now;
     // 置いている・選んでいる・強化の窓を出しているあいだは止める（道も出す）

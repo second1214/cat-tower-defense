@@ -51,6 +51,8 @@ interface Bolt { x0: number; y0: number; x1: number; y1: number; t: number; life
 const COMPANION_SCALE = 0.85;
 
 const MAX_FX = 360;
+/** 省電力のときの演出の上限。 */
+const MAX_FX_LOW = 140;
 const MAX_BOLTS = 80;
 
 export interface Layout {
@@ -97,6 +99,9 @@ export class BattleView {
   private lightOv: HTMLCanvasElement | null = null;
   /** 使い終わった演出（作りなおさないで使いまわす）。 */
   private fxPool: Fx[] = [];
+  /** 省電力モード（きめをあらく・こまかい演出をへらす）。 */
+  lowPower = false;
+  private fxSkip = 0;
   private clock = 0;
   /** 戦闘が進んでいるあいだだけ進む時計（止めているあいだは、虫のゆれ・猫の歩きも止める）。 */
   private simClock = 0;
@@ -163,7 +168,8 @@ export class BattleView {
 
   /** CSS の大きさが変わったとき。 */
   resize(cssW: number, cssH: number, dpr: number): void {
-    this.dpr = Math.min(2, Math.max(1, dpr || 1));
+    // 省電力のときは、きめを少しあらく（描く点の数がへる）
+    this.dpr = Math.min(this.lowPower ? 1.5 : 2, Math.max(1, dpr || 1));
     const w = Math.max(1, cssW), h = Math.max(1, cssH);
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
@@ -456,6 +462,11 @@ export class BattleView {
   }
 
   private addFx(f: Partial<Fx> & Pick<Fx, "type" | "x" | "y" | "life" | "color">): void {
+    // 省電力: こまかい粒（かけら・きらめき・煙）は半分だけ。全体の上限も下げる
+    if (this.lowPower) {
+      if ((f.type === "pop" || f.type === "spark" || f.type === "puff") && (this.fxSkip++ & 1)) return;
+      if (this.fx.length >= MAX_FX_LOW && f.type !== "text" && f.type !== "ring") return;
+    }
     if (this.fx.length >= MAX_FX) { const old = this.fx.shift(); if (old) this.fxPool.push(old); }
     const o = this.fxPool.pop() ?? { type: "pop", x: 0, y: 0, vx: 0, vy: 0, t: 0, life: 1, r: 0.2, color: "" };
     o.type = f.type; o.x = f.x; o.y = f.y; o.vx = f.vx ?? 0; o.vy = f.vy ?? 0; o.t = 0;
