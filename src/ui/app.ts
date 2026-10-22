@@ -13,6 +13,7 @@ import { OBJECT_MAP } from "../data/objects";
 import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, bagSvg, objectSvg } from "./icons";
+import { WAZA_MAP } from "../data/waza";
 import { openRanking, submitScore } from "./ranking";
 import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
@@ -273,7 +274,11 @@ export function createApp(root: HTMLElement): AppHandle {
         catIcon(save.cats[heroUid(save)]?.look ?? "chatora", "lose-ico"),
         h("p", { class: "lose-msg" }, `${r.reached} 波まで こえたよ`),
         h("p", { class: "muted small" }, `自分の記録 ${r.best} 波${rank.done ? (rank.v ? `・ランキング ${rank.v} 位` : "") : "・ランキングに送っています…"}`),
-        h("p", { class: "muted small" }, `ちゅ〜る +${r.churu}・お金 +${fmt(r.coins)}`)),
+        h("p", { class: "muted small" }, `ちゅ〜る +${r.churu}・お金 +${fmt(r.coins)}`),
+        r.unlocked.map((u) => h("div", { class: "ex-got" },
+          h("div", { class: "ex-got-t" }, u.kind === "waza" ? "EX のわざを覚えた！" : "EX のオブジェクトを手に入れた！"),
+          h("div", { class: "ex-got-n" }, u.kind === "waza" ? WAZA_MAP[u.id]?.name ?? u.id : OBJECT_MAP[u.id]?.name ?? u.id),
+          h("div", { class: "muted small" }, u.kind === "waza" ? "これからは、ねこ福袋からも出るよ" : "これからは、ストーリーでもかけらが落ちるよ")))),
       footer: () => h("div", { class: "row" },
         h("button", { class: "btn", onclick: () => { m.close(); openRanking(ctx); } }, "ランキング"),
         h("button", { class: "btn btn-gold", onclick: () => m.close() }, "OK")),

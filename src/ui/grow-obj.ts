@@ -1,4 +1,5 @@
 // 成長 > オブジェクト（持っていく5つ・一覧・レベルアップ）。
+import { ENDLESS_REWARDS } from "../data/endless";
 import { canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
 import { fmt } from "../core/num";
 import { MAX_LOADOUT, type SaveData } from "../core/save";
@@ -30,7 +31,9 @@ export function renderObjList(ctx: Ctx): HTMLElement {
         h("span", { class: "rar-tag" }, def.rarity),
         svgIcon(objectSvg(def.id, def.kind), "card-ico sil"),
         h("div", { class: "card-name" }, "？？？"),
-        h("div", { class: "card-lock" }, `${stageIdOf(def.unlockStage - 1)} クリア`));
+        h("div", { class: "card-lock" }, def.rarity === "EX"
+          ? `エンドレス ${ENDLESS_REWARDS.find((r) => r.id === def.id)?.wave ?? "?"}波`
+          : `${stageIdOf(def.unlockStage - 1)} クリア`));
     }
     const cost = objectUpgradeCost(save, def.id)!;
     const inLo = save.loadout.includes(def.id);

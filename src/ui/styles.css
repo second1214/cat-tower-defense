@@ -1645,3 +1645,25 @@ button.card:active { transform: translateY(2px); }
 .rk-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rk-s { font-weight: 900; }
 .rk-row.top1 .rk-rank { color: #ffd84a; } .rk-row.top2 .rk-rank { color: #d8e0ea; } .rk-row.top3 .rk-rank { color: #e0a070; }
+
+/* ===== EX（エンドレスでだけ手に入る。虹色に流れて光る） ===== */
+:root { --r-EX: #8ff7ff; --ex-grad: linear-gradient(90deg, #ff5ea8, #ffd23f, #5ef0a0, #5ec8ff, #b88cff, #ff5ea8); }
+@keyframes ex-flow { to { background-position: 200% 0; } }
+@keyframes ex-hue { to { filter: hue-rotate(360deg); } }
+.r-EX { border-color: var(--r-EX) !important; }
+.card.r-EX { background: linear-gradient(135deg, #2a1a5e, #0f3b6e 50%, #4a1660); box-shadow: 0 0 0 2px var(--edge-dark), 0 0 16px rgba(143, 247, 255, .7), 0 3px 0 2px var(--edge-dark); }
+.card.r-EX::before { content: ""; position: absolute; inset: -3px; border-radius: 14px; padding: 3px; background: var(--ex-grad); background-size: 200% 100%; animation: ex-flow 2.4s linear infinite; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+.r-EX .rar-tag { color: #bff9ff; }
+.rar-pill.rp-EX, .cc-wr.rp-EX, .pr-EX .pr-rar { border-color: #bff9ff; color: #fff; background: var(--ex-grad); background-size: 200% 100%; animation: ex-flow 2s linear infinite; text-shadow: 0 1px 0 #000; }
+.fr-EX { border-color: #fff; background: linear-gradient(135deg, #2a1a5e, #0f3b6e 50%, #4a1660); box-shadow: 0 0 0 2px var(--edge-dark), 0 0 18px rgba(143, 247, 255, .8); }
+.pr-EX { --rc: #8ff7ff; }
+.pr-EX .pr-glow { background: conic-gradient(from 0deg, #ff5ea8, #ffd23f, #5ef0a0, #5ec8ff, #b88cff, #ff5ea8); -webkit-mask: radial-gradient(circle, #000 20%, transparent 70%); mask: radial-gradient(circle, #000 20%, transparent 70%); animation: glow-spin 2s linear infinite; }
+.wz-ico.wr-EX { --wc: #8ff7ff; background: conic-gradient(from 30deg, #ff5ea8, #ffd23f, #5ef0a0, #5ec8ff, #b88cff, #ff5ea8); box-shadow: 0 0 0 2px var(--edge-dark), 0 0 14px rgba(143, 247, 255, .9); animation: ex-hue 4s linear infinite; }
+.wz-slot.wr-EX, .wp-row.wr-EX { --wc: #8ff7ff; }
+/* エンドレスで手に入れたもの（結果の窓） */
+.ex-got { margin-top: 10px; padding: 10px; border-radius: 14px; background: linear-gradient(135deg, #2a1a5e, #0f3b6e); box-shadow: 0 0 18px rgba(143, 247, 255, .6); text-align: center; position: relative; overflow: hidden; }
+.ex-got::before { content: ""; position: absolute; inset: 0; background: var(--ex-grad); background-size: 200% 100%; opacity: .25; animation: ex-flow 2s linear infinite; }
+.ex-got > * { position: relative; }
+.ex-got-t { font-weight: 900; color: #bff9ff; letter-spacing: .1em; }
+.ex-got-n { font-size: 18px; font-weight: 900; color: #fff; text-shadow: 0 0 8px #8ff7ff; }
+.mn-mode .ex-next { color: #8ff7ff; }

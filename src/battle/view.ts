@@ -315,6 +315,13 @@ export class BattleView {
             this.addFx({ type: "ring", x: e.x, y: e.y, r: e.x2 * 1.3, life: 0.5, color: "#ffd84a" });
             this.addFx({ type: "ring", x: e.x, y: e.y, r: e.x2 * 0.8, life: 0.35, color: "#ffffff" });
           }
+          // 星のかけらが飛びちる（虹色）
+          const cxp = line ? e.x2 : e.x, cyp = line ? e.y2 : e.y;
+          const np = this.fx.length > 220 ? 6 : 16;
+          for (let k = 0; k < np; k++) {
+            const a = (k / np) * Math.PI * 2, v = 2.5 + Math.random() * 3;
+            this.addFx({ type: "pop", x: cxp, y: cyp, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, r: 0.11, life: 0.6, color: `hsl(${(k * 360) / np},100%,70%)` });
+          }
           const tx = cat ? cat.x : e.x, ty = cat ? cat.y : e.y;
           this.addFx({ type: "text", x: tx, y: ty - 1.2, r: 0.55, life: 1.1, color: "#ffe14a", text: name + "!" });
           this.shake = Math.max(this.shake, 0.22);
@@ -707,6 +714,19 @@ export class BattleView {
       const s = (p.fromCat ? u * 0.4 : u * 0.42) * (p.crit ? 1.3 : 1);
       const img = this.scaledOf(getSprite("projectile", p.kind), s);
       const sw = img.width / this.dpr;
+      if (p.src?.def.ex) {
+        // EX の弾: 虹色の尾をひく
+        const hue = (this.simClock * 240 + p.uid * 47) % 360;
+        const sp = Math.hypot(p.vx, p.vy) || 1;
+        for (let k = 3; k >= 1; k--) {
+          g.fillStyle = `hsla(${(hue + k * 40) % 360},100%,68%,${0.5 - k * 0.12})`;
+          g.beginPath();
+          g.arc(X(p.x - (p.vx / sp) * k * 0.22), Y(p.y - (p.vy / sp) * k * 0.22), sw * (0.55 - k * 0.08), 0, Math.PI * 2);
+          g.fill();
+        }
+        g.fillStyle = `hsla(${hue},100%,80%,0.7)`;
+        g.beginPath(); g.arc(X(p.x), Y(p.y), sw * 0.62, 0, Math.PI * 2); g.fill();
+      }
       if (p.kind === "shooter") {
         const a = this.simClock * 14 + p.uid;
         this.tf(X(p.x), Y(p.y), a);
@@ -984,6 +1004,7 @@ export class BattleView {
       g.lineWidth = 3;
       g.beginPath(); g.roundRect(x - fw / 2 - 3, y - fh / 2 - 3, fw + 6, fh + 6, rad); g.stroke();
     }
+    if (o.def.ex) this.exGlow(g, x, y, fw, fh, rad, o.uid);
     const hint: SpriteHint = { kind: o.def.kind };
     const s = u * Math.min(o.w, o.h) * 1.02 * bounce;
     const sy = y - u * 0.1;
@@ -1017,6 +1038,7 @@ export class BattleView {
       g.lineWidth = 3;
       g.beginPath(); g.roundRect(x - fw / 2 - 2, y - fh / 2 - 2, fw + 4, fh + 4, u * 0.2); g.stroke();
     }
+    if (o.def.ex) this.exGlow(g, x, y, fw, fh, u * 0.2, o.uid);
     const hint: SpriteHint = { kind: o.def.kind };
     const s = u * Math.min(o.w, o.h) * 0.85 * bounce;
     const c = this.scaledOf(getSprite("object", o.def.id, hint), s);
@@ -1277,6 +1299,21 @@ export class BattleView {
       return Math.floor(this.simClock * 6 + cat.index * 0.5) % 2 ? "walk2" : "walk1";
     }
     return null;
+  }
+
+  /** EX のオブジェクトのまわりの虹色の光（色が流れる・ときどき星がきらめく）。 */
+  private exGlow(g: CanvasRenderingContext2D, x: number, y: number, fw: number, fh: number, rad: number, uid: number): void {
+    const hue = (this.clock * 90 + uid * 37) % 360;
+    g.save();
+    g.shadowColor = `hsl(${hue},100%,65%)`;
+    g.shadowBlur = this.L.u * 0.5;
+    g.strokeStyle = `hsla(${hue},100%,70%,0.9)`;
+    g.lineWidth = 3;
+    g.beginPath(); g.roundRect(x - fw / 2 - 2, y - fh / 2 - 2, fw + 4, fh + 4, rad); g.stroke();
+    g.restore();
+    if (Math.random() < 0.04 && this.fx.length < 260) {
+      this.addFx({ type: "spark", x: (x + (Math.random() - 0.5) * fw - this.L.ox) / this.L.cw, y: (y + (Math.random() - 0.5) * fh - this.L.oy) / this.L.ch, r: 0.14, life: 0.4, color: `hsl(${hue},100%,80%)` });
+    }
   }
 
   /** 電撃（ぎざぎざの線。毎コマ形が変わってちらつく）。 */

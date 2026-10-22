@@ -22,6 +22,7 @@ import {
   equipBaseStats, rollEquip,
 } from "../data/equips";
 import { RELICS, RELIC_MAP, type RelicStat } from "../data/relics";
+import { ENDLESS_REWARDS, type EndlessReward } from "../data/endless";
 import { makeEndlessStage, STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
 import { bugDefs } from "../data/bugs";
 
@@ -659,9 +660,9 @@ export function nextRelic(save: SaveData) {
 /** 必殺技の形（役割で決まる）。 */
 export const SPECIAL_KIND: Record<CharRole, CatSpecial["kind"]> = { melee: "burst", ranged: "line", aoe: "nova", fast: "dash" };
 /** 必殺技の威力（猫の攻撃力の何倍か。メインのわざのレアリティ）。レアなわざほど、ここで大きく差がつく。 */
-export const SPECIAL_POWER: Record<Rarity, number> = { N: 5, R: 7, SR: 10, SSR: 14, UR: 20 };
+export const SPECIAL_POWER: Record<Rarity, number> = { N: 5, R: 7, SR: 10, SSR: 14, UR: 20, EX: 26 };
 /** 必殺技のゲージがたまる秒数。 */
-export const SPECIAL_CHARGE: Record<Rarity, number> = { N: 18, R: 16, SR: 14, SSR: 12, UR: 10 };
+export const SPECIAL_CHARGE: Record<Rarity, number> = { N: 18, R: 16, SR: 14, SSR: 12, UR: 10, EX: 9 };
 
 /** 猫がいないときの仮の猫（ふつうは使われない）。 */
 const FALLBACK_CAT: CatSave = newCatSave("c1", CHAR_MAP.chatora.name, "chatora", CHAR_MAP.chatora.personality);
@@ -797,6 +798,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
     crit: attacks ? Math.min(1, b.crit + eq.objCrit) : 0,
     critMul: Math.max(1.5, b.critMul),
     perks: names,
+    ex: def.rarity === "EX" || undefined,
   };
 }
 
@@ -842,6 +844,26 @@ export interface EndlessResult {
   newBest: boolean;
   churu: number;
   coins: number;
+  /** この回で新しく手に入れた EX。 */
+  unlocked: EndlessReward[];
+}
+
+/** 記録に届いた EX を手に入れる（まだのものだけ）。新しく手に入れたものを返す。 */
+export function syncEndlessRewards(save: SaveData): EndlessReward[] {
+  const got: EndlessReward[] = [];
+  for (const r of ENDLESS_REWARDS) {
+    if (r.wave > save.endlessBest || save.exUnlocked.includes(r.id)) continue;
+    save.exUnlocked.push(r.id);
+    if (r.kind === "waza") { if (!save.wazas[r.id]) save.wazas[r.id] = { level: 1, count: 1 }; }
+    else if (!save.objects[r.id]) save.objects[r.id] = { level: catchUpLevel(save), shards: 0 };
+    got.push(r);
+  }
+  return got;
+}
+
+/** 次に手に入る EX（全部手に入れたら undefined）。 */
+export function nextEndlessReward(save: SaveData): EndlessReward | undefined {
+  return ENDLESS_REWARDS.find((r) => !save.exUnlocked.includes(r.id));
 }
 
 /** エンドレスの結果を記録して、ごほうびを渡す（こえた波 1 つにつき ちゅ〜る 1・お金は少し）。 */
@@ -849,11 +871,12 @@ export function recordEndless(save: SaveData, start: number, wavesCleared: numbe
   const reached = start + Math.max(0, wavesCleared);
   const newBest = reached > save.endlessBest;
   if (newBest) save.endlessBest = reached;
+  const unlocked = syncEndlessRewards(save);
   const churu = Math.max(0, wavesCleared);
   const coins = Math.round(wavesCleared * 5 * Math.pow(1.15, start / 10));
   save.churu += churu;
   save.coins += coins;
-  return { reached, best: save.endlessBest, newBest, churu, coins };
+  return { reached, best: save.endlessBest, newBest, churu, coins, unlocked };
 }
 
 // ================= 戦力の目安 =================
