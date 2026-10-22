@@ -12,10 +12,14 @@ import { h, svgIcon } from "./dom";
 import { ICONS, PLUS_ICON, objectSvg } from "./icons";
 import { rarityPill, roleTag } from "./parts";
 import { openCatDetail } from "./grow-char";
+import { openRanking } from "./ranking";
 import { renderCafe, catIcon } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
 const POWER_SCALE = 10;
+
+/** エンドレスが遊べるようになる、クリアしたステージの通し番号（1-5）。 */
+const ENDLESS_UNLOCK = 4;
 
 export function difficultyOf(ratio: number): { label: string; cls: string } {
   if (ratio >= 2) return { label: "楽勝", cls: "easy" };
@@ -120,6 +124,15 @@ export function renderMain(ctx: Ctx): HTMLElement {
     onclick: () => ctx.play(id),
   }, unlocked ? "プレイ" : "まだ遊べません");
 
+  // エンドレス（1-5 をこえたら）とランキング
+  const endlessOpen = save.cleared >= ENDLESS_UNLOCK;
+  const modeBtns = h("div", { class: "mn-modes" },
+    h("button", {
+      class: `btn mn-mode ${endlessOpen ? "" : "is-off"}`, disabled: !endlessOpen,
+      onclick: () => ctx.playEndless(),
+    }, h("b", null, "エンドレス"), h("small", null, endlessOpen ? `記録 ${save.endlessBest}波` : "1-5 クリアで")),
+    h("button", { class: "btn mn-mode", onclick: () => openRanking(ctx) }, h("b", null, "ランキング"), h("small", null, "みんなの記録")));
+
   // ---- まん中: 猫カフェ ----
   const onCatTap = (uid: string) => {
     if (uid === heroUid(ctx.save)) { openCatDetail(ctx, uid); return; }
@@ -139,7 +152,7 @@ export function renderMain(ctx: Ctx): HTMLElement {
     cafe,
     stagePanel,
     plate,
-    h("div", { class: "mn-foot" }, partyBox, playBtn));
+    h("div", { class: "mn-foot" }, partyBox, h("div", { class: "mn-playrow" }, playBtn, modeBtns)));
 }
 
 /** ほかの猫をタップ: 名前と、パーティに入れるボタン。 */

@@ -65,6 +65,8 @@ export interface SaveData {
   relics: string[];                      // 解放したレリックの id
   cleared: number;                       // クリアした一番先のステージ（通し番号 0 始まり）。-1 はまだ
   clearCounts: Record<string, number>;   // ステージ id → クリア回数
+  endlessBest: number;                   // エンドレスで、こえた波のいちばん先（0 はまだ）
+  playerName: string;                    // ランキングに出す名前（空なら主人公の名前）
   selectedStage: string;                 // メイン画面で選んでいるステージ
   nextUid: number;                       // 装備の uid の連番
   seed: number;                          // 抽選に使う乱数のたね（UI 用）
@@ -109,6 +111,8 @@ export function newSave(): SaveData {
     relics: [],
     cleared: -1,
     clearCounts: {},
+    endlessBest: 0,
+    playerName: "",
     selectedStage: "1-1",
     nextUid: 1,
     seed: (Date.now() ^ 0x5eed) >>> 0,
@@ -344,6 +348,9 @@ export function migrate(raw: unknown): SaveData {
     if (!out.equips.some((e) => e.uid === out.equipped[slot])) delete out.equipped[slot];
   }
   if (!Array.isArray(out.relics)) out.relics = [];
+  out.endlessBest = Math.max(0, Math.floor(num(out.endlessBest, 0)));
+  if (typeof out.playerName !== "string") out.playerName = "";
+  out.playerName = out.playerName.slice(0, 12);
   if (typeof out.cleared !== "number") out.cleared = -1;
   if (!obj(out.clearCounts)) out.clearCounts = {};
   if (typeof out.nextUid !== "number") out.nextUid = out.equips.length + 1;

@@ -22,7 +22,7 @@ import {
   equipBaseStats, rollEquip,
 } from "../data/equips";
 import { RELICS, RELIC_MAP, type RelicStat } from "../data/relics";
-import { STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
+import { makeEndlessStage, STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
 import { bugDefs } from "../data/bugs";
 
 export type Result<T = undefined> = { ok: true; value: T } | { ok: false; reason: string };
@@ -820,6 +820,40 @@ export function buildLoadout(save: SaveData, stageId: string): Loadout | null {
     bugs,
     global: { kibbleMul: 1 + rel.kibble, startKibbleAdd: rel.startKibble, mamaHp: BASE_MAMA_HP + rel.mamaHp },
   };
+}
+
+// ================= エンドレス =================
+
+/** エンドレスを何番目の波から始めるか（記録の 10 波手前の、10 のきり。記録が 20 未満なら 0 から）。 */
+export function endlessStart(save: SaveData): number {
+  return save.endlessBest >= 20 ? Math.floor((save.endlessBest - 10) / 10) * 10 : 0;
+}
+
+/** エンドレスの戦闘を始めるのに必要なもの。 */
+export function buildEndlessLoadout(save: SaveData, start = endlessStart(save)): Loadout {
+  const lo = buildLoadout(save, STAGES[0].id)!;
+  return { ...lo, stage: makeEndlessStage(start) };
+}
+
+export interface EndlessResult {
+  /** こえた波（全員共通のものさし。start + その回にこえた数）。 */
+  reached: number;
+  best: number;
+  newBest: boolean;
+  churu: number;
+  coins: number;
+}
+
+/** エンドレスの結果を記録して、ごほうびを渡す（こえた波 1 つにつき ちゅ〜る 1・お金は少し）。 */
+export function recordEndless(save: SaveData, start: number, wavesCleared: number): EndlessResult {
+  const reached = start + Math.max(0, wavesCleared);
+  const newBest = reached > save.endlessBest;
+  if (newBest) save.endlessBest = reached;
+  const churu = Math.max(0, wavesCleared);
+  const coins = Math.round(wavesCleared * 5 * Math.pow(1.15, start / 10));
+  save.churu += churu;
+  save.coins += coins;
+  return { reached, best: save.endlessBest, newBest, churu, coins };
 }
 
 // ================= 戦力の目安 =================

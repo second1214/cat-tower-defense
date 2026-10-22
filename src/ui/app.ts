@@ -4,7 +4,7 @@ import "./styles.css";
 import { mulberry32, type Rng } from "../core/rng";
 import { type SaveData, clearSave, exportSave, importSave, loadSave, newSave, writeSave } from "../core/save";
 import {
-  buildLoadout, grantRewards, heroUid, isStageUnlocked, nextStageId, stageById, syncUnlocks, type RewardResult,
+  buildEndlessLoadout, buildLoadout, endlessStart, grantRewards, heroUid, recordEndless, type EndlessResult, isStageUnlocked, nextStageId, stageById, syncUnlocks, type RewardResult,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import type { BattleResult, Loadout } from "../core/types";
@@ -13,6 +13,7 @@ import { OBJECT_MAP } from "../data/objects";
 import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiState } from "./ctx";
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, bagSvg, objectSvg } from "./icons";
+import { openRanking, submitScore } from "./ranking";
 import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
 import { renderMain } from "./tab-main";
@@ -119,6 +120,7 @@ export function createApp(root: HTMLElement): AppHandle {
       render();
     },
     play,
+    playEndless,
   };
 
   function toast(msg: string, kind: "ok" | "ng" = "ok"): void {
@@ -244,6 +246,41 @@ export function createApp(root: HTMLElement): AppHandle {
     if (!isStageUnlocked(save, stageId)) { toast("まだ遊べないステージです", "ng"); return; }
     const lo = buildLoadout(save, stageId);
     if (!lo) { toast("ステージが見つかりません", "ng"); return; }
+    await runBattle(lo, finishBattle);
+  }
+
+  /** エンドレス（ママがやられるまで波が続く。こえた波を記録して、ランキングへ送る）。 */
+  async function playEndless(): Promise<void> {
+    if (inBattle) return;
+    const start = endlessStart(save);
+    const lo = buildEndlessLoadout(save, start);
+    await runBattle(lo, (result) => {
+      const r = recordEndless(save, start, result.wavesCleared);
+      writeSave(save);
+      render();
+      showEndless(r);
+    });
+  }
+
+  function showEndless(r: EndlessResult): void {
+    const rank = { v: null as number | null, done: false };
+    void submitScore(ctx, r.best).then((v) => { rank.v = v; rank.done = true; modals.rerenderAll(); });
+    const m = modals.open({
+      title: r.newBest ? "記録こうしん！" : "エンドレス おしまい",
+      cls: "modal-small",
+      dismissable: false,
+      render: () => h("div", { class: "lose" },
+        catIcon(save.cats[heroUid(save)]?.look ?? "chatora", "lose-ico"),
+        h("p", { class: "lose-msg" }, `${r.reached} 波まで こえたよ`),
+        h("p", { class: "muted small" }, `自分の記録 ${r.best} 波${rank.done ? (rank.v ? `・ランキング ${rank.v} 位` : "") : "・ランキングに送っています…"}`),
+        h("p", { class: "muted small" }, `ちゅ〜る +${r.churu}・お金 +${fmt(r.coins)}`)),
+      footer: () => h("div", { class: "row" },
+        h("button", { class: "btn", onclick: () => { m.close(); openRanking(ctx); } }, "ランキング"),
+        h("button", { class: "btn btn-gold", onclick: () => m.close() }, "OK")),
+    });
+  }
+
+  async function runBattle(lo: Loadout, onEnd: (result: BattleResult) => void): Promise<void> {
     inBattle = true;
     modals.closeAll();
     const start = await loadStartBattle();
@@ -268,7 +305,7 @@ export function createApp(root: HTMLElement): AppHandle {
     writeSave(save);
     try {
       battle = start(host, lo, {
-        onEnd: (result) => finish(() => finishBattle(result)),
+        onEnd: (result) => finish(() => onEnd(result)),
         onQuit: () => finish(() => undefined),
         seed,
       });
