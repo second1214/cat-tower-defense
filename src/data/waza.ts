@@ -30,7 +30,7 @@ export const ROLE_BASE: Record<CharRole, CharShape> = {
   melee: { maxHp: 30, atk: 2, atkInterval: 0.8, range: 0.9, aoe: 0, moveSpeed: 2.5, restTime: 5, armor: 1 },
   ranged: { maxHp: 18, atk: 1.5, atkInterval: 1.0, range: 3, aoe: 0, moveSpeed: 2.3, restTime: 5, armor: 1 },
   aoe: { maxHp: 22, atk: 1.2, atkInterval: 1.3, range: 1.2, aoe: 1.0, moveSpeed: 2.2, restTime: 5, armor: 1 },
-  fast: { maxHp: 20, atk: 1.3, atkInterval: 0.6, range: 0.9, aoe: 0, moveSpeed: 3.6, restTime: 4, armor: 1 },
+  fast: { maxHp: 20, atk: 1.15, atkInterval: 0.65, range: 0.9, aoe: 0, moveSpeed: 3.6, restTime: 4, armor: 1 },
 };
 
 /** 猫のレベルが1上がるごとに、基本の体力・攻撃に掛ける倍率（どの猫も同じ）。 */

@@ -246,24 +246,24 @@ const cycle = (list: Pattern[], t: number, r: number): Cell => list[r % list.len
 /** みんなの枝（5つ）。どの猫にも効く。 */
 const COMMON_LANES: Record<CommonBranch, Pattern[][]> = {
   atk: [
-    [(q) => c10(S("atkSpd", 0.008 * q)), (q) => c5(S("atk", 0.025 * q), S("atkSpd", 0.005 * q)), (q) => c10(S("atkSpd", 0.009 * q)), (q) => c5(S("critMul", 0.03 * q), S("atkSpd", 0.004 * q))],
-    [(q) => c10(S("atk", 0.04 * q)), (q) => c10(S("atk", 0.045 * q)), (q) => c5(S("atk", 0.03 * q), S("hp", 0.03 * q))],
+    [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.004 * q)), (q) => c10(S("atkSpd", 0.0065 * q)), (q) => c5(S("critMul", 0.03 * q), S("atkSpd", 0.003 * q))],
+    [(q) => c10(S("atk", 0.032 * q)), (q) => c10(S("atk", 0.036 * q)), (q) => c5(S("atk", 0.022 * q), S("hp", 0.028 * q))],
     [() => c5(S("crit", 0.005)), (q) => c5(S("critMul", 0.03 * q)), (q) => c5(S("crit", 0.004), S("critMul", 0.015 * q)), (q) => c5(S("critMul", 0.035 * q))],
   ],
   def: [
-    [() => c5(S("armor", 0.006)), () => c5(S("dodge", 0.004)), (q) => c5(S("armor", 0.004), S("hp", 0.03 * q)), () => c5(S("dodge", 0.003), S("move", 0.01))],
-    [(q) => c10(S("hp", 0.05 * q)), (q) => c10(S("hp", 0.055 * q)), (q) => c5(S("hp", 0.035 * q), S("armor", 0.002))],
-    [() => c5(S("regen", 0.0005)), () => c5(S("lifesteal", 0.004)), () => c5(S("revive", 0.02)), () => c5(S("regen", 0.0003), S("lifesteal", 0.002))],
+    [() => c5(S("armor", 0.006)), () => c5(S("dodge", 0.003)), (q) => c5(S("armor", 0.004), S("hp", 0.03 * q)), () => c5(S("dodge", 0.003), S("move", 0.01))],
+    [(q) => c10(S("hp", 0.04 * q)), (q) => c10(S("hp", 0.045 * q)), (q) => c5(S("hp", 0.028 * q), S("armor", 0.002))],
+    [() => c5(S("regen", 0.0005)), () => c5(S("lifesteal", 0.0025)), () => c5(S("revive", 0.02)), () => c5(S("regen", 0.0003), S("lifesteal", 0.0015))],
   ],
   spd: [
     [() => c5(S("rest", 0.006)), () => c5(S("rest", 0.004), S("revive", 0.01)), () => c5(S("rest", 0.007))],
     [(q) => c5(S("move", 0.0125 * q)), (q) => c5(S("move", 0.01 * q), S("dodge", 0.002)), (q) => c5(S("move", 0.014 * q))],
-    [(q) => c10(S("atkSpd", 0.0075 * q)), (q) => c10(S("atkSpd", 0.006 * q), S("move", 0.005 * q)), (q) => c10(S("atkSpd", 0.008 * q))],
+    [(q) => c10(S("atkSpd", 0.0055 * q)), (q) => c10(S("atkSpd", 0.0045 * q), S("move", 0.005 * q)), (q) => c10(S("atkSpd", 0.006 * q))],
   ],
   tech: [
     [(q) => c5(S("poison", 0.015 * q)), () => c5(S("slow", 0.0075)), (q) => c5(S("poison", 0.01 * q), S("slow", 0.004)), () => c5(S("slow", 0.006), S("crit", 0.002))],
-    [(q) => c5(S("atk", 0.03 * q), S("hp", 0.03 * q)), () => c5(S("lifesteal", 0.003), S("regen", 0.0003)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025))],
-    [() => c5(S("knockback", 0.04)), () => c5(S("lifesteal", 0.003)), () => c5(S("knockback", 0.03), S("slow", 0.004))],
+    [(q) => c5(S("atk", 0.03 * q), S("hp", 0.03 * q)), () => c5(S("lifesteal", 0.002), S("regen", 0.0003)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025))],
+    [() => c5(S("knockback", 0.03)), () => c5(S("lifesteal", 0.0015)), () => c5(S("knockback", 0.02), S("slow", 0.004))],
   ],
   support: [
     [(q) => c10(S("objAtk", 0.025 * q)), (q) => c10(S("objAtk", 0.02 * q), S("objHp", 0.01 * q)), (q) => c10(S("objAtk", 0.028 * q))],
@@ -277,7 +277,7 @@ const ROLE_LANES: Record<CharRole, { lanes: Pattern[][]; special: [number, numbe
   melee: {
     lanes: [
       [(q) => c10(S("atk", 0.03 * q)), (q) => c5(S("atk", 0.02 * q), S("hp", 0.02 * q)), () => c5(S("lifesteal", 0.003)), (q) => c10(S("atk", 0.035 * q))],
-      [() => c5(S("knockback", 0.05)), (q) => c5(S("armor", 0.005), S("hp", 0.03 * q)), (q) => c5(S("knockback", 0.04), S("atk", 0.02 * q))],
+      [() => c5(S("knockback", 0.04)), (q) => c5(S("armor", 0.005), S("hp", 0.03 * q)), (q) => c5(S("knockback", 0.03), S("atk", 0.02 * q))],
       [(q) => c10(S("hp", 0.05 * q)), () => c5(S("armor", 0.006)), (q) => c5(S("regen", 0.0005), S("hp", 0.02 * q)), () => c5(S("dodge", 0.003), S("armor", 0.003))],
     ],
     special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
@@ -300,9 +300,9 @@ const ROLE_LANES: Record<CharRole, { lanes: Pattern[][]; special: [number, numbe
   },
   fast: {
     lanes: [
-      [(q) => c10(S("atkSpd", 0.008 * q)), (q) => c5(S("move", 0.015 * q)), (q) => c5(S("atk", 0.025 * q), S("atkSpd", 0.004 * q)), (q) => c10(S("atkSpd", 0.01 * q))],
-      [() => c5(S("dodge", 0.004), S("move", 0.01)), (q) => c5(S("atk", 0.03 * q), S("atkSpd", 0.005 * q)), () => c5(S("dodge", 0.005))],
-      [() => c5(S("dodge", 0.004)), () => c5(S("rest", 0.005)), (q) => c5(S("lifesteal", 0.003), S("move", 0.01 * q)), () => c5(S("revive", 0.02), S("rest", 0.003))],
+      [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("move", 0.015 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.003 * q)), (q) => c10(S("atkSpd", 0.007 * q))],
+      [() => c5(S("dodge", 0.003), S("move", 0.01)), (q) => c5(S("atk", 0.024 * q), S("atkSpd", 0.004 * q)), () => c5(S("dodge", 0.004))],
+      [() => c5(S("dodge", 0.002)), () => c5(S("rest", 0.005)), (q) => c5(S("lifesteal", 0.003), S("move", 0.01 * q)), () => c5(S("revive", 0.02), S("rest", 0.003))],
     ],
     special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
   },
@@ -330,10 +330,10 @@ const COMBO_ROWS: Record<SkillBranch, ComboRow[]> = {
     [12, [C("wakeUp", 0.8), C("killHeal", 0.01)], "不死身のねこ"],
   ],
   spd: [
-    [2, [C("frenzy", 0.015)], "ノリノリ気分"],
+    [2, [C("frenzy", 0.012)], "ノリノリ気分"],
     [4, [C("wakeUp", 0.25)], "とびおき"],
     [6, [C("kibbleFever", 0.015)], "おやつでダッシュ"],
-    [8, [C("frenzy", 0.03)], "止まらない足"],
+    [8, [C("frenzy", 0.02)], "止まらない足"],
     [10, [C("dodgeCounter", 0.2)], "ひらりと反撃"],
     [12, [C("frenzy", 0.05), C("kibbleFever", 0.02)], "つむじ風の大暴れ"],
   ],
@@ -400,8 +400,8 @@ const COMBO_ROWS: Record<SkillBranch, ComboRow[]> = {
     [12, [C("shockwave", 0.8), C("partyLink", 0.15)], "台風の目"],
   ],
   fast: [
-    [0, [C("frenzy", 0.025)], "ノリノリ"],
-    [1, [C("dodgeCounter", 0.25)], "よけてパンチ"],
+    [0, [C("frenzy", 0.015)], "ノリノリ"],
+    [1, [C("dodgeCounter", 0.15)], "よけてパンチ"],
     [2, [C("wakeUp", 0.6)], "ねおきダッシュ"],
     [3, [C("kibbleFever", 0.025)], "カリカリでダッシュ"],
     [4, [C("killHeal", 0.008)], "走って元気"],

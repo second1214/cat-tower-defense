@@ -795,8 +795,29 @@ export class Battle {
     return this.auraBonus(o) > 0;
   }
 
-  /** オブジェクトにかかる objectAura（近くにいる猫のうち、いちばん大きい値）。 */
+  /**
+   * 電源タップ（kind "buff"）から受ける強化。近くの電源タップのうち、いちばん強いもの1つだけ（重ねがけはしない）。
+   * atk: 攻撃の上乗せ（def.produce）。spd: 速さの上乗せ（1 / def.slow - 1）。
+   */
+  buffOf(o: ObjState): { atk: number; spd: number } {
+    let atk = 0, spd = 0;
+    if (o.def.kind === "buff") return { atk, spd };
+    const objs = this.s.objects;
+    for (let i = 0; i < objs.length; i++) {
+      const t = objs[i];
+      if (t.hp <= 0 || t.def.kind !== "buff") continue;
+      if (Math.hypot(t.cx - o.cx, t.cy - o.cy) > t.def.range + Math.max(o.w, o.h) / 2) continue;
+      if (t.def.produce > atk) { atk = t.def.produce; spd = Math.max(0, 1 / Math.max(0.3, t.def.slow || 1) - 1); }
+    }
+    return { atk, spd };
+  }
+
+  /** オブジェクトにかかる objectAura（近くにいる猫のうち、いちばん大きい値）＋電源タップ。 */
   auraBonus(o: ObjState): number {
+    return this.catAura(o) + this.buffOf(o).atk;
+  }
+
+  private catAura(o: ObjState): number {
     let best = 0;
     const cats = this.s.cats;
     for (let i = 0; i < cats.length; i++) {
@@ -2046,9 +2067,13 @@ export class Battle {
       if (o.hurt > 0) o.hurt -= h;
       const d = o.def;
       const cx = o.cx, cy = o.cy;
+      // 電源タップ（buff）が近くにあると速くなる
+      const oh = h * (1 + this.buffOf(o).spd);
       // range はしめるマスの中心からの半径
       const range = d.range || 0;
       switch (d.kind) {
+        case "buff":
+          break;
         case "wall":
           break;
         case "mine": {
@@ -2073,7 +2098,7 @@ export class Battle {
           break;
         }
         case "producer": {
-          o.timer += h;
+          o.timer += oh;
           if (d.interval > 0 && o.timer >= d.interval) {
             o.timer -= d.interval;
             const v = d.produce * this.loadout.global.kibbleMul;
@@ -2087,7 +2112,7 @@ export class Battle {
           break;
         }
         case "aoe": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const base = this.objAtk(o);
@@ -2107,7 +2132,7 @@ export class Battle {
           break;
         }
         case "slow": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const base = this.objAtk(o);
@@ -2127,7 +2152,7 @@ export class Battle {
           break;
         }
         case "poison": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval && this.nearestBug(cx, cy, range)) {
             o.timer = 0;
             const dps = this.objAtk(o) * ((d.poison || 0) > 0 ? d.poison : 1);
@@ -2144,7 +2169,7 @@ export class Battle {
           break;
         }
         case "zap": {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval) {
             const t = this.nearestBug(cx, cy, range);
             if (t) {
@@ -2156,7 +2181,7 @@ export class Battle {
         }
         case "shooter":
         default: {
-          o.timer = Math.min(o.timer + h, d.interval);
+          o.timer = Math.min(o.timer + oh, d.interval);
           if (o.timer >= d.interval) {
             const t = this.nearestBug(cx, cy, range);
             if (t) {

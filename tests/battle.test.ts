@@ -1167,3 +1167,26 @@ describe("押し戻しのなれ", () => {
     expect(pushes[pushes.length - 1]).toBeLessThan(pushes[0] * 0.6);
   });
 });
+
+describe("電源タップ（buff）", () => {
+  it("まわりのオブジェクトの攻撃と速さを上げる・重ねがけはしない・遠いと効かない", () => {
+    const k = new Battle(loadout({
+      objects: [obj({ atk: 1, interval: 1, range: 3 }), obj({ kind: "buff", atk: 0, produce: 0.3, slow: 0.5, range: 1.5 }), obj({ kind: "buff", atk: 0, produce: 0.2, slow: 0.8, range: 1.5 })],
+      waves: later(999, [{ bug: "ant", count: 1, every: 1, lanes: [7] }]),
+    }));
+    parkCat(k);
+    expect(k.place(0, 3, 8).ok).toBe(true);
+    const s = k.objects[0];
+    expect(k.buffOf(s).atk).toBe(0);
+    expect(k.place(2, 4, 8).ok).toBe(true);
+    expect(k.buffOf(s).atk).toBeCloseTo(0.2);
+    expect(k.place(1, 3, 9).ok).toBe(true);
+    // いちばん強い1つだけ
+    expect(k.buffOf(s).atk).toBeCloseTo(0.3);
+    expect(k.buffOf(s).spd).toBeCloseTo(1);
+    expect(k.auraBonus(s)).toBeCloseTo(0.3);
+    // 遠くのオブジェクトには効かない
+    expect(k.place(0, 11, 4).ok).toBe(true);
+    expect(k.buffOf(k.objects[k.objects.length - 1]).atk).toBe(0);
+  });
+});

@@ -153,13 +153,14 @@ const OBJ_SVG: Record<string, string> = {
   spray: `<rect x="20" y="20" width="22" height="38" rx="6" fill="#7bd94a" stroke="${OUT}" stroke-width="2.5"/>
     <rect x="25" y="10" width="12" height="10" rx="2" fill="#fff" stroke="${OUT}" stroke-width="2.5"/><path d="M37 13 h6" stroke="${OUT}" stroke-width="3"/>
     <circle cx="50" cy="10" r="2" fill="#b8f08a"/><circle cx="55" cy="16" r="2.4" fill="#b8f08a"/><circle cx="52" cy="22" r="1.8" fill="#b8f08a"/><path d="M24 34 h14" stroke="#fff" stroke-width="3" opacity=".7"/>`,
+  dengen: `<rect x="10" y="22" width="44" height="22" rx="6" fill="#f4f0e6" stroke="${OUT}" stroke-width="2.5"/><circle cx="22" cy="33" r="4" fill="#5a4a3a"/><circle cx="34" cy="33" r="4" fill="#5a4a3a"/><circle cx="46" cy="33" r="3" fill="#ffb03d"/><path d="M10 33 Q2 33 4 50 Q6 58 16 58" stroke="${OUT}" stroke-width="3" fill="none"/>`,
   surippa: `<path d="M14 50 Q6 30 18 14 Q30 4 38 16 Q44 30 40 50 Q28 60 14 50 Z" fill="#ff7eb6" stroke="${OUT}" stroke-width="2.5"/>
     <path d="M14 26 Q28 18 40 26 L42 36 Q28 30 12 36 Z" fill="#fff" stroke="${OUT}" stroke-width="2.2"/><path d="M52 14 l6 -4 M54 24 l7 0 M50 6 l2 -5" stroke="#ffd23f" stroke-width="3"/>`,
 };
 
 const KIND_COLOR: Record<ObjectKind, string> = {
   shooter: "#ff6b6b", wall: "#c98b4e", aoe: "#b46bff", slow: "#4aa3ff", producer: "#ffd23f", mine: "#ff9f43",
-  zap: "#ffe14a", poison: "#7bd94a",
+  zap: "#ffe14a", poison: "#7bd94a", buff: "#ffb03d",
 };
 
 export function objectSvg(id: string, kind: ObjectKind = "shooter"): string {
@@ -178,6 +179,7 @@ export function kindSvg(kind: ObjectKind): string {
     producer: `<circle cx="22" cy="36" r="10" fill="${c}"/><circle cx="40" cy="28" r="10" fill="${c}"/><circle cx="38" cy="48" r="8" fill="${c}"/>`,
     mine: `<path d="M32 6 L38 24 L58 26 L42 38 L48 58 L32 46 L16 58 L22 38 L6 26 L26 24 Z" fill="${c}"/>`,
     zap: `<path d="M36 4 L14 36 H30 L24 60 L50 26 H34 Z" fill="${c}" stroke="#2a1d14" stroke-width="3"/>`,
+    buff: `<path d="M32 6 L32 30 M20 30 H44 V44 Q44 54 32 54 Q20 54 20 44 Z" stroke="#2a1d14" stroke-width="3" fill="${c}"/><path d="M26 30 V20 M38 30 V20" stroke="#2a1d14" stroke-width="4"/>`,
     poison: `<path d="M32 6 Q50 30 48 42 Q46 58 32 58 Q18 58 16 42 Q14 30 32 6 Z" fill="${c}" stroke="#2a1d14" stroke-width="3"/><circle cx="26" cy="42" r="4" fill="#fff" opacity=".6"/>`,
   };
   return S(body[kind]);
@@ -261,7 +263,7 @@ export const ICONS = {
   tabRelic: S(`<path d="M32 4 L54 22 L32 60 L10 22 Z" fill="#c78bff" stroke="#3d1670" stroke-width="4"/><path d="M10 22 H54 M22 22 L32 60 L42 22" stroke="#3d1670" stroke-width="2.5"/>`),
 };
 
-const BRANCH_ICON: Record<SkillBranch, string> = {
+const BRANCH_ICON: Partial<Record<SkillBranch, string>> = {
   atk: ICONS.paw,
   def: ICONS.shield,
   spd: ICONS.wind,
@@ -269,8 +271,9 @@ const BRANCH_ICON: Record<SkillBranch, string> = {
   support: ICONS.toybox,
 };
 
+/** 枝のアイコン（役割の枝は役割のアイコン）。 */
 export function branchSvg(b: SkillBranch): string {
-  return BRANCH_ICON[b] ?? ICONS.crown;
+  return BRANCH_ICON[b] ?? (b in ROLE_ICON ? ROLE_ICON[b as CharRole] : ICONS.crown);
 }
 
 // ---------------- v4: ねこ福袋・わざ・複合効果 ----------------

@@ -589,6 +589,7 @@ function drawObject(id: string, hint?: ObjectKind): HTMLCanvasElement {
     case "mine": drawTrap(g); break;
     case "zap": drawZap(g, id); break;
     case "poison": drawPoison(g, id); break;
+    case "buff": drawPowerStrip(g); break;
   }
   return cv;
 }
@@ -658,6 +659,19 @@ function drawPoison(g: G, id: string): void {
   dot(g, 64 + Math.cos(Math.PI * 7) * (6 + Math.PI * 7 * 3.6), 74 + Math.sin(Math.PI * 7) * (6 + Math.PI * 7 * 3.6) * 0.62, 6, "#ff7a3a");
   curve(g, 20, 66, 6, 40, 22, 18, 5, "rgba(200,200,210,0.85)");
   curve(g, 22, 18, 34, 4, 26, -4, 4, "rgba(200,200,210,0.6)");
+}
+
+/** 電源タップ（白い箱にさしこみ口・オレンジのランプ・コード）。 */
+function drawPowerStrip(g: G): void {
+  curve(g, 22, 84, 4, 100, 18, 118, 7, OL);
+  curve(g, 22, 84, 4, 100, 18, 118, 3, "#d8d2c4");
+  rr(g, 22, 46, 84, 40, 10);
+  fs(g, "#f6f2e8", () => {
+    for (const x of [40, 62]) { rr(g, x - 7, 58, 14, 16, 4); g.fillStyle = "#5a4a3a"; g.fill(); }
+    dot(g, 88, 66, 7, "#ffb03d");
+    dot(g, 86, 64, 2.5, "#fff6d8");
+    line(g, [28, 52, 100, 52], 3, "rgba(255,255,255,0.7)");
+  });
 }
 
 function drawShooter(g: G, id: string): void {

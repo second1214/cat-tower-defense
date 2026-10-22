@@ -85,7 +85,7 @@ export function createApp(root: HTMLElement): AppHandle {
   root.appendChild(app);
 
   const modals = new Modals(layer);
-  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all", skillRole: null };
+  const ui: UiState = { tab: "main", growSub: "char", fuseMode: false, fuseSel: [], equipFilter: "all" };
   // 開発用: ?tab=gacha|grow|main|relic で最初のタブ
   if (typeof location !== "undefined") {
     const t = new URLSearchParams(location.search).get("tab");

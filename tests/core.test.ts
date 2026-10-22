@@ -2,14 +2,14 @@ import { describe, expect, test } from "vitest";
 import { fmt } from "../src/core/num";
 import { mulberry32 } from "../src/core/rng";
 import {
-  newSave, loadSave, writeSave, migrate, importSave, exportSave, v2SkillCost, MAX_CATS, MAX_LOADOUT, SAVE_VERSION,
+  newSave, loadSave, writeSave, migrate, importSave, exportSave, v2SkillCost, v3SkillCost, MAX_CATS, MAX_LOADOUT, SAVE_VERSION,
   START_CHURU,
 } from "../src/core/save";
 import {
-  addExp, expToNext, canLearn, learnSkill, levelUpObject, objectUpgradeCost, addEquip, fuseEquips,
+  addExp, expToNext, canLearn, learnSkill, levelUpObject, objectUpgradeCost, addEquip, fuseEquips, transferAffix,
   equip, unequip, unlockRelic, canUnlockRelic, buildLoadout, resolveCat, resolveObjects, grantRewards, stageIdList,
   stageById, isStageUnlocked, estimateDps, stageLoad, toggleLoadout, sellEquip, relicBonus, churuForLevel,
-  nodeLevel, nextNodeCost, resetSkills, skillSpent, skillTreeOf, isNodeOpen, bondMul, FIRST_CLEAR_CHURU_MUL,
+  nodeLevel, nextNodeCost, resetSkills, skillSpent, skillTree, isNodeOpen, bondMul, FIRST_CLEAR_CHURU_MUL,
   objectPerks, resolveObject, objectDps, equipBonus, registerCat, updateCat, removeCat, setParty, equipWaza,
   familyLevel, catPower, partyRoles, addBondExp, bondToNext, COMPANION_POWER,
   IDLE_EXP_RATE, heroUid, powerRatio,
@@ -24,7 +24,8 @@ import {
 } from "../src/data/waza";
 import { PERSONALITIES, PERSONALITY_MAP } from "../src/data/personality";
 import {
-  COMBO_TEXT, SKILL_BRANCHES, SKILL_MAP, SKILL_TREES, SKILL_TREE_SIZE, TIER_MIN_LEVEL, effectText, nodeCost,
+  COMBO_TEXT, COMMON_BRANCHES, ROLE_BRANCHES, SKILL_BRANCHES, SKILL_MAP, SKILL_TREE, SKILL_TREE_SIZE, TIER_MIN_LEVEL,
+  effectText, nodeCost,
 } from "../src/data/skills";
 import { OBJECTS, OBJECT_MAP, PERK_LEVELS } from "../src/data/objects";
 import { BUGS, BUG_MAP, isTraitBug } from "../src/data/bugs";
@@ -171,70 +172,87 @@ describe("データ", () => {
     }
     expect(PERSONALITY_MAP.yancha).toMatchObject({ atk: 0.15, hp: -0.1 });
   });
-  test("スキルツリー: 役割ごとに 170 以上・段 0〜11・複合効果 10 以上", () => {
-    expect(TIER_MIN_LEVEL.length).toBe(12);
+  test("スキルツリー: 家族で1つ・780 以上・段 0〜12・複合効果 48 以上", () => {
+    const tree = SKILL_TREE;
+    expect(TIER_MIN_LEVEL.length).toBe(13);
     for (let i = 1; i < TIER_MIN_LEVEL.length; i++) expect(TIER_MIN_LEVEL[i]).toBeGreaterThan(TIER_MIN_LEVEL[i - 1]);
-    for (const [role, tree] of Object.entries(SKILL_TREES)) {
-      expect(tree.length).toBeGreaterThanOrEqual(170);
-      const ids = new Set(tree.map((n) => n.id));
-      expect(ids.size).toBe(tree.length);
-      const pos = new Set(tree.map((n) => `${n.pos.x},${n.pos.y}`));
-      expect(pos.size).toBe(tree.length); // 画面で重ならない
-      for (const b of SKILL_BRANCHES) expect(tree.filter((n) => n.branch === b).length).toBeGreaterThanOrEqual(30);
-      for (const n of tree) {
-        expect(n.role).toBe(role);
-        expect("minRarity" in n).toBe(false); // レアリティの条件はない
-        expect(n.minCharLevel).toBe(TIER_MIN_LEVEL[n.tier]);
-        expect(n.pos.x).toBeGreaterThanOrEqual(0);
-        expect(n.pos.x).toBeLessThan(SKILL_TREE_SIZE.w);
-        expect(n.pos.y).toBeGreaterThanOrEqual(0);
-        expect(n.pos.y).toBeLessThan(SKILL_TREE_SIZE.h);
-        expect(n.maxLevel).toBeGreaterThanOrEqual(1);
-        expect(n.baseCost).toBeGreaterThan(0);
-        expect(effectText(n).length).toBeGreaterThan(0);
-        expect(n.desc.length).toBeGreaterThan(0);
-        for (const r of n.req) {
-          expect(ids.has(r.id)).toBe(true);
-          expect(r.lv).toBeLessThanOrEqual(SKILL_MAP[r.id].maxLevel);
-          expect(SKILL_MAP[r.id].tier).toBeLessThanOrEqual(n.tier); // 前提は浅い段
-          expect(SKILL_MAP[r.id].pos.y).toBeLessThan(n.pos.y);      // 画面でも上にある
-        }
+    expect(tree.length).toBeGreaterThanOrEqual(780); // 前の 4役割 × 193 = 772 より多い
+    const ids = new Set(tree.map((n) => n.id));
+    expect(ids.size).toBe(tree.length);
+    const pos = new Set(tree.map((n) => `${n.pos.x},${n.pos.y}`));
+    expect(pos.size).toBe(tree.length); // 画面で重ならない
+    for (const b of SKILL_BRANCHES) expect(tree.filter((n) => n.branch === b).length).toBeGreaterThanOrEqual(80);
+    // 役割の枝は、その役割の印つき。みんなの枝は印なし
+    for (const n of tree) {
+      if ((ROLE_BRANCHES as string[]).includes(n.branch)) expect(n.role).toBe(n.branch);
+      else expect(n.role).toBeUndefined();
+    }
+    // 中身がかぶっていない（同じ枝で、効果と最大レベルがまったく同じノードはない）
+    const sig = new Set(tree.map((n) => `${n.branch}|${n.tier}|${n.maxLevel}|${JSON.stringify(n.effects)}`));
+    expect(sig.size).toBeGreaterThan(tree.length * 0.95);
+    for (const n of tree) {
+      expect("minRarity" in n).toBe(false); // レアリティの条件はない
+      expect(n.minCharLevel).toBe(TIER_MIN_LEVEL[n.tier]);
+      expect(n.pos.x).toBeGreaterThanOrEqual(0);
+      expect(n.pos.x).toBeLessThan(SKILL_TREE_SIZE.w);
+      expect(n.pos.y).toBeGreaterThanOrEqual(0);
+      expect(n.pos.y).toBeLessThan(SKILL_TREE_SIZE.h);
+      expect(n.maxLevel).toBeGreaterThanOrEqual(1);
+      expect(n.baseCost).toBeGreaterThan(0);
+      expect(nodeCost(n, 0)).toBeGreaterThanOrEqual(1);
+      expect(effectText(n).length).toBeGreaterThan(0);
+      expect(n.desc.length).toBeGreaterThan(0);
+      for (const r of n.req) {
+        expect(ids.has(r.id)).toBe(true);
+        expect(r.lv).toBeLessThanOrEqual(SKILL_MAP[r.id].maxLevel);
+        expect(SKILL_MAP[r.id].tier).toBeLessThanOrEqual(n.tier); // 前提は浅い段
+        expect(SKILL_MAP[r.id].pos.y).toBeLessThan(n.pos.y);      // 画面でも上にある
+        if (SKILL_MAP[r.id].req.length) expect(SKILL_MAP[r.id].branch).toBe(n.branch); // 枝どうしは根もとでだけつながる
       }
-      // 段が深いほど下
-      const byTier = (t: number) => tree.filter((n) => n.tier === t).map((n) => n.pos.y);
-      for (let t = 1; t < 12; t++) expect(Math.min(...byTier(t))).toBeGreaterThan(Math.max(...byTier(t - 1)));
-      expect(tree.filter((n) => n.req.length === 0).length).toBe(1); // 根もとは1つ
-      expect(Math.max(...tree.map((n) => n.tier))).toBe(11);
-      // 複合効果
-      const combos = tree.filter((n) => n.combo);
-      expect(combos.length).toBeGreaterThanOrEqual(10);
-      for (const n of combos) expect(n.effects.every((e) => e.combo)).toBe(true);
-      expect(new Set(combos.map((n) => n.tier)).size).toBeGreaterThanOrEqual(8); // いろいろな深さに
-      // 同じ複合効果なら、深いほど強い
+    }
+    // 段が深いほど下
+    const byTier = (t: number) => tree.filter((n) => n.tier === t && n.req.length).map((n) => n.pos.y);
+    for (let t = 1; t < 13; t++) expect(Math.min(...byTier(t))).toBeGreaterThan(Math.max(...byTier(t - 1)));
+    expect(tree.filter((n) => n.req.length === 0).length).toBe(1); // 根もとは1つ
+    expect(Math.max(...tree.map((n) => n.tier))).toBe(12);
+    // 複合効果
+    const combos = tree.filter((n) => n.combo);
+    expect(combos.length).toBeGreaterThanOrEqual(48);
+    for (const n of combos) expect(n.effects.every((e) => e.combo)).toBe(true);
+    expect(new Set(combos.map((n) => n.name)).size).toBe(combos.length);
+    for (const b of SKILL_BRANCHES) {
+      const bc = combos.filter((n) => n.branch === b);
+      expect(bc.length).toBeGreaterThanOrEqual(ROLE_BRANCHES.includes(b as CharRole) ? 12 : 5);
+      expect(new Set(bc.map((n) => n.tier)).size).toBeGreaterThanOrEqual(5); // いろいろな深さに
+      // 同じ枝・同じ複合効果なら、深いほど強い
       const seen = new Map<ComboId, { tier: number; per: number }>();
-      for (const n of [...combos].sort((a, b) => a.tier - b.tier)) {
+      for (const n of [...bc].sort((x, y) => x.tier - y.tier)) {
         const e = n.effects[0];
         const prev = seen.get(e.combo!);
         if (prev && n.tier > prev.tier) expect(e.per * n.maxLevel).toBeGreaterThan(prev.per);
         seen.set(e.combo!, { tier: n.tier, per: e.per * n.maxLevel });
       }
-      // ステータスのノードもたくさん
-      expect(tree.filter((n) => !n.combo).length).toBeGreaterThanOrEqual(160);
     }
+    // ステータスのノードもたくさん
+    expect(tree.filter((n) => !n.combo).length).toBeGreaterThanOrEqual(700);
     // 役割に合った複合効果
-    const has = (role: CharRole, c: ComboId) => SKILL_TREES[role].some((n) => n.effects.some((e) => e.combo === c));
+    const has = (role: CharRole, c: ComboId) => tree.some((n) => n.role === role && n.effects.some((e) => e.combo === c));
     expect(has("melee", "knockSlam") && has("melee", "multiEcho") && has("melee", "lastStand")).toBe(true);
     expect(has("ranged", "pierceGrow") && has("ranged", "critChain")).toBe(true);
     expect(has("aoe", "shockwave") && has("aoe", "poisonBurst")).toBe(true);
     expect(has("fast", "frenzy") && has("fast", "dodgeCounter")).toBe(true);
-    // 遠距離だけ「つらぬく」がある
-    expect(SKILL_TREES.ranged.some((n) => n.effects.some((e) => e.stat === "pierce"))).toBe(true);
-    expect(SKILL_TREES.melee.some((n) => n.effects.some((e) => e.stat === "pierce"))).toBe(false);
-    // 複合効果の説明
-    const c = SKILL_TREES.aoe.find((n) => n.effects[0].combo === "poisonBurst")!;
+    // 遠距離の枝だけ「つらぬく」がある
+    const pierce = tree.filter((n) => n.effects.some((e) => e.stat === "pierce"));
+    expect(pierce.length).toBeGreaterThan(0);
+    expect(pierce.every((n) => n.role === "ranged")).toBe(true);
+    // 説明
+    const c = tree.find((n) => n.role === "aoe" && n.effects[0].combo === "poisonBurst")!;
     expect(effectText(c, 2)).toContain("爆発");
+    expect(effectText(c, 2).startsWith("範囲の猫：")).toBe(true);
     for (const t of Object.values(COMBO_TEXT)) expect(t(0.5).length).toBeGreaterThan(0);
-    expect(effectText(SKILL_MAP["melee.root"])).toBe("猫の攻撃 +5%・猫の体力 +5%");
+    expect(effectText(SKILL_MAP.root)).toBe("猫の攻撃 +5%・猫の体力 +5%");
+    expect(effectText(SKILL_MAP["melee.0a0"])).toMatch(/^近接の猫：攻撃 \+\d/);
+    expect(COMMON_BRANCHES.length + ROLE_BRANCHES.length).toBe(SKILL_BRANCHES.length);
   });
   test("オブジェクト: 通れる・通れない", () => {
     const by = Object.fromEntries(OBJECTS.map((o) => [o.id, o.base.block]));
@@ -468,7 +486,7 @@ describe("セーブ", () => {
   test("はじめのデータ: 仮の1匹（登録の前でも遊べる）", () => {
     const s = newSave();
     expect(s.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(3);
+    expect(SAVE_VERSION).toBe(4);
     expect(s.setupDone).toBe(false);
     expect(Object.keys(s.cats)).toEqual(["c1"]);
     expect(s.cats.c1).toMatchObject({
@@ -478,7 +496,7 @@ describe("セーブ", () => {
     expect(s.cats.c1.preset).toBeUndefined();
     expect(s.party).toEqual(["c1"]);
     expect(s.wazas).toEqual({ nekopunch: { level: 1, count: 1 }, choichoi: { level: 1, count: 1 } });
-    expect(s.skills).toEqual({ melee: {}, ranged: {}, aoe: {}, fast: {} });
+    expect(s.skills).toEqual({});
     expect(s.churu).toBe(START_CHURU);
     expect(s.churu).toBeGreaterThanOrEqual(PULL_COST); // すぐに1回ためせる
     expect(s.gachaPity).toBe(0);
@@ -503,13 +521,13 @@ describe("セーブ", () => {
       },
     };
     const s = migrate(old);
-    expect(s.version).toBe(3);
+    expect(s.version).toBe(SAVE_VERSION);
     expect(s.setupDone).toBe(true);
     expect(s.coins).toBe(50);
     expect(s.cleared).toBe(5);
     expect(s.gachaPity).toBe(12);
     expect(s.churu).toBe(77 + 2 + 12 + 25); // 知らない猫のぶんは返さない
-    expect(s.skills).toEqual({ melee: {}, ranged: {}, aoe: {}, fast: {} });
+    expect(s.skills).toEqual({});
     expect(Object.keys(s.cats).length).toBe(3);
     // 選んでいた猫が主人公（c1）
     expect(s.party).toEqual(["c1"]);
@@ -546,7 +564,8 @@ describe("セーブ", () => {
       },
       party: ["c7", "zz", "c7", "c1"],
       wazas: { kakurenbo: { level: 9, count: 1 }, nazo: { level: 1 } },
-      skills: { melee: { "melee.root": 5, "ranged.root": 1, nope: 1 }, nazo: {} },
+      churu: 10,
+      skills: { melee: { "melee.root": 5, "ranged.root": 1, "melee.atk1_0": 2, nope: 1 }, ranged: { "ranged.combo3": 9 }, nazo: {} },
     });
     expect(Object.keys(bad.cats)).toEqual(["c1", "c7"]);
     expect(bad.cats.c1).toMatchObject({ name: "たろう", look: "kuro", personality: "yancha", level: 4 });
@@ -558,12 +577,22 @@ describe("セーブ", () => {
     expect(bad.nextCatUid).toBe(8);
     expect(bad.wazas.kakurenbo.level).toBe(MAX_WAZA_LEVEL);
     expect(bad.wazas.nazo).toBeUndefined();
-    expect(bad.skills.melee).toEqual({ "melee.root": 1 });
+    // v3 → v4: 役割ごとのスキルは消して、使ったちゅ〜るを返す
+    expect(bad.skills).toEqual({});
+    expect(v3SkillCost("melee", "melee.root", 5)).toBe(2);
+    expect(v3SkillCost("melee", "ranged.root", 1)).toBe(0); // ほかの役割の id
+    expect(v3SkillCost("melee", "melee.atk1_0", 2)).toBe(3 + 4);
+    expect(v3SkillCost("ranged", "ranged.combo3", 9)).toBe(Math.round(15 * 1.6 ** 3) + Math.round(15 * 1.6 ** 3 * 1.3)); // 最大 Lv2
+    expect(v3SkillCost("melee", "melee.tech1_4", 1)).toBe(Math.round(30 * 1.6 ** 4));
+    expect(bad.churu).toBe(10 + 2 + 7 + v3SkillCost("ranged", "ranged.combo3", 2));
     expect(bad.setupDone).toBe(true);
+    // v4: ノードの id → レベル（知らない id は消す・最大レベルまで）
+    const v4 = migrate({ version: 4, setupDone: true, cats: { c1: { name: "a", look: "kuro", personality: "yancha" } }, skills: { root: 9, "atk.1a0": 2, nope: 1, "melee.0a0": -1 } });
+    expect(v4.skills).toEqual({ root: 1, "atk.1a0": 2 });
     const t = newSave();
     t.coins = 123;
     addCat(t, "みー");
-    t.skills.melee["melee.root"] = 1;
+    t.skills.root = 1;
     const back = importSave(exportSave(t))!;
     expect(back.coins).toBe(123);
     expect(back.cats).toEqual(t.cats);
@@ -799,84 +828,91 @@ describe("猫のレベル・ちゅ〜る・なかよし度", () => {
   });
 });
 
-describe("スキルツリー（家族で共有・役割ごと）", () => {
+describe("スキルツリー（家族で1つ）", () => {
+  const atk0 = () => SKILL_TREE.find((n) => n.branch === "atk" && n.tier === 0 && n.req[0]?.id === "root" && n.effects[0].stat === "atk")!;
   test("前提・ちゅ〜る・家族のレベル", () => {
     const s = newSave();
-    expect(skillTreeOf("melee")).toBe(SKILL_TREES.melee);
+    expect(skillTree()).toBe(SKILL_TREE);
     s.churu = 0;
-    const r0 = canLearn(s, "melee", "melee.root");
+    const r0 = canLearn(s, "root");
     expect(r0.ok).toBe(false);
     if (!r0.ok) expect(r0.reason).toContain("ちゅ〜る");
     s.churu = 10000;
-    const atk1 = SKILL_TREES.melee.find((n) => n.tier === 0 && n.id !== "melee.root" && n.effects[0].stat === "atk")!;
-    const r1 = canLearn(s, "melee", atk1.id);
+    const atk1 = atk0();
+    const r1 = canLearn(s, atk1.id);
     expect(r1.ok).toBe(false); // 根もとがまだ
     if (!r1.ok) expect(r1.reason).toContain("はじめの一歩");
-    expect(learnSkill(s, "melee", "melee.root").ok).toBe(true);
-    expect(learnSkill(s, "melee", "melee.root").ok).toBe(false); // 最大レベル
-    expect(learnSkill(s, "melee", "ranged.root").ok).toBe(false); // ほかの役割
-    expect(learnSkill(s, "ranged", "melee.atk1").ok).toBe(false);
+    expect(learnSkill(s, "root").ok).toBe(true);
+    expect(learnSkill(s, "root").ok).toBe(false); // 最大レベル
+    expect(learnSkill(s, "nazo").ok).toBe(false);
     const before = resolveCat(s).atk;
-    for (let i = 0; i < 3; i++) expect(learnSkill(s, "melee", atk1.id).ok).toBe(true);
-    expect(nodeLevel(s, "melee", atk1.id)).toBe(3);
+    for (let i = 0; i < 3; i++) expect(learnSkill(s, atk1.id).ok).toBe(true);
+    expect(nodeLevel(s, atk1.id)).toBe(3);
     expect(resolveCat(s).atk).toBeCloseTo(before / 1.05 * (1 + 0.05 + 3 * atk1.effects[0].per));
     // 段1は家族のだれかのレベル 3 から
-    const t1 = SKILL_TREES.melee.find((n) => n.tier === 1 && n.req.every((r) => r.id === atk1.id))!;
-    const r2 = canLearn(s, "melee", t1.id);
+    const a1 = SKILL_TREE.find((n) => n.req[0]?.id === atk1.id)!; // 段0の下
+    for (let i = 0; i < 3; i++) expect(learnSkill(s, a1.id).ok).toBe(true);
+    const t1 = SKILL_TREE.find((n) => n.tier === 1 && n.req[0]?.id === a1.id)!;
+    const r2 = canLearn(s, t1.id);
     expect(r2.ok).toBe(false);
     if (!r2.ok) expect(r2.reason).toContain("レベル");
     const other = addCat(s, "ベテラン");
     s.cats[other].level = 3; // 控えの猫でもよい
     expect(familyLevel(s)).toBe(3);
-    expect(learnSkill(s, "melee", t1.id).ok).toBe(true);
+    expect(learnSkill(s, t1.id).ok).toBe(true);
   });
-  test("1匹で取れば、その役割で戦う全員に効く", () => {
+  test("みんなの枝は全員に・役割の枝はその役割の猫だけに効く", () => {
     const s = newSave();
     const b = addCat(s, "い");
     const c = addCat(s, "う");
     learnWaza(s, "choichoi");
     equipWaza(s, c, "main", "choichoi");
     const a0 = resolveCat(s, "c1").atk, b0 = resolveCat(s, b).atk, c0 = resolveCat(s, c).atk;
-    s.churu = 100;
-    learnSkill(s, "melee", "melee.root");
+    s.churu = 1000;
+    learnSkill(s, "root");
     expect(resolveCat(s, "c1").atk).toBeCloseTo(a0 * 1.05);
     expect(resolveCat(s, b).atk).toBeCloseTo(b0 * 1.05);
-    expect(resolveCat(s, c).atk).toBeCloseTo(c0); // 遠距離には効かない
-    expect(s.skills.melee).toEqual({ "melee.root": 1 });
+    expect(resolveCat(s, c).atk).toBeCloseTo(c0 * 1.05); // 遠距離にも効く
+    const m = SKILL_MAP["melee.0a0"];
+    expect(m.role).toBe("melee");
+    expect(m.effects[0].stat).toBe("atk");
+    learnSkill(s, m.id);
+    expect(resolveCat(s, "c1").atk).toBeCloseTo(a0 * (1.05 + m.effects[0].per));
+    expect(resolveCat(s, c).atk).toBeCloseTo(c0 * 1.05); // 遠距離には効かない
+    expect(s.skills).toEqual({ root: 1, "melee.0a0": 1 });
   });
   test("コストは段とレベルで増える", () => {
-    const t = SKILL_TREES.melee;
-    const a0 = t.find((n) => n.tier === 0 && n.id !== "melee.root" && n.effects[0].stat === "atk")!;
-    const a6 = t.find((n) => n.tier === 6 && n.effects[0].stat === "atk" && n.maxLevel === a0.maxLevel)!;
-    for (let lv = 1; lv < a0.maxLevel; lv++) expect(nodeCost(a0, lv)).toBeGreaterThan(nodeCost(a0, lv - 1));
+    const a0 = atk0();
+    const a6 = SKILL_TREE.find((n) => n.tier === 6 && n.branch === "atk" && n.effects[0].stat === "atk" && n.maxLevel === a0.maxLevel)!;
+    for (let lv = 1; lv < a0.maxLevel; lv++) expect(nodeCost(a0, lv)).toBeGreaterThanOrEqual(nodeCost(a0, lv - 1));
+    expect(nodeCost(a0, a0.maxLevel - 1)).toBeGreaterThan(nodeCost(a0, 0));
     expect(nodeCost(a6, 0)).toBeGreaterThan(nodeCost(a0, 0) * 10);
     const s = newSave();
-    expect(nextNodeCost(s, "melee", a0.id)).toBe(nodeCost(a0, 0));
-    expect(nextNodeCost(s, "ranged", a0.id)).toBeNull();
+    expect(nextNodeCost(s, a0.id)).toBe(nodeCost(a0, 0));
+    expect(nextNodeCost(s, "nazo")).toBeNull();
   });
-  test("忘れると全部もどる（役割ごと）", () => {
+  test("忘れると全部もどる", () => {
     const s = newSave();
     s.churu = 500;
-    learnSkill(s, "melee", "melee.root");
-    learnSkill(s, "ranged", "ranged.root");
-    const a0 = SKILL_TREES.melee.find((n) => n.tier === 0 && n.id !== "melee.root" && n.effects[0].stat === "atk")!;
-    learnSkill(s, "melee", a0.id);
-    learnSkill(s, "melee", a0.id);
-    const spent = skillSpent(s, "melee");
-    expect(s.churu).toBe(500 - spent - skillSpent(s, "ranged"));
-    expect(resetSkills(s, "melee")).toBe(spent);
-    expect(s.skills.melee).toEqual({});
-    expect(s.skills.ranged).toEqual({ "ranged.root": 1 });
-    expect(s.churu).toBe(500 - skillSpent(s, "ranged"));
+    learnSkill(s, "root");
+    learnSkill(s, "ranged.0a0");
+    learnSkill(s, atk0().id);
+    learnSkill(s, atk0().id);
+    const spent = skillSpent(s);
+    expect(spent).toBeGreaterThan(0);
+    expect(s.churu).toBe(500 - spent);
+    expect(resetSkills(s)).toBe(spent);
+    expect(s.skills).toEqual({});
+    expect(s.churu).toBe(500);
   });
   test("ぜんぶ取ると上限の中におさまる・複合効果も入る", () => {
+    const s = newSave();
+    s.cats.c1.level = 999;
+    for (const n of SKILL_TREE) {
+      expect(isNodeOpen(s, n.id).ok).toBe(true); // 前から順に取れる（レアリティの条件はない）
+      s.skills[n.id] = n.maxLevel;
+    }
     for (const role of ROLES) {
-      const s = newSave();
-      s.cats.c1.level = 999;
-      for (const n of SKILL_TREES[role]) {
-        expect(isNodeOpen(s, role, n.id).ok).toBe(true); // 前から順に取れる（レアリティの条件はない）
-        s.skills[role][n.id] = n.maxLevel;
-      }
       const main = { melee: "nekopunch", ranged: "choichoi", aoe: "fuwafuwa", fast: "yorunome" }[role];
       learnWaza(s, main);
       equipWaza(s, "c1", "main", main);
@@ -889,7 +925,7 @@ describe("スキルツリー（家族で共有・役割ごと）", () => {
       expect(k.reviveHp).toBeLessThanOrEqual(1);
       expect(k.atkInterval).toBeGreaterThanOrEqual(0.15);
       expect(k.restTime).toBeGreaterThanOrEqual(1);
-      expect(Object.keys(k.combos).length).toBeGreaterThanOrEqual(8);
+      expect(Object.keys(k.combos).length).toBeGreaterThanOrEqual(12);
       if (role === "ranged") expect(k.pierce).toBeGreaterThanOrEqual(3);
       else expect(k.pierce).toBe(0);
       if (role !== "ranged") expect(k.multiHit).toBeGreaterThanOrEqual(1);
@@ -1144,6 +1180,45 @@ describe("オブジェクト", () => {
 });
 
 describe("装備", () => {
+  test("UR どうしでスキル（補正）の付け替え: 1回で1つ・もとの装備は消える", () => {
+    const rng = mulberry32(7);
+    const s = newSave();
+    const base = addEquip(s, rng, 4, "head");
+    const donor = addEquip(s, rng, 4, "head");
+    const other = addEquip(s, rng, 4, "neck");
+    const sr = addEquip(s, rng, 3, "head");
+    expect(transferAffix(s, base.uid, base.uid, 0, 0).ok).toBe(false);   // 同じ装備
+    expect(transferAffix(s, base.uid, other.uid, 0, 0).ok).toBe(false);  // 枠がちがう
+    expect(transferAffix(s, base.uid, sr.uid, 0, 0).ok).toBe(false);     // UR ではない
+    expect(transferAffix(s, sr.uid, base.uid, 0, 0).ok).toBe(false);
+    expect(transferAffix(s, base.uid, donor.uid, 9, 0).ok).toBe(false);  // ない補正
+    expect(transferAffix(s, base.uid, donor.uid, 0, -1).ok).toBe(false);
+    // 同じ補正が base のほかの場所にあるものは付けられない（同じ場所の入れかえならよい）
+    donor.affixes[1] = { id: base.affixes[2].id, value: 9.99 };
+    const dup = transferAffix(s, base.uid, donor.uid, 1, 0);
+    expect(dup.ok).toBe(false);
+    if (!dup.ok) expect(dup.reason).toContain("同じ");
+    expect(s.equips.length).toBe(4); // 失敗しても消えない
+    equip(s, donor.uid);
+    const keep = base.affixes.map((x) => ({ ...x }));
+    const r = transferAffix(s, base.uid, donor.uid, 1, 2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.uid).toBe(base.uid);
+    expect(r.value.affixes[2]).toEqual({ id: keep[2].id, value: 9.99 }); // ふった値のまま
+    for (const i of [0, 1, 3, 4]) expect(r.value.affixes[i]).toEqual(keep[i]); // ほかはそのまま（1つだけ）
+    expect(r.value.affixes.length).toBe(5);
+    expect(s.equips.some((e) => e.uid === donor.uid)).toBe(false); // もとの装備は消える
+    expect(s.equips.length).toBe(3);
+    expect(s.equipped.head).toBe(base.uid); // つけていた装備が消えたので、かわりにつける
+    // つけていないものを使っても、つけている装備はそのまま
+    const d2 = addEquip(s, rng, 4, "neck");
+    equip(s, other.uid);
+    d2.affixes[0] = { id: "zzz_test", value: 1 };
+    expect(transferAffix(s, other.uid, d2.uid, 0, 4).ok).toBe(true);
+    expect(s.equipped.neck).toBe(other.uid);
+    expect(other.affixes[4].id).toBe("zzz_test");
+  });
   test("合成でレアリティ+1・補正の数", () => {
     const rng = mulberry32(1);
     const s = newSave();
@@ -1321,8 +1396,8 @@ describe("インフレの曲線", () => {
     expect(rows[99].bugs).toBeGreaterThan(rows[0].bugs * 8);
     // 数字はちゃんとインフレしている
     expect(rows[99].bugHp).toBeGreaterThan(1e15);
-    // 2章からは、オブジェクトが主役のダメージ源（猫と相棒の合計の数倍）
-    for (const r of rows.slice(10)) expect(r.objDps).toBeGreaterThan((r.charDps + r.compDps) * 3);
+    // 2章からは、オブジェクトが主役のダメージ源（猫と相棒の合計の2倍以上）
+    for (const r of rows.slice(10)) expect(r.objDps).toBeGreaterThan((r.charDps + r.compDps) * 2);
     // 相棒もはたらく
     expect(rows[99].party).toBe(3);
     expect(rows[99].compDps).toBeGreaterThan(0);

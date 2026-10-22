@@ -8,7 +8,7 @@ import { COLS, ROWS, type Loadout, type ResolvedObject } from "../core/types";
 import { objectDps } from "../core/progress";
 
 /** オブジェクトが攻撃するか。 */
-const attacks = (d: ResolvedObject) => d.kind !== "producer" && d.kind !== "wall";
+const attacks = (d: ResolvedObject) => d.kind !== "producer" && d.kind !== "wall" && d.kind !== "buff";
 
 export interface AutoPilot {
   /** 置く・強化するを決めて、すぐにする。 */
@@ -94,6 +94,21 @@ export function createAutoPilot(b: Battle, lo: Loadout): AutoPilot {
   };
 
   const decide = () => {
+    // 電源タップ: 攻撃するオブジェクトが2つ以上あれば、いちばん多くに届く所に1つ置く
+    const bi = lo.objects.findIndex((d) => d.kind === "buff");
+    const atkObjs = b.objects.filter((o) => o.hp > 0 && attacks(o.def) && o.def.kind !== "buff");
+    if (bi >= 0 && atkObjs.length >= 2 && b.kibble >= lo.objects[bi].cost && !b.objects.some((o) => o.hp > 0 && o.def.kind === "buff")) {
+      const d = lo.objects[bi];
+      let best: { col: number; row: number; n: number } | null = null;
+      for (let row = 0; row <= ROWS - d.h; row++) for (let col = 0; col <= COLS - d.w; col++) {
+        if (!b.placeCheck(bi, col, row).ok) continue;
+        const cx = col + d.w / 2, cy = row + d.h / 2;
+        let n = 0;
+        for (const o of atkObjs) if (Math.hypot(o.cx - cx, o.cy - cy) <= d.range + Math.max(o.w, o.h) / 2) n++;
+        if (n >= 2 && (!best || n > best.n)) best = { col, row, n };
+      }
+      if (best) { b.place(bi, best.col, best.row); placed++; }
+    }
     // 必殺技: たまっていたら撃つ（近くに虫がいなければ撃たない）
     if ((b.cats[0]?.gauge ?? 0) >= 1) b.useSpecial(0);
     refreshRoute();

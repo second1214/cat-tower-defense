@@ -110,9 +110,9 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
     for (const n of skillTree()) {
       if (n.role && !roles.includes(n.role)) continue;
       const w = !n.role || n.role === heroRole ? 1 : 3;
-      if (!canLearn(save, n.id).ok) continue;
-      const c = nextNodeCost(save, n.id)!;
-      if (c * w < pickScore) { pickScore = c * w; pick = { id: n.id, cost: c }; }
+      const c = nextNodeCost(save, n.id);
+      if (c == null || c * w >= pickScore || !canLearn(save, n.id).ok) continue;
+      pickScore = c * w; pick = { id: n.id, cost: c };
     }
     if (!pick || save.churu - pick.cost < st.pullBudget) break;
     learnSkill(save, pick.id);

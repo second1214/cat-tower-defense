@@ -359,11 +359,32 @@ export function resetSkills(save: SaveData): number {
   return refund;
 }
 
+/** スキルの合計の覚え書き（skills の中身が同じなら、計算しなおさない）。 */
+const skillCache = new WeakMap<Record<string, number>, Map<CharRole, { sig: string; t: SkillTotals }>>();
+
 /** その役割の猫に効くノード（みんなの枝 ＋ その役割の枝）を合計に足す。 */
 function addSkillTotals(t: SkillTotals, save: SaveData, role: CharRole): void {
-  for (const [id, lv] of Object.entries(save.skills)) {
-    const n = SKILL_MAP[id];
-    if (n && nodeAppliesTo(n, role)) addNodeTotals(t, n, lv);
+  const sk = save.skills;
+  // 中身のしるし（ノードの数・レベルの合計・重みつきの合計）
+  let n = 0, sum = 0, w = 0;
+  for (const id in sk) { const lv = sk[id]; n++; sum += lv; w += lv * (id.length + id.charCodeAt(id.length - 1)) * n; }
+  const sig = `${n}/${sum}/${w}`;
+  let byRole = skillCache.get(sk);
+  if (!byRole) { byRole = new Map(); skillCache.set(sk, byRole); }
+  let hit = byRole.get(role);
+  if (!hit || hit.sig !== sig) {
+    const st = emptyTotals();
+    for (const id in sk) {
+      const node = SKILL_MAP[id];
+      if (node && nodeAppliesTo(node, role)) addNodeTotals(st, node, sk[id]);
+    }
+    hit = { sig, t: st };
+    byRole.set(role, hit);
+  }
+  for (const key in hit.t) {
+    if (key === "combos") {
+      for (const [c, v] of Object.entries(hit.t.combos) as [ComboId, number][]) t.combos[c] = (t.combos[c] ?? 0) + v;
+    } else (t as unknown as Record<string, number>)[key] += (hit.t as unknown as Record<string, number>)[key];
   }
 }
 
@@ -775,6 +796,9 @@ export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): {
   return { stats, names };
 }
 
+/** オブジェクトの攻撃の底上げ（押し戻しで足止めできなくなったぶん。オブジェクトが主役）。 */
+export const OBJ_ATK_BOOST = 1.5;
+
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
   if (!def) return null;
@@ -785,7 +809,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const sk = modsFromTotals(catTotals(save, heroUid(save)));
   const { stats: b, names } = applyPerks(def.base, def.perks, lv);
   // 装備の基本の攻撃・体力は、猫が置くオブジェクトにも効く
-  const atkMul = eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
+  const atkMul = OBJ_ATK_BOOST * eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
   const intMul = Math.max(0.4, 1 - eq.objInterval - (eq.objIntervalKind[def.kind] ?? 0));
   const costMul = Math.max(0.4, 1 - eq.objCost - rel.objCost);
   const attacks = b.atk > 0;

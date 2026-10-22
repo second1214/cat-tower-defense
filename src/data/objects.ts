@@ -55,6 +55,7 @@ export const KIND_NAMES: Record<ObjectKind, string> = {
   mine: "わな",
   zap: "でんき",
   poison: "どく",
+  buff: "つよくする",
 };
 
 /** 特殊効果が解放されるレベルの目安。 */
@@ -327,6 +328,21 @@ export const OBJECTS: ObjectDef[] = [
       P(30, "wide2", "大ぶり+", "範囲 +0.4", add("range", 0.4)),
       P(40, "combo2", "往復ビンタ", "間隔 -20%", mul("interval", 0.8)),
       P(50, "final", "本気のママ", "会心 +15%・会心の倍率 +1", add("crit", 0.15), add("critMul", 1)),
+    ],
+  },
+  {
+    id: "dengen", name: "電源タップ", kind: "buff", rarity: "R", unlockStage: 8,
+    desc: "まわりの家電やおもちゃに電気をおくって、攻撃と速さを上げる。自分は攻撃しない。いちばん強い1つだけが効く。",
+    base: B("buff", { cost: 35, maxHp: 50, atk: 0, interval: 1, range: 1.5, produce: 0.2, slow: 0.9 }),
+    perks: [
+      P(3, "wide", "延長コード", "とどく範囲 +0.5", add("range", 0.5)),
+      P(6, "power", "たこ足", "攻撃の上乗せ +10%", add("produce", 0.1)),
+      P(10, "fast", "高速充電", "速さ ×1.1", mul("slow", 0.92)),
+      P(15, "wide2", "長い延長コード", "とどく範囲 +0.5", add("range", 0.5)),
+      P(20, "power2", "大容量", "攻撃の上乗せ +15%", add("produce", 0.15)),
+      P(30, "fast2", "急速充電", "速さ ×1.15", mul("slow", 0.88)),
+      P(40, "power3", "業務用", "攻撃の上乗せ +20%", add("produce", 0.2)),
+      P(50, "max", "フル充電", "とどく範囲 +1・攻撃の上乗せ +20%", add("range", 1), add("produce", 0.2)),
     ],
   },
   // ======== エンドレスでだけ手に入る（EX）。unlockStage はストーリーでは来ない数 ========

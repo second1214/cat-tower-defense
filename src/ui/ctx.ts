@@ -15,8 +15,6 @@ export interface UiState {
   fuseMode: boolean;
   fuseSel: string[];
   equipFilter: EquipFilter;
-  /** スキルツリーで見ている役割（null なら主人公の役割）。 */
-  skillRole: import("../core/types").CharRole | null;
 }
 
 export interface Ctx {
