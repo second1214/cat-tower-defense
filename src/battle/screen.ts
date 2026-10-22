@@ -22,7 +22,7 @@ import type { BattleInput, BattleResult, Loadout } from "../core/types";
 import { Battle, type BattleEvent, type ObjState } from "./engine";
 import { BattleView } from "./view";
 import { createAutoPilot } from "./auto";
-import { powerSave } from "../core/power";
+import { powerMode } from "../core/power";
 import { getCatPose, getSprite, imageSize, loadCatIdlePoses, loadSpriteOverrides, spriteVersion } from "./sprites";
 import { fmt } from "../core/num";
 import { battleSfx, setBgm, setBgmIntensity, sfx } from "../audio";
@@ -233,10 +233,10 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
 
   // ---- 状態 ----
   const view = new BattleView(canvas, battle);
-  // 省電力: 30 コマ/秒（計算も描くのも半分）
-  const lowPower = powerSave();
-  view.lowPower = lowPower;
-  const FRAME_MS = lowPower ? 1000 / 30 : 0;
+  // 電池の設定: 省電力はきめ・演出をへらす。超省電力はさらに 30 コマ/秒
+  const pm = powerMode();
+  view.lowPower = pm !== "high";
+  const FRAME_MS = pm === "ultra" ? 1000 / 30 : 0;
   let speed = 1;
   function setSpeed(v: number): void {
     speed = v;

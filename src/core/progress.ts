@@ -7,6 +7,7 @@ import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bond
 import {
   SKILL_MAP, SKILL_TREE, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
   modsFromTotals, nodeCost, nodeTotalCost,
+  type SkillRegion,
 } from "../data/skills";
 import {
   CHAR_GROWTH, DEFAULT_MAIN_WAZA, MAX_SUBS, RARITY_MUL, ROLE_BASE, SPECIAL0, WAZAS, WAZA_MAP, type WazaDef,
@@ -346,6 +347,65 @@ export function learnSkill(save: SaveData, nodeId: string): Result<number> {
   const lv = nodeLevel(save, nodeId) + 1;
   save.skills[nodeId] = lv;
   return ok(lv);
+}
+
+/**
+ * 極振り: region（系統）のノードに、budget までちゅ〜るを使う。
+ * 系統のノードのうち取れるものを安い順に上げる（宝はさきに）。取れるものが無ければ、系統のいちばん近いノードへ向かう道のノードを1つ取る。
+ */
+export function focusLearn(save: SaveData, region: SkillRegion, budget = save.churu): { learned: number; spent: number } {
+  let learned = 0, spent = 0;
+  const fam = familyLevel(save);
+  // はじめの一歩がまだなら、さきに覚える（そこから道がのびる）
+  const root = SKILL_TREE.find((n) => n.kind === "root");
+  if (root && nodeLevel(save, root.id) === 0) {
+    const c = nextNodeCost(save, root.id);
+    if (c !== null && c <= Math.min(save.churu, budget) && learnSkill(save, root.id).ok) { spent += c; learned++; }
+  }
+  for (let guard = 0; guard < 20000; guard++) {
+    const left = Math.min(save.churu, budget - spent);
+    if (left <= 0) break;
+    let best: SkillNode | null = null, bestCost = Infinity;
+    for (const n of SKILL_TREE) {
+      if (n.region !== region) continue;
+      const c = nextNodeCost(save, n.id);
+      if (c === null || c > left || !isNodeOpen(save, n.id).ok) continue;
+      const score = n.combo ? c * 0.5 : c;
+      if (score < bestCost) { bestCost = score; best = n; }
+    }
+    if (!best) best = stepToward(save, region, fam, left);
+    if (!best) break;
+    const c = nextNodeCost(save, best.id)!;
+    if (!learnSkill(save, best.id).ok) break;
+    spent += c;
+    learned++;
+  }
+  return { learned, spent };
+}
+
+/** 取ったノードから、まだ最大でない region のノードへの、いちばん近い道の最初のノード（いま取れて、left で買えるもの）。 */
+function stepToward(save: SaveData, region: SkillRegion, fam: number, left: number): SkillNode | null {
+  const prev = new Map<string, string | null>();
+  const q: string[] = [];
+  for (const n of SKILL_TREE) if (n.kind === "root" || nodeLevel(save, n.id) > 0) { prev.set(n.id, null); q.push(n.id); }
+  for (let qi = 0; qi < q.length; qi++) {
+    const id = q[qi];
+    const n = SKILL_MAP[id];
+    if (n.region === region && nodeLevel(save, id) < n.maxLevel && prev.get(id) !== null) {
+      // 道をさかのぼって、取ったノードのとなりの最初の1つ
+      let cur = id;
+      while (prev.get(cur) !== null && nodeLevel(save, prev.get(cur)!) === 0 && SKILL_MAP[prev.get(cur)!].kind !== "root") cur = prev.get(cur)!;
+      const c = nextNodeCost(save, cur);
+      return c !== null && c <= left && isNodeOpen(save, cur).ok ? SKILL_MAP[cur] : null;
+    }
+    for (const to of n.links) {
+      if (prev.has(to)) continue;
+      if (SKILL_MAP[to].minCharLevel > fam) continue; // 開かないねこドアは通れない
+      prev.set(to, id);
+      q.push(to);
+    }
+  }
+  return null;
 }
 
 /** スキルに使ったちゅ〜るの合計。 */

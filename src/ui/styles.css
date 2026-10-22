@@ -1790,3 +1790,12 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .tf-new { font-weight: var(--fw-x); color: var(--t-sage); }
 .tf-warn { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 10px; font-size: var(--fs-xs); font-weight: var(--fw-b); color: var(--t-danger); background: color-mix(in srgb, var(--t-danger) 10%, var(--c-card)); }
 .tf-warn-ico { flex: none; width: 14px; height: 14px; }
+
+/* 極振り */
+.sk-focus { margin-left: 6px; }
+.fc-regions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+.fc-r { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; font-size: var(--fs-xs, 12px); opacity: .75; }
+.fc-r .ico { width: 22px; height: 22px; }
+.fc-r.on { opacity: 1; outline: 3px solid var(--c-honey, #f2b33d); outline-offset: 1px; }
+.fc-amt { display: flex; gap: 6px; justify-content: center; }
+.fc-amt .btn.on { outline: 3px solid var(--c-honey, #f2b33d); }
