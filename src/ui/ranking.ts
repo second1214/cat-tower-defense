@@ -1,4 +1,4 @@
-// エンドレスのランキング（サーバー: functions/api/ranking.js）。サーバーが使えないときは自分の記録だけ出す。
+// エンドレスのランキング（サーバー: worker/ranking.js）。サーバーが使えないときは自分の記録だけ出す。
 import type { Ctx } from "./ctx";
 import { h } from "./dom";
 import { heroUid } from "../core/progress";
