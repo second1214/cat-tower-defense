@@ -1,7 +1,7 @@
 // メニュー用の、かんたんな手描き風アイコン（SVG 文字列）。絵文字は使わない。
 import type { CharRole, ObjectKind } from "../core/types";
 import type { EquipSlot } from "../data/equips";
-import type { SkillBranch } from "../data/skills";
+import type { SkillRegion } from "../data/skills";
 
 const S = (body: string, vb = "0 0 64 64") =>
   `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -263,7 +263,7 @@ export const ICONS = {
   tabRelic: S(`<path d="M32 4 L54 22 L32 60 L10 22 Z" fill="#c78bff" stroke="#3d1670" stroke-width="4"/><path d="M10 22 H54 M22 22 L32 60 L42 22" stroke="#3d1670" stroke-width="2.5"/>`),
 };
 
-const BRANCH_ICON: Partial<Record<SkillBranch, string>> = {
+const REGION_ICON: Record<SkillRegion, string> = {
   atk: ICONS.paw,
   def: ICONS.shield,
   spd: ICONS.wind,
@@ -271,9 +271,9 @@ const BRANCH_ICON: Partial<Record<SkillBranch, string>> = {
   support: ICONS.toybox,
 };
 
-/** 枝のアイコン（役割の枝は役割のアイコン）。 */
-export function branchSvg(b: SkillBranch): string {
-  return BRANCH_ICON[b] ?? (b in ROLE_ICON ? ROLE_ICON[b as CharRole] : ICONS.crown);
+/** スキル盤の地方のアイコン。 */
+export function regionSvg(r: SkillRegion): string {
+  return REGION_ICON[r] ?? ICONS.crown;
 }
 
 // ---------------- v4: ねこ福袋・わざ・複合効果 ----------------

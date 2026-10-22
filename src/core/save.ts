@@ -13,8 +13,9 @@ export type { EquipItem, EquipSlot } from "../data/equips";
  * v1: スキルは id の配列・スキルポイント。v2: スキルは猫ごとに id → レベル・ちゅ〜る・譲渡会会場。
  * v3: うちの子（cats）・パーティ・わざ・スキルは家族で共有（役割ごと）。
  * v4: スキルツリーは家族みんなで1つ（skills はノードの id → レベル）。役割ごとのスキルは消して、使ったちゅ〜るを返す。
+ * v5: スキル盤（1まいの大きな盤。役割の枝はない）。v4 のツリーのスキルは消して、使ったちゅ〜るを返す。
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = "cat-tower-defense/save";
 export const MAX_LOADOUT = 5;
 /** はじめにもらえるちゅ〜る（すぐにねこ福袋を1回ためせる）。 */
@@ -327,6 +328,65 @@ function migrateOldChars(out: SaveData, rawChars: unknown, selected: unknown): n
   return refund;
 }
 
+// ---- v4 のスキルツリー（枝 × 3列 × 13段 × 上下 ＋ 複合効果）のコスト ----
+// 列ごとに、段0上・段0下・段1上 … の順の最大レベル（A = 10、p = 1回だけで基本 10、q = 1回だけで基本 15）。
+const V4_LANES: Record<string, string[]> = {
+  atk: ["A5A5A5A5A5A5A5A5A5A5A5A5A5", "AA5AA5AA5AA5AA5AA5AA5AA5AA", "55555555555555555555555555"],
+  def: ["55555555555555555555555555", "AA5AA5AA5AA5AA5AA5AA5AA5AA", "55555555555555555555555555"],
+  spd: ["55555555555555555555555555", "55555555555555555555555555", "AAAAAAAAAAAAAAAAAAAAAAAAAA"],
+  tech: ["55555555555555555555555555", "55555555555555555555555555", "55555555555555555555555555"],
+  support: ["AAAAAAAAAAAAAAAAAAAAAAAAAA", "55555555555555555555555555", "55555555555555555555555555"],
+  melee: ["A55AA55AA55AA55AA55AA55AA5", "55555555q555555555q5555555", "A555A555A555A555A555A555A5"],
+  ranged: ["55A555A555A555A555A555A555", "3533p3353353p5335335p35335", "A555A555A555A555A555A555A5"],
+  aoe: ["5A555A555A555A555A555A555A", "555555555555q5555555555555", "A555A555A555A555A555A555A5"],
+  fast: ["A55AA55AA55AA55AA55AA55AA5", "55555555q555555555q5555555", "55555555555555555555555555"],
+};
+/** 複合効果のノード（combo1, combo2 …）の [段, 最大レベル]。みんなの枝は基本 8、役割の枝は基本 15。 */
+const V4_COMBOS: Record<string, [number, number][]> = {
+  atk: [[2, 3], [4, 3], [6, 3], [8, 3], [10, 1], [12, 3]],
+  def: [[1, 3], [3, 3], [5, 3], [7, 3], [9, 3], [12, 3]],
+  spd: [[2, 3], [4, 3], [6, 3], [8, 3], [10, 3], [12, 3]],
+  tech: [[1, 3], [3, 3], [5, 3], [7, 3], [9, 3], [12, 3]],
+  support: [[2, 3], [4, 3], [6, 3], [8, 3], [10, 3], [12, 3]],
+  melee: Array.from({ length: 13 }, (_, t) => [t, 3]),
+  ranged: Array.from({ length: 13 }, (_, t) => [t, t === 2 || t === 12 ? 2 : 3]),
+  aoe: Array.from({ length: 13 }, (_, t) => [t, 3]),
+  fast: Array.from({ length: 13 }, (_, t) => [t, 3]),
+};
+
+/** v4 のノードの [段, 基本のちゅ〜る, 最大レベル]。知らない id は null。 */
+function v4Node(id: string): [number, number, number] | null {
+  if (id === "root") return [0, 2, 1];
+  const c = /^(\w+)\.combo(\d+)$/.exec(id);
+  if (c) {
+    const row = V4_COMBOS[c[1]]?.[Number(c[2]) - 1];
+    return row ? [row[0], ["melee", "ranged", "aoe", "fast"].includes(c[1]) ? 15 : 8, row[1]] : null;
+  }
+  const m = /^(\w+)\.([0-2])([ab])(\d+)$/.exec(id);
+  const lane = m ? V4_LANES[m[1]]?.[Number(m[2])] : undefined;
+  if (!m || !lane) return null;
+  const t = Number(m[4]);
+  const ch = lane[t * 2 + (m[3] === "b" ? 1 : 0)];
+  if (!ch) return null;
+  if (ch === "A") return [t, 1.5, 10];
+  if (ch === "p") return [t, 10, 1];
+  if (ch === "q") return [t, 15, 1];
+  const max = Number(ch);
+  return [t, max >= 5 ? 3 : 5, max];
+}
+
+/** v4 のノード id を Lv0 から level まで上げたちゅ〜る。知らないノードは 0。 */
+export function v4SkillCost(id: string, level: number): number {
+  const n = v4Node(id);
+  if (!n) return 0;
+  const [tier, base, max] = n;
+  let s = 0;
+  for (let i = 0; i < Math.min(max, Math.max(0, Math.floor(level))); i++) {
+    s += Math.max(1, Math.round(base * Math.pow(1.6, tier) * Math.pow(1.3, i)));
+  }
+  return s;
+}
+
 /** 古いデータや壊れたデータを、なるべく今の形に直す。 */
 export function migrate(raw: unknown): SaveData {
   const base = newSave();
@@ -385,6 +445,9 @@ export function migrate(raw: unknown): SaveData {
     if (oldVersion < 4) {
       // v3 → v4: 役割ごとのスキルは消して、使ったちゅ〜るを返す
       out.churu += v3SkillRefund(r.skills);
+    } else if (oldVersion < 5) {
+      // v4 → v5: ツリーはスキル盤になったので、スキルは消して使ったちゅ〜るを返す
+      if (obj(r.skills)) for (const [id, lv] of Object.entries(r.skills)) out.churu += v4SkillCost(id, num(lv, 0));
     } else if (obj(r.skills)) {
       for (const [id, lv] of Object.entries(r.skills)) {
         const node = SKILL_MAP[id];
