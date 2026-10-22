@@ -300,6 +300,26 @@ export class BattleView {
           if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
           this.bolts.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0, life: 0.3, k: 0, hot: true });
           break;
+        case "special": {
+          const cat = this.battle.cats[e.value];
+          const name = cat?.char.special?.name ?? "必殺";
+          const line = cat?.char.special?.kind === "line" || cat?.char.special?.kind === "dash";
+          if (line) {
+            for (let k = 0; k < 3; k++) {
+              if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
+              this.bolts.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0, life: 0.45, k, hot: true });
+            }
+            this.addFx({ type: "flash", x: e.x2, y: e.y2, r: 1.4, life: 0.35, color: "#fff6c0" });
+          } else {
+            this.addFx({ type: "flash", x: e.x, y: e.y, r: e.x2 * 1.2, life: 0.4, color: "#fff6c0" });
+            this.addFx({ type: "ring", x: e.x, y: e.y, r: e.x2 * 1.3, life: 0.5, color: "#ffd84a" });
+            this.addFx({ type: "ring", x: e.x, y: e.y, r: e.x2 * 0.8, life: 0.35, color: "#ffffff" });
+          }
+          const tx = cat ? cat.x : e.x, ty = cat ? cat.y : e.y;
+          this.addFx({ type: "text", x: tx, y: ty - 1.2, r: 0.55, life: 1.1, color: "#ffe14a", text: name + "!" });
+          this.shake = Math.max(this.shake, 0.22);
+          break;
+        }
         case "wakeUp":
           this.addFx({ type: "flash", x: e.x, y: e.y, r: 1.2, life: 0.35, color: "#fff6c0" });
           this.addFx({ type: "text", x: e.x, y: e.y - 1, r: 0.48, life: 1, color: "#ffe14a", text: "めざめた!" });

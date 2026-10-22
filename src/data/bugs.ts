@@ -22,6 +22,8 @@ export interface BugInfo extends BugDef {
  * ふつうの虫（群れ）とは別に、ふつうに進めたときの「1匹に当てる強さ」に合わせる。
  */
 export const BOSS_HP_SCALE = [0.17, 0.23, 0.43, 0.06, 0.09, 0.053, 0.09, 0.025, 0.03, 0.015];
+/** ぬしはオブジェクトの攻撃が 0.35 倍しか効かない（battle/engine の BOSS_OBJ_MUL）ぶん、体力を下げてならす。 */
+export const BOSS_RESIST_COMP = 0.5;
 
 export const BUGS: BugInfo[] = [
   { id: "ari", name: "アリ", hp: 2, atk: 1, speed: 0.45, atkInterval: 1, drop: 2, from: 0, desc: "列になってやってくる。お菓子のにおいが好き。" },
@@ -72,7 +74,7 @@ function makeBosses(): BugInfo[] {
     out.push({
       id: bossIdOf(ch),
       name: hornet ? hornets[k] : centis[k],
-      hp: (hornet ? 220 : 380) * BOSS_HP_SCALE[ch - 1],
+      hp: (hornet ? 220 : 380) * BOSS_HP_SCALE[ch - 1] * BOSS_RESIST_COMP,
       atk: hornet ? 6 : 8,
       speed: 0.25,
       atkInterval: 1,

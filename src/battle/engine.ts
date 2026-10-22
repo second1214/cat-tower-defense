@@ -250,6 +250,11 @@ export interface ObjState {
   hurt: number;
 }
 
+/** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
+export const BOSS_OBJ_MUL = 0.35;
+/** ぬしの1回のかじりは、少なくともオブジェクトの最大体力のこの割合。強化しすぎた壁でも、いつかはこわれる。 */
+export const CHEW_MIN_FRAC = 0.06;
+
 export interface CatState {
   index: number;       // cats の添字（0 = 主人公）
   char: ResolvedChar;  // この猫の強さ（絵は char.look）
@@ -277,6 +282,7 @@ export interface CatState {
   desperate: boolean;  // 体力が LAST_STAND_HP 以下（lastStand が効く）
   /** 相棒がひと休みしているときのしぐさ（"sit" 座る・"groom" 毛づくろい。動いている・主人公は "none"）。 */
   idle: CatIdle;
+  gauge: number;       // 必殺技のゲージ（0〜1。1 で撃てる）
 }
 
 export type CatIdle = "none" | "sit" | "groom";
@@ -370,6 +376,7 @@ export type BattleEventType =
   | "counter"      // よけて反撃（value = 半径。x, y は猫）
   | "echo"         // 連続攻撃の最後の一撃が範囲攻撃に（value = 半径）
   | "overkill"     // 余ったダメージが次の虫へ（x, y → x2, y2）
+  | "special"      // 必殺技（value = 猫の添字。x, y は中心か始まり、x2, y2 は半径か終わり）
   | "wakeUp"       // 休けいから戻って、無敵＋速い（value = 秒数。x, y は猫）
   | "objectSync"   // 猫の攻撃で、近くのオブジェクトの次の発動が早まった（x, y はオブジェクトの中心）
   | "win"
@@ -564,6 +571,7 @@ export class Battle {
         guarded: false,
         desperate: false,
         idle: "none",
+        gauge: 0.3,
       };
     });
     this.kibbleBonus = Math.max(0, ...chars.map((ch) => ch.kibbleBonus || 0));
@@ -1282,6 +1290,71 @@ export class Battle {
   }
 
   // ---- 猫 ----
+  /** 必殺技のたのみ（猫の添字のビット）。 */
+  private specialReq = 0;
+  /** 必殺技をたのむ（i = cats の添字。0 が主人公）。次のコマで撃つ。ゲージが足りない・休けい中なら false。 */
+  useSpecial(i = 0): boolean {
+    const c = this.s.cats[i];
+    if (!c || !c.char.special || c.resting || c.gauge < 1 || this.s.result) return false;
+    this.specialReq |= 1 << i;
+    return true;
+  }
+
+  /** 必殺技を撃つ（step の中だけ）。近くに虫がいなければ撃たない（ゲージはそのまま）。 */
+  private doSpecial(i: number): boolean {
+    const c = this.s.cats[i];
+    const sp = c?.char.special;
+    if (!c || !sp || c.resting || c.gauge < 1 || this.s.result) return false;
+    const reach = sp.kind === "line" ? 8 : sp.kind === "dash" ? 5 : sp.kind === "nova" ? (c.char.aoe || 1) + 2 : (c.char.range || 0.9) + 1.5;
+    // ぬしを先に、いなければいちばん近い虫
+    // （step の外からも呼ばれるので、区画の表は使わずに全部の虫を見る）
+    let t: BugState | null = null, td = Infinity;
+    for (const b of this.s.bugs) {
+      if (!b.alive || b.y < 0) continue;
+      const raw = Math.hypot(b.x - c.x, b.y - c.y);
+      if (raw > reach) continue;
+      const d = raw - (b.def.boss ? 100 : 0);
+      if (d < td) { td = d; t = b; }
+    }
+    if (!t) return false;
+    c.gauge = 0;
+    const prev = this.curCat;
+    this.curCat = c;
+    const base = this.catPower(c) * sp.power;
+    if (sp.kind === "burst" || sp.kind === "nova") {
+      let cx = t.x, cy = t.y, size = 1.2;
+      if (sp.kind === "burst") {
+        this.catHit(c, t, base, true, false);
+        this.catHitArea(c, t.x, t.y, size, base * 0.5, false);
+      } else {
+        size = (c.char.aoe || 1) + 2;
+        cx = c.x; cy = c.y;
+        this.catHitArea(c, cx, cy, size, base * 0.6, true);
+      }
+      this.emit("special", cx, cy, i, size, 0);
+    } else {
+      // line: 猫から虫の方へ 8 マスをつらぬく。dash: 猫が虫の方へ 4 マス走りぬける
+      const len = sp.kind === "line" ? 8 : 4;
+      const d = Math.hypot(t.x - c.x, t.y - c.y) || 1;
+      const ux = (t.x - c.x) / d, uy = (t.y - c.y) / d;
+      const x0 = c.x, y0 = c.y;
+      for (const b of this.s.bugs) {
+        if (!b.alive || b.y < 0) continue;
+        const px = b.x - x0, py = b.y - y0;
+        const along = px * ux + py * uy;
+        if (along < -0.3 || along > len) continue;
+        if (Math.abs(px * uy - py * ux) <= 0.7) this.catHit(c, b, base * 0.6, true, false);
+      }
+      if (sp.kind === "dash") {
+        c.x = clamp(x0 + ux * len, CAT_MARGIN, COLS - CAT_MARGIN);
+        c.y = clamp(y0 + uy * len, CAT_MARGIN, ROWS - CAT_MARGIN);
+      }
+      this.emit("special", x0, y0, i, x0 + ux * len, y0 + uy * len);
+    }
+    this.curCat = prev;
+    return true;
+  }
+
   private updateCats(h: number, input: BattleInput): void {
     const cats = this.s.cats;
     // 複合効果の状態（重ねの時間・ママの近く・体力が少ない・ほかの猫が近い）
@@ -1484,6 +1557,10 @@ export class Battle {
     if (c.hurt > 0) c.hurt -= h;
     if (c.attackAnim > 0) c.attackAnim -= h;
     c.moving = false;
+    if (!c.resting && ch.special && c.gauge < 1) c.gauge = Math.min(1, c.gauge + h / Math.max(1, ch.special.charge));
+    // 相棒は、ゲージがたまって近くに虫がいたら自分で撃つ
+    if (this.specialReq & (1 << c.index)) { this.specialReq &= ~(1 << c.index); this.doSpecial(c.index); }
+    else if (c.companion && c.gauge >= 1 && !c.resting) this.doSpecial(c.index);
     if (c.resting) {
       rt.pend.length = 0;
       rt.pendLast.length = 0;
@@ -2221,7 +2298,7 @@ export class Battle {
           b.atkTimer += h;
           if (b.atkTimer >= b.def.atkInterval) {
             b.atkTimer -= b.def.atkInterval;
-            this.damageObject(co, b.atk * b.chew, b);
+            this.damageObject(co, Math.max(b.atk * b.chew, b.def.boss ? co.maxHp * CHEW_MIN_FRAC : 0), b);
           }
           if (co.hp > 0) continue;
         }
@@ -2308,7 +2385,8 @@ export class Battle {
 
   /** 虫を amount マスぶん押し戻す（道を逆に）。押し戻せなかった残り（かべ・家具などに当たった）を返す。押し戻さなかったときは -1。 */
   private knockBack(b: BugState, amount: number): number {
-    if (!(amount > 0) || b.y < 0) return -1;
+    // ぬしは重いので押し戻されない（押し戻しつづけて足止めはできない）
+    if (!(amount > 0) || b.y < 0 || b.def.boss) return -1;
     const x0 = b.x, y0 = b.y;
     let amt = amount;
     let sx = b.stepX, sy = b.stepY;
@@ -2349,6 +2427,8 @@ export class Battle {
       }
       if (!(dmg > 0)) return 0;
     }
+    // ぬしは、オブジェクトの攻撃が効きにくい（猫の出番）
+    if (!this.curCat && b.def.boss) dmg *= BOSS_OBJ_MUL;
     const before = b.hp;
     const dealt = Math.min(dmg, b.hp);
     b.hp -= dmg;

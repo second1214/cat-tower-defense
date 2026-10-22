@@ -44,6 +44,18 @@ export type ComboId =
   | "killHeal"      // 虫を倒すたび、最大体力の v 回復
   | "overkill";     // 倒したときの余ったダメージ ×v を、いちばん近い虫へ
 
+/**
+ * 猫の必殺技。kind で形がきまる（近接 burst: 目の前の1匹に大きな一撃＋まわりに半分 / 遠距離 line: まっすぐ8マスをつらぬく /
+ * 範囲 nova: 自分のまわりを大きくはらう / すばやい dash: 虫の群れへ走りぬけながら当てる）。
+ * ダメージは 猫の攻撃力 × power（line・nova・dash は1匹あたり その 6割）。charge 秒でゲージがたまる。
+ */
+export interface CatSpecial {
+  kind: "burst" | "line" | "nova" | "dash";
+  name: string;
+  power: number;
+  charge: number;
+}
+
 /** 戦闘で使う、計算ずみの猫の強さ（成長・スキル・装備・レリックをすべて掛けたあと）。 */
 export interface ResolvedChar {
   id: string;           // 猫の uid（セーブの cats のキー）
@@ -52,6 +64,8 @@ export interface ResolvedChar {
   role: CharRole;       // メインのわざで決まる
   companion: boolean;   // 相棒として出るとき true（AI で動く）
   combos: Partial<Record<ComboId, number>>;  // 複合効果（ComboId の説明どおり）
+  /** 必殺技（メインのわざで決まる）。ゲージがたまったら撃てる。なければ技なし。 */
+  special?: CatSpecial;
   maxHp: number;
   atk: number;          // 1回の攻撃のダメージ
   atkInterval: number;  // 攻撃の間隔（秒）

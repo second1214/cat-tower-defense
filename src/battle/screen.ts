@@ -142,6 +142,15 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const board = el("div", "bt-board", col);
   const canvas = el("canvas", "bt-canvas", board);
   const stick = el("div", "bt-stick", board);
+  // 必殺技のボタン（ゲージがたまると光る）
+  const specBtn = el("button", "bt-special", board);
+  specBtn.type = "button";
+  specBtn.hidden = !loadout.char.special;
+  el("span", "bt-special-name", specBtn, loadout.char.special?.name ?? "");
+  el("span", "bt-special-t", specBtn, "必殺");
+  for (const ev of ["pointerdown", "touchstart", "mousedown"]) specBtn.addEventListener(ev, (e) => e.stopPropagation());
+  specBtn.addEventListener("click", (e) => { e.stopPropagation(); battle.useSpecial(0); });
+  let specShown = -1;
   const knob = el("div", "bt-knob", stick);
   const toast = el("div", "bt-toast", board);
   const hint = el("div", "bt-hint", board);
@@ -867,6 +876,12 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
         if (input.move.x === 0 && input.move.y === 0) input.move = pilot.steer();
       }
       battle.step(dt * speed, input);
+      const g = Math.round((battle.cats[0]?.gauge ?? 0) * 100);
+      if (g !== specShown) {
+        specShown = g;
+        specBtn.style.setProperty("--g", `${g}%`);
+        specBtn.classList.toggle("ready", g >= 100);
+      }
       onEvents(battle.events);
       if (ghostAt) refreshGhost();
       if (battle.result && !endShown) {

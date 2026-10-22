@@ -511,3 +511,18 @@
   .bt-row1 { height: 26px; }
   .bt-kibble { height: 26px; }
 }
+
+/* 必殺技のボタン（盤面の右下。ゲージは下から満ちる） */
+.bt-special {
+  position: absolute; right: 10px; bottom: 10px; z-index: 6;
+  width: 72px; height: 72px; border-radius: 50%;
+  border: 3px solid var(--bt-ink); box-shadow: 0 3px 0 var(--bt-ink);
+  background: linear-gradient(to top, #ffd84a var(--g, 0%), #fff6e8 var(--g, 0%));
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-weight: 900; color: var(--bt-ink); cursor: pointer; opacity: .85;
+}
+.bt-special-name { font-size: 9px; line-height: 1.1; max-width: 62px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bt-special-t { font-size: 16px; }
+.bt-special.ready { opacity: 1; animation: bt-spec-glow 0.9s ease-in-out infinite alternate; }
+@keyframes bt-spec-glow { from { box-shadow: 0 3px 0 var(--bt-ink), 0 0 0 0 rgba(255,216,74,.9); } to { box-shadow: 0 3px 0 var(--bt-ink), 0 0 16px 6px rgba(255,216,74,.9); } }
+.bt-special[hidden] { display: none; }

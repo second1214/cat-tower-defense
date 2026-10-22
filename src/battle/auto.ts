@@ -94,6 +94,8 @@ export function createAutoPilot(b: Battle, lo: Loadout): AutoPilot {
   };
 
   const decide = () => {
+    // 必殺技: たまっていたら撃つ（近くに虫がいなければ撃たない）
+    if ((b.cats[0]?.gauge ?? 0) >= 1) b.useSpecial(0);
     refreshRoute();
     for (let guard = 0; guard < 6; guard++) {
       const k = b.kibble;
