@@ -84,13 +84,11 @@
 - 相棒は戦闘で AI で動く（主人公のそばにいて、近くの虫へ自分の役割で攻撃。HP 0 で休けい）。強さは `COMPANION_POWER = 0.45`（攻撃・体力に掛ける。v5 で 0.6 → 0.45。猫は手助け役）
 - 主人公・相棒、それぞれに、スキルツリーのみんなの枝と、メインのわざの役割の枝が効く
 
-### スキルツリー（家族みんなで1つ・v6）
-- `skills[nodeId] = level`。ツリーは1つだけ（役割ごとに分けない）。785 ノード（前の 4役割 × 193 = 772 より多い）・複合効果 82
-- 枝は9つ。みんなの枝（攻撃・体力防御・速さ・技・支援。どの猫にも効く）と、役割の枝（近接・遠距離・範囲・すばやい。`node.role` があり、メインのわざの役割がおなじ猫にだけ効く。説明は「近接の猫：攻撃 +10%」）
-- 1つの枝は 3列 × 13段 × 上下2行（78）＋ 複合効果（みんなの枝 6・役割の枝 13）。段 0〜12（`TIER_MIN_LEVEL` に 330 を足した）。1段に3行（上・下・複合効果）
-- 1ノードの量とコストは前の約半分（ノードが2倍になったぶん）。役割の得意技（連続攻撃・つらぬく・届く距離・範囲）は役割の枝だけ
-- 画面: 枝のタブ（上の段: みんなの枝5つ、下の段: 役割の枝4つ。役割の枝には主人公・相棒の印と、効く猫の名前）。リセットはツリー全部
-- v3 のセーブ（役割ごと）は、スキルを消して使ったちゅ〜るを返す（`v3SkillCost`）。SAVE_VERSION = 4
+### スキル盤（家族みんなで1つ・v7。FF10 のスフィア盤のような1まいの盤）
+- くわしくは下の「v7: スキル盤」。役割ごとの枝はなく、どのノードもどの猫にも効く
+
+### （古い）スキルツリー（v6: 家族で1つ・枝つき）
+- 枝9つ（みんなの枝5・役割の枝4）× 3列 × 13段。785 ノード・複合効果 82。v7 で盤にかえた（v4 セーブのスキルは消してちゅ〜るを返す）
 
 ### （古い）スキルツリー（v4〜v5: 役割ごと）
 - `skills[role][nodeId] = level`。1匹で取れば、その役割で戦う全員に効く
@@ -109,7 +107,7 @@
 interface CatSave { uid: string; name: string; look: string; personality: Personality; preset?: string;
   level: number; exp: number; bond: number; bondExp: number; waza: { main: string; subs: string[] } }
 interface WazaSave { level: number; count: number }
-SaveData に: cats, party: string[], wazas: Record<string, WazaSave>, skills: Record<string, number>（v6: 家族で1つのツリー）, setupDone: boolean, gachaPity, totalPulls
+SaveData に: cats, party: string[], wazas: Record<string, WazaSave>, skills: Record<string, number>（v7: 家族で1つのスキル盤。ノードの id → レベル）, setupDone: boolean, gachaPity, totalPulls
 （chars・selectedChar は無くす）
 MAX_CATS = 30
 
@@ -123,7 +121,7 @@ familyLevel(save): number
 resolveCat(save, uid, companion = false): ResolvedChar
 catPower(save, uid): number
 partyRoles(save): CharRole[]
-skillTree() / nodeLevel(save, nodeId) / nextNodeCost(save, nodeId) / isNodeOpen(save, nodeId) / canLearn(save, nodeId) / learnSkill(save, nodeId) / resetSkills(save) / skillSpent(save)
+skillTree() / nodeLevel(save, nodeId) / nextNodeCost(save, nodeId) / isNodeLinked(save, nodeId)（線でつながったとなりが Lv1 以上か）/ isNodeOpen(save, nodeId) / canLearn(save, nodeId) / learnSkill(save, nodeId) / resetSkills(save) / skillSpent(save)
 transferAffix(save, baseUid, donorUid, donorAffixIndex, baseAffixIndex): Result<EquipItem>   // UR どうし・同じ枠。donor は消える
 buildLoadout(save, stageId): Loadout | null                          // companions も入る
 grantRewards(...)                                                    // 経験値・なかよし度を配る
@@ -204,3 +202,21 @@ canPull / pullCost / pullsToPity / pullRates()                       // pullRate
   - 手順: 補正をもらう UR → もらう補正 → 入れかえる補正 → たしかめる（前と後を見せる・もらった装備が消えることを知らせる）
   - 1回で1つだけ。値はもらう装備でふった値のまま。この装備のほかの場所にある補正と同じものは付けられない（同じ場所の入れかえならよい）
   - もらった装備は消える。それをつけていたら、かわりにこの装備をつける
+
+## v7: スキル盤（FF10 のスフィア盤のような、1まいの大きな盤）
+- ねらい: 近接・遠距離・範囲・すばやいに分かれたツリーをやめて、家族みんなで1つの大きな盤を歩いて広げる。どのノードもどの猫にも効く（つらぬく・連続攻撃・範囲・届く距離も、ふつうのノード。使える猫に効く）
+- 大きさ: 856 ノード（前の 785 より多い）・線 900 本・宝（複合効果）85・ねこドア（錠）75
+- 形（data/skills.ts の buildBoard。決まった手順で作る。左右対称）
+  - まん中に「はじめの一歩」（はじめから取れる）。そのまわりに輪が9本（輪0〜8。半径 140〜1500）
+  - 5つの地方（攻撃・体力防御・速さ・技・支援）が、まん中から外へ扇の形に広がる（攻撃が上、時計まわり）。地方ごとに3本の道（左・まん中・右）
+  - 偶数の輪（0・2・4・6・8）は1周つながっていて、となりの地方へ歩いていける。奇数の輪（1・3・5・7）は地方ごとに切れていて、切れ目の両はしが宝
+  - 輪と輪のあいだは、道の上のねこドアを通る。偶数 → 奇数の輪はまん中の道、奇数 → 偶数の輪は左右の道（ジグザグに進む）
+  - 偶数の輪（2・4・6）の外がわに、つき出た宝。輪8の外は3本の宝の道（入口はねこドア、先に大きな宝）
+  - 地方のさかいめのノードは、2つの地方のステータスがまざる。道が通るノードは、ふつうより少し大きい
+- 取りかた: 線でつながったノードのどれかが Lv1 以上なら取れる（`isNodeLinked`）。ねこドアは、家族の一番高いレベル（familyLevel）がドアの数字以上で開けられる（段ごとの `TIER_MIN_LEVEL`。輪1 = 3 … 輪8 = 260、外の道 = 330）
+- コスト・量: 段（輪ごとに 0〜12）で決まる（前と同じ `基本 × 1.6^段 × 1.3^レベル`）。どの猫にも効くので、1ノードの量は前の約 0.7 倍
+- 宝（複合効果）: 地方ごとに 17。前のツリーの複合効果（みんなの枝・役割の枝）を、地方に合わせて分けた（近接 → 体力防御、遠距離 → 攻撃、範囲 → 技、すばやい → 速さ、ほかは支援）。同じ地方・同じ複合効果なら、奥ほど強い
+- 画面（ui/grow-skill.ts）: 1まいの canvas に、見えているところだけ描く。指1本で動かす・指2本でひろげる／ちぢめる・PC はホイール。ボタン: ＋・－・全体・中心・取れる所へ（いま取れるいちばん安いノード）
+  - ノードのようす: 取った（地方の色でぬる・最大は金のふち）・いま取れる（金色に光る）・ちゅ〜るが足りない・ねこドア（錠と「Lv○」）・まだつながっていない（うすい）。宝は金の星
+  - タップすると下のパネル（名前・効果・レベル・コスト・習得 +1・まとめて）。上に家族 Lv・取った数・使ったちゅ〜る・リセット
+- セーブ: SAVE_VERSION = 5。v4（枝つきツリー）のスキルは消して、使ったちゅ〜るを返す（`v4SkillCost`。v4 のノードの最大レベル・基本コストを表で持つ）

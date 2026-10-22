@@ -1,70 +1,90 @@
-// 成長 > スキル（スキルツリー。家族みんなで1つ）。
-// ツリーは 27列 × 40行と大きいので、スマホでは「枝」ごとに3列で見せて、たてにスクロールする。
-// 枝は、みんなの枝（攻撃・体力・速さ・技・支援。どの猫にも効く）と、役割の枝（近接・遠距離・範囲・すばやい。その役割の猫だけ）。
-// 枝どうしは根もと（はじめの一歩）でしかつながっていないので、枝ごとに見ても形はそのまま。
+// 成長 > スキル（スキル盤。家族みんなで1つ）。
+// 盤は 850 ノードほどの大きな地図なので、1まいの canvas に描く（画面に見えているところだけ）。
+// 指1本で動かす・指2本でひろげる／ちぢめる・PC はホイールでズーム。ノードをタップすると、下のパネルにくわしく出る。
 import {
-  canLearn, catRole, familyLevel, heroUid, isNodeOpen, learnSkill, nextNodeCost, nodeCost, nodeLevel, partyRoles, partyUids,
-  resetSkills, skillSpent, skillTree,
+  canLearn, familyLevel, isNodeLinked, isNodeOpen, learnSkill, nextNodeCost, nodeCost, nodeLevel, resetSkills, skillSpent, skillTree,
 } from "../core/progress";
 import { fmt } from "../core/num";
 import { sfx } from "../audio";
 import type { SaveData } from "../core/save";
-import { ROLE_NAMES } from "../data/chars";
 import {
-  BRANCH_NAMES, COMBO_NAMES, COMMON_BRANCHES, ROLE_BRANCHES, ROWS_PER_TIER, SKILL_BRANCHES, SKILL_MAP, TIERS, TIER_MIN_LEVEL,
-  branchRole, effectText, type SkillBranch, type SkillNode,
+  COMBO_NAMES, REGION_NAMES, RING_R, SKILL_BOARD, SKILL_LINKS, SKILL_MAP, SKILL_REGIONS, effectText, regionDeg,
+  type SkillNode, type SkillRegion,
 } from "../data/skills";
 import type { Ctx } from "./ctx";
 import { h, svgIcon } from "./dom";
-import { COMBO_ICON, ICONS, branchSvg } from "./icons";
-import { branchCanLearn } from "./badges";
+import { COMBO_ICON, ICONS, regionSvg } from "./icons";
 
-/** 行の高さ（px）。 */
-const ROOT_H = 92;
-const ROW_H = 100;
-const COMBO_H = 108;
-const GAP_H = 14;
-/** 左の段の札のはば。 */
-const GUT = 38;
-/** 線の座標（横は 0〜600 にのばして描く）。 */
-const VB_W = 600;
+/** 地方の色（styles.css の --br-* と同じ）。 */
+const REGION_COLOR: Record<SkillRegion, string> = {
+  atk: "#d8664a", def: "#5f9a4c", spd: "#4d8cc4", tech: "#9467c8", support: "#d49a1c",
+};
+const INK = "#4a3121";
+const LINE = "#5a3b27";
+const SOFT = "#d4b994";
+const PAPER = "#f6ead2";
+const CARD = "#fffaf0";
+const HONEY = "#f3b843";
+const HONEY_D = "#d9951f";
+const DANGER = "#b4432c";
+const FONT = `"Zen Maru Gothic", "Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", "Hiragino Sans", "Noto Sans JP", sans-serif`;
 
+const Z_MIN = 0.08;
+const Z_MAX = 2.4;
+
+/** カメラ（盤のどこを、どの大きさで見ているか）。描きなおしても残す。 */
+const cam = { x: 0, y: 0, z: 0.9, init: false };
+/** 前に見たときの盤の大きさ（描きなおしたときに、すぐ描けるように）。 */
+let lastSize = { w: 0, h: 0 };
 let selNode: string | null = null;
-let curBranch: SkillBranch = "atk";
 
-type NodeState = "max" | "can" | "poor" | "lvlock" | "locked";
+type NodeState = "max" | "has" | "can" | "poor" | "gatelock" | "far";
 
-function nodeState(save: SaveData, n: SkillNode): NodeState {
+function nodeState(save: SaveData, n: SkillNode, fam: number): NodeState {
   const lv = nodeLevel(save, n.id);
   if (lv >= n.maxLevel) return "max";
-  if (!n.req.every((r) => nodeLevel(save, r.id) >= r.lv)) return "locked";
-  if (familyLevel(save) < n.minCharLevel) return "lvlock";
+  if (lv > 0) return canLearn(save, n.id).ok ? "can" : "has";
+  if (!isNodeLinked(save, n.id)) return "far";
+  if (fam < n.minCharLevel) return "gatelock";
   return canLearn(save, n.id).ok ? "can" : "poor";
 }
 
-/** その枝が効いているパーティの猫の名前。 */
-function branchUsers(save: SaveData, b: SkillBranch): string[] {
-  const role = branchRole(b);
-  return partyUids(save).filter((u) => !role || catRole(save, u) === role).map((u) => save.cats[u].name);
+/** ノードの半径（盤の上の大きさ）。 */
+function nodeR(n: SkillNode): number {
+  if (n.kind === "root") return 30;
+  if (n.combo) return 23;
+  if (n.gate) return 18;
+  return n.id.endsWith(".l") || n.id.endsWith(".c") || n.id.endsWith(".r") ? 19 : 16;
+}
+
+// ---- アイコンの画像（SVG → Image。色ごとに1つ） ----
+const imgCache = new Map<string, HTMLImageElement>();
+let onImgLoad: (() => void) | null = null;
+function iconImg(svg: string, color: string): HTMLImageElement {
+  const key = svg.length + "|" + svg.slice(0, 40) + "|" + color;
+  let img = imgCache.get(key);
+  if (!img) {
+    img = new Image();
+    img.onload = () => onImgLoad?.();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg.replace(/currentColor/g, color));
+    imgCache.set(key, img);
+  }
+  return img;
 }
 
 export function renderSkillTab(ctx: Ctx): HTMLElement {
   const save = ctx.save;
-  const branch = curBranch;
   const fam = familyLevel(save);
-  const heroRole = catRole(save, heroUid(save));
-  const pRoles = partyRoles(save);
   const tree = skillTree();
-
-  // ---- この枝が効く猫 ----
-  const role = branchRole(branch);
-  const users = branchUsers(save, branch);
   const spent = skillSpent(save);
+  const got = tree.filter((n) => nodeLevel(save, n.id) > 0).length;
+  const comboGot = tree.filter((n) => n.combo && nodeLevel(save, n.id) > 0).length;
+  const comboAll = tree.filter((n) => n.combo).length;
+
   const info = h("div", { class: "sk-info" },
     h("span", { class: "sk-fam" }, "家族 Lv", h("b", null, String(fam))),
-    h("span", { class: `sk-users ${users.length ? "" : "none"}` }, !role
-      ? "家族みんなに効くよ"
-      : users.length ? `${ROLE_NAMES[role]}の ${users.join("・")} に効くよ` : `パーティに${ROLE_NAMES[role]}の猫がいないよ`),
+    h("span", { class: "sk-got" }, `${got}/${tree.length}`, h("span", { class: "sk-got-star" }, svgIcon(COMBO_ICON), `${comboGot}/${comboAll}`)),
+    h("span", { class: "sk-spent" }, svgIcon(ICONS.churu), fmt(spent)),
     h("button", {
       class: "btn btn-small btn-red sk-reset", disabled: spent <= 0,
       onclick: async () => {
@@ -76,157 +96,445 @@ export function renderSkillTab(ctx: Ctx): HTMLElement {
         }
       },
     }, "リセット"));
+  const legend = h("div", { class: "sk-legend" },
+    SKILL_REGIONS.map((r) => h("span", { class: `sk-lg lg-${r}` }, svgIcon(regionSvg(r)), REGION_NAMES[r])));
 
-  // ---- 枝のタブ（上: みんなの枝、下: 役割の枝） ----
-  const tab = (b: SkillBranch) => {
-    const combos = tree.filter((n) => n.branch === b && n.combo).length;
-    const got = tree.filter((n) => n.branch === b && nodeLevel(save, n.id) > 0).length;
-    const r = branchRole(b);
-    const mark = r ? (r === heroRole ? h("span", { class: "sk-role-mark" }, "主人公") : pRoles.includes(r) ? h("span", { class: "sk-role-mark mate" }, "相棒") : null) : null;
-    return h("button", {
-      class: `sk-br bc-${b} ${r ? "sk-br-role" : ""} ${r && !pRoles.includes(r) ? "away" : ""} ${b === branch ? "on" : ""}`,
-      onclick: () => { if (curBranch !== b) { curBranch = b; ctx.rerender(); } },
-    },
-      branchCanLearn(save, b) && (!r || pRoles.includes(r)) ? h("span", { class: "sk-br-dot" }) : null,
-      h("span", { class: "sk-br-top" }, svgIcon(branchSvg(b), "sk-br-ico"), h("span", { class: "sk-br-name" }, BRANCH_NAMES[b])),
-      h("span", { class: "sk-br-sub" }, h("span", null, `${got}`), combos ? h("span", { class: "sk-br-star" }, svgIcon(COMBO_ICON), String(combos)) : null),
-      mark);
-  };
-  const branchTabs = h("div", { class: "sk-tabs" },
-    h("div", { class: "sk-branches" }, COMMON_BRANCHES.map(tab)),
-    h("div", { class: "sk-branches sk-rbranches" },
-      h("span", { class: "sk-rb-label" }, "役割"),
-      ROLE_BRANCHES.map(tab)));
+  const panel = h("div", { class: "sk-panel" });
+  const board = renderBoard(ctx, (id) => {
+    selNode = id;
+    panel.replaceChildren(renderNodePanel(ctx, spent));
+  });
+  panel.append(renderNodePanel(ctx, spent));
 
   return h("div", { class: "sub sub-skill" },
-    h("div", { class: "sk-head" }, branchTabs, info),
-    renderBranch(ctx, branch),
-    h("div", { class: "sk-panel" }, renderNodePanel(ctx, spent)));
+    h("div", { class: "sk-head" }, info, legend),
+    board,
+    panel);
 }
 
-/** 1つの枝（3列）を、たてに並べて描く。 */
-function renderBranch(ctx: Ctx, b: SkillBranch): HTMLElement {
+/** スキル盤（canvas）。onSelect はノードをタップしたとき。 */
+function renderBoard(ctx: Ctx, onSelect: (id: string | null) => void): HTMLElement {
   const save = ctx.save;
-  const bi = SKILL_BRANCHES.indexOf(b);
-  const all = skillTree();
-  const nodes = all.filter((n) => n.branch === b || n.req.length === 0);
-  const root = all.find((n) => n.req.length === 0)!;
   const fam = familyLevel(save);
-  const sel = selNode;
+  const tree = skillTree();
+  const canvas = h("canvas", { class: "sb-canvas", "aria-label": "スキル盤" }) as HTMLCanvasElement;
+  const g = canvas.getContext("2d")!;
+  let W = lastSize.w, H = lastSize.h, dpr = 1;
 
-  // 行の位置（グリッドの y → 上からの px）
-  const comboTiers = new Set(nodes.filter((n) => n.combo).map((n) => n.tier));
-  const rowTop: number[] = [];
-  const rowH: number[] = [];
-  let y = 0;
-  rowTop[0] = 0; rowH[0] = ROOT_H; y = ROOT_H;
-  // 1つの段に3行（上・下のふつうのノード、複合効果）
-  for (let t = 0; t < TIERS; t++) {
-    const y0 = 1 + ROWS_PER_TIER * t;
-    rowTop[y0] = y; rowH[y0] = ROW_H; y += ROW_H;
-    rowTop[y0 + 1] = y; rowH[y0 + 1] = ROW_H; y += ROW_H;
-    const ch = comboTiers.has(t) ? COMBO_H : GAP_H;
-    rowTop[y0 + 2] = y; rowH[y0 + 2] = ch; y += ch;
-  }
-  const H = y + 24;
-  const laneOf = (n: SkillNode) => (n.req.length === 0 ? 1 : n.pos.x - bi * 3);
-  // 複合効果のノードは、列と列のあいだに置く（まっすぐの線と重ならないように）
-  const fx = (n: SkillNode) => (n.combo ? (laneOf(n) === 1 ? 2 / 6 : 4 / 6) : (laneOf(n) * 2 + 1) / 6);  // 0〜1
-  const cy = (n: SkillNode) => rowTop[n.pos.y] + (n.combo ? 44 : n.req.length === 0 ? 38 : 40);
+  // ノードの状態は、描きなおすまで同じ（ちゅ〜る・レベルが変わると画面ごと描きなおす）
+  const state = new Map<string, NodeState>();
+  for (const n of tree) state.set(n.id, nodeState(save, n, fam));
+  const lit = (id: string) => nodeLevel(save, id) > 0;
 
-  // 段の札と、まだ開いていない段のかげ
-  const tiers: HTMLElement[] = [];
-  for (let t = 0; t < TIERS; t++) {
-    const y0 = 1 + ROWS_PER_TIER * t;
-    const top = rowTop[y0];
-    const lock = fam < TIER_MIN_LEVEL[t];
-    const height = rowH[y0] + rowH[y0 + 1] + rowH[y0 + 2];
-    tiers.push(h("div", { class: `st-tier ${lock ? "lock" : ""} ${t % 2 ? "odd" : ""}`, style: `top:${top}px;height:${height}px` },
-      h("div", { class: "st-tier-k" },
-        h("span", { class: "st-tier-n" }, `${t + 1}`),
-        h("span", { class: "st-tier-lv" }, lock ? svgIcon(ICONS.lock) : null, `Lv${TIER_MIN_LEVEL[t]}`))));
+  if (!cam.init) {
+    // はじめは、まん中（取ったノードがあれば、いちばん外のあたり）
+    cam.init = true;
+    let far: SkillNode | null = null;
+    for (const n of tree) if (lit(n.id) && (!far || n.steps > far.steps)) far = n;
+    cam.x = far ? far.pos.x * 0.6 : 0;
+    cam.y = far ? far.pos.y * 0.6 : 0;
+    cam.z = 0.9;
   }
 
-  // 線
-  const lines: string[] = [];
-  for (const n of nodes) {
-    for (const r of n.req) {
-      const p = SKILL_MAP[r.id];
-      if (!p) continue;
-      const okReq = nodeLevel(save, r.id) >= r.lv;
-      const has = nodeLevel(save, n.id) > 0;
-      const cls = okReq && has ? `ln-on lc-${b}` : okReq ? `ln-ready lc-${b}` : "ln-off";
-      const x1 = fx(p) * VB_W, y1 = cy(p), x2 = fx(n) * VB_W, y2 = cy(n);
-      const my = y2 - (n.combo ? 58 : 56);
-      const d = x1 === x2 ? `M${x1} ${y1} L${x2} ${y2}` : `M${x1} ${y1} V${my} H${x2} V${y2}`;
-      lines.push(`<path d="${d}" class="${cls} ${n.combo ? "ln-combo" : ""}" vector-effect="non-scaling-stroke"/>`);
+  const toScreen = (x: number, y: number) => ({ x: (x - cam.x) * cam.z + W / 2, y: (y - cam.y) * cam.z + H / 2 });
+  const toBoard = (sx: number, sy: number) => ({ x: (sx - W / 2) / cam.z + cam.x, y: (sy - H / 2) / cam.z + cam.y });
+  const clampCam = () => {
+    cam.z = Math.max(Z_MIN, Math.min(Z_MAX, cam.z));
+    const m = 200;
+    cam.x = Math.max(SKILL_BOARD.minX - m, Math.min(SKILL_BOARD.maxX + m, cam.x));
+    cam.y = Math.max(SKILL_BOARD.minY - m, Math.min(SKILL_BOARD.maxY + m, cam.y));
+  };
+
+  let raf = 0, timer = 0;
+  const draw = () => {
+    raf = 0;
+    if (!W || !H) return;
+    const z = cam.z;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = PAPER;
+    g.fillRect(0, 0, W, H);
+    // 見えているところ（盤の上の座標）
+    const v0 = toBoard(-40, -40), v1 = toBoard(W + 40, H + 40);
+    const inView = (x: number, y: number, r = 0) => x + r >= v0.x && x - r <= v1.x && y + r >= v0.y && y - r <= v1.y;
+    const c0 = toScreen(0, 0);
+
+    // 地方の色（まん中から広がる、うすい扇）
+    const outer = RING_R[RING_R.length - 1] + 420;
+    SKILL_REGIONS.forEach((r, ri) => {
+      const a = regionDeg(ri) * Math.PI / 180;
+      const grad = g.createRadialGradient(c0.x, c0.y, 40 * z, c0.x, c0.y, outer * z);
+      grad.addColorStop(0, REGION_COLOR[r] + "30");
+      grad.addColorStop(1, REGION_COLOR[r] + "08");
+      g.fillStyle = grad;
+      g.beginPath();
+      g.moveTo(c0.x, c0.y);
+      g.arc(c0.x, c0.y, outer * z, a - 36 * Math.PI / 180, a + 36 * Math.PI / 180);
+      g.closePath();
+      g.fill();
+    });
+    // 地方のさかいめ（点線）
+    g.strokeStyle = "rgba(150,105,60,.18)";
+    g.lineWidth = 1.5;
+    g.setLineDash([4, 8]);
+    for (let ri = 0; ri < 5; ri++) {
+      const a = (regionDeg(ri) + 36) * Math.PI / 180;
+      g.beginPath();
+      g.moveTo(c0.x + Math.cos(a) * 60 * z, c0.y + Math.sin(a) * 60 * z);
+      g.lineTo(c0.x + Math.cos(a) * outer * z, c0.y + Math.sin(a) * outer * z);
+      g.stroke();
     }
-  }
-  const svg = `<svg class="st-lines" width="100%" height="${H}" viewBox="0 0 ${VB_W} ${H}" preserveAspectRatio="none">${lines.join("")}</svg>`;
+    g.setLineDash([]);
 
-  // いちばん深く取ったノード（はじめて開いたとき、そこまでスクロールする）
-  let focusId = root.id;
-  let deepest = -1;
-  for (const n of nodes) if (nodeLevel(save, n.id) > 0 && cy(n) > deepest) { deepest = cy(n); focusId = n.id; }
-
-  const els = nodes.map((n) => {
-    const lv = nodeLevel(save, n.id);
-    const st = nodeState(save, n);
-    const isRoot = n.req.length === 0;
-    const ico = n.combo ? COMBO_ICON : branchSvg(n.branch);
-    return h("button", {
-      class: `st-node st-${st} br-${b} ${n.combo ? "combo" : ""} ${lv > 0 ? "has" : ""} ${sel === n.id ? "sel" : ""} ${isRoot ? "root" : ""}`,
-      style: `left:${(fx(n) * 100).toFixed(3)}%;top:${cy(n)}px`,
-      "aria-label": `${n.name} Lv${lv}/${n.maxLevel}`,
-      dataset: { node: n.id, ...(n.id === focusId ? { autofocus: "1" } : {}) },
-      onclick: () => { selNode = n.id; ctx.rerender(); },
-    },
-      h("span", { class: "st-circle" },
-        svgIcon(ico),
-        h("span", { class: "st-lv" }, `${lv}/${n.maxLevel}`)),
-      h("span", { class: "st-name" }, n.name));
-  });
-
-  const view = h("div", { class: `st-view sk-view bv-${b}`, dataset: { sk: `tree-${b}` } },
-    h("div", { class: "st-canvas", style: `height:${H}px` },
-      tiers,
-      h("div", { class: "st-lanes", style: `left:${GUT}px` },
-        h("div", { class: "st-svgwrap", html: svg }),
-        els)));
-  attachDrag(view);
-  return view;
-}
-
-/** マウスのドラッグでも、たてに動かせるようにする（タッチはふつうのスクロール）。 */
-function attachDrag(view: HTMLElement): void {
-  let drag: { id: number; y: number; st: number; moved: boolean } | null = null;
-  view.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "mouse" || e.button !== 0) return;
-    drag = { id: e.pointerId, y: e.clientY, st: view.scrollTop, moved: false };
-  });
-  view.addEventListener("pointermove", (e) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dy = e.clientY - drag.y;
-    if (!drag.moved && Math.abs(dy) > 5) {
-      drag.moved = true;
-      view.classList.add("dragging");
-      try { view.setPointerCapture(e.pointerId); } catch { /* 何もしない */ }
+    // 線
+    const lw = Math.max(1.5, 5 * z);
+    for (const [a, b] of SKILL_LINKS) {
+      const A = SKILL_MAP[a], B = SKILL_MAP[b];
+      const minX = Math.min(A.pos.x, B.pos.x), maxX = Math.max(A.pos.x, B.pos.x);
+      const minY = Math.min(A.pos.y, B.pos.y), maxY = Math.max(A.pos.y, B.pos.y);
+      if (maxX < v0.x || minX > v1.x || maxY < v0.y || minY > v1.y) continue;
+      const la = lit(a), lb = lit(b);
+      const col = REGION_COLOR[(la ? A : B).region];
+      if (la && lb) { g.strokeStyle = col; g.lineWidth = lw * 1.3; g.setLineDash([]); }
+      else if (la || lb) { g.strokeStyle = col; g.lineWidth = lw; g.setLineDash([lw * 0.6, lw * 1.6]); }
+      else { g.strokeStyle = z < 0.32 ? "#cdb596" : "#dccab0"; g.lineWidth = lw * 0.8; g.setLineDash([]); }
+      g.beginPath();
+      const pa = toScreen(A.pos.x, A.pos.y), pb = toScreen(B.pos.x, B.pos.y);
+      // 同じ輪の上なら、輪にそって曲げる
+      const ring = A.ring === B.ring && A.ring >= 0 && A.ring < RING_R.length ? RING_R[A.ring] : 0;
+      const onRing = ring && Math.abs(Math.hypot(A.pos.x, A.pos.y) - ring) < 3 && Math.abs(Math.hypot(B.pos.x, B.pos.y) - ring) < 3;
+      if (onRing) {
+        const t1 = Math.atan2(A.pos.y, A.pos.x), t2 = Math.atan2(B.pos.y, B.pos.x);
+        let d = t2 - t1;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        g.arc(c0.x, c0.y, ring * z, t1, t1 + d, d < 0);
+      } else {
+        g.moveTo(pa.x, pa.y);
+        g.lineTo(pb.x, pb.y);
+      }
+      g.stroke();
     }
-    if (drag.moved) view.scrollTop = drag.st - dy;
+    g.setLineDash([]);
+
+    // 地方の名前（遠くから見たとき）
+    if (z < 0.5) {
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.font = `900 ${Math.round(Math.max(12, 150 * z))}px ${FONT}`;
+      SKILL_REGIONS.forEach((r, ri) => {
+        const a = (regionDeg(ri) + 11) * Math.PI / 180;
+        const rr = RING_R[RING_R.length - 1] + 200;
+        const p = toScreen(Math.cos(a) * rr, Math.sin(a) * rr);
+        g.lineWidth = 4;
+        g.strokeStyle = "rgba(255,250,240,.9)";
+        const half = g.measureText(REGION_NAMES[r]).width / 2 + 6;
+        const x = Math.max(half, Math.min(W - half, p.x)); // はしで切れないように
+        g.strokeText(REGION_NAMES[r], x, p.y);
+        g.fillStyle = REGION_COLOR[r];
+        g.fillText(REGION_NAMES[r], x, p.y);
+      });
+    }
+
+    // ノード
+    const detail = z >= 0.32;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    let anyCan = false;
+    for (const n of tree) {
+      const r0 = nodeR(n);
+      if (!inView(n.pos.x, n.pos.y, r0 + 30)) continue;
+      const st = state.get(n.id)!;
+      const p = toScreen(n.pos.x, n.pos.y);
+      const r = Math.max(2.5, r0 * z);
+      const col = REGION_COLOR[n.region];
+      const lv = nodeLevel(save, n.id);
+      if (!detail) {
+        // 遠くから見たとき: 点だけ（速く描く）
+        if (st === "can") anyCan = true;
+        const rr = Math.max(n.combo ? 3.5 : 2.2, r * (n.combo ? 1.4 : 1.15));
+        g.globalAlpha = st === "far" ? 0.45 : 1;
+        g.fillStyle = lv > 0 ? (n.combo ? HONEY : col) : st === "can" ? HONEY : n.combo ? "#e0b860" : st === "gatelock" || n.gate ? "#a88a6c" : col;
+        g.beginPath();
+        if (n.combo) starPath(g, p.x, p.y, rr * 1.2, rr * 0.6);
+        else if (n.gate) g.rect(p.x - rr, p.y - rr, rr * 2, rr * 2);
+        else g.arc(p.x, p.y, rr, 0, Math.PI * 2);
+        g.fill();
+        if (lv > 0 || st === "can") { g.lineWidth = 1; g.strokeStyle = LINE; g.stroke(); }
+        g.globalAlpha = 1;
+        continue;
+      }
+      g.globalAlpha = st === "far" ? 0.6 : 1;
+      // 光（取れる・宝）
+      if (st === "can") {
+        anyCan = true;
+        g.fillStyle = `rgba(243,184,67,${0.25 + 0.35 * pulse})`;
+        g.beginPath(); g.arc(p.x, p.y, r + (5 + 5 * pulse) * Math.max(0.5, z), 0, Math.PI * 2); g.fill();
+      }
+      if (n.combo && lv > 0) {
+        g.fillStyle = "rgba(243,184,67,.45)";
+        g.beginPath(); g.arc(p.x, p.y, r * 1.55, 0, Math.PI * 2); g.fill();
+      }
+      // かたち
+      g.beginPath();
+      if (n.combo) starPath(g, p.x, p.y, r * 1.15, r * 0.72);
+      else if (n.gate) roundRect(g, p.x - r, p.y - r, r * 2, r * 2, r * 0.45);
+      else g.arc(p.x, p.y, r, 0, Math.PI * 2);
+      let fill = CARD, stroke = col, sw = Math.max(1, 3 * z);
+      if (lv > 0) { fill = n.combo ? HONEY : col; stroke = st === "max" ? HONEY : "#fff"; }
+      else if (st === "far") { fill = "#efe2c8"; stroke = n.combo ? "#d8b56a" : SOFT; }
+      else if (st === "gatelock") { fill = "#ead9c0"; stroke = "#b99c7c"; }
+      else if (n.combo) { fill = "#fff3d2"; stroke = HONEY_D; }
+      g.fillStyle = fill;
+      g.fill();
+      if (detail || lv > 0 || st === "can") {
+        g.lineWidth = sw;
+        g.strokeStyle = stroke;
+        g.stroke();
+        if (lv > 0 && detail) {
+          g.lineWidth = Math.max(1, 1.5 * z);
+          g.strokeStyle = LINE;
+          g.beginPath();
+          if (n.combo) starPath(g, p.x, p.y, r * 1.15 + sw / 2, r * 0.72 + sw / 2);
+          else if (n.gate) roundRect(g, p.x - r - sw / 2, p.y - r - sw / 2, r * 2 + sw, r * 2 + sw, r * 0.5);
+          else g.arc(p.x, p.y, r + sw / 2, 0, Math.PI * 2);
+          g.stroke();
+        }
+      }
+      // アイコン
+      if (detail) {
+        const s = r * (n.combo ? 0.95 : n.kind === "root" ? 1.1 : 1.15);
+        let img: HTMLImageElement;
+        if (n.gate && st !== "max" && lv === 0) img = iconImg(ICONS.lock, "");
+        else if (n.combo) img = iconImg(COMBO_ICON, lv > 0 ? "#fff8e0" : st === "far" ? "#d8b56a" : HONEY_D);
+        else if (n.kind === "root") img = iconImg(ICONS.paw, lv > 0 ? "#fff" : INK);
+        else img = iconImg(regionSvg(n.region), lv > 0 ? "#fff" : st === "far" ? "#cdb596" : col);
+        if (img.complete && img.naturalWidth) {
+          if (n.gate && st === "gatelock") g.globalAlpha = 1;
+          g.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
+        }
+      }
+      g.globalAlpha = 1;
+      // ねこドアの家族レベル
+      if (n.gate && lv === 0 && fam < n.minCharLevel && z >= 0.18) {
+        const fs = Math.max(9, 12 * Math.min(1.3, z));
+        g.font = `900 ${fs}px ${FONT}`;
+        const text = `Lv${n.minCharLevel}`;
+        const tw = g.measureText(text).width + 8;
+        const bx = p.x - tw / 2, by = p.y + r + 2;
+        g.fillStyle = "#f7d9d2";
+        roundRect(g, bx, by, tw, fs + 4, (fs + 4) / 2);
+        g.fill();
+        g.lineWidth = 1.2; g.strokeStyle = "#d99a8c"; g.stroke();
+        g.fillStyle = DANGER;
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(text, p.x, by + (fs + 4) / 2 + 0.5);
+      }
+      // レベルと名前（近くで見たとき）
+      if (z >= 0.75 && !n.gate) {
+        const fs = Math.round(9.5 * Math.min(1.4, z));
+        g.font = `900 ${fs}px ${FONT}`;
+        g.textAlign = "center"; g.textBaseline = "middle";
+        const text = `${lv}/${n.maxLevel}`;
+        const tw = g.measureText(text).width + 7;
+        const by = p.y + r - fs * 0.3;
+        g.fillStyle = lv >= n.maxLevel ? HONEY : lv > 0 ? col : CARD;
+        roundRect(g, p.x - tw / 2, by, tw, fs + 3, (fs + 3) / 2);
+        g.fill();
+        g.lineWidth = 1; g.strokeStyle = lv > 0 ? LINE : SOFT; g.stroke();
+        g.fillStyle = lv >= n.maxLevel ? "#4f2f05" : lv > 0 ? "#fff" : st === "can" ? "#9a6a10" : "#6b4f3c";
+        g.fillText(text, p.x, by + (fs + 3) / 2 + 0.5);
+      }
+      if (z >= 1.15 || (n.combo && z >= 0.6) || n.kind === "root") {
+        const fs = Math.round((n.combo ? 10.5 : 9.5) * Math.min(1.3, Math.max(0.9, z)));
+        g.font = `900 ${fs}px ${FONT}`;
+        g.textAlign = "center"; g.textBaseline = "top";
+        const ty = p.y + r + (n.gate ? fs + 8 : fs + 4);
+        g.lineWidth = 3.5;
+        g.strokeStyle = "rgba(255,250,240,.95)";
+        g.strokeText(n.name, p.x, ty);
+        g.fillStyle = n.combo ? "#9a6a10" : st === "far" ? "#9a7f68" : INK;
+        g.fillText(n.name, p.x, ty);
+      }
+      // えらんでいる
+      if (n.id === selNode) {
+        g.lineWidth = 3;
+        g.strokeStyle = INK;
+        g.setLineDash([5, 4]);
+        g.beginPath(); g.arc(p.x, p.y, r * (n.combo ? 1.4 : 1.25) + 6, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([]);
+      }
+    }
+    // 取れるノードが見えていれば、ゆっくり光らせる（見えている間だけ）
+    if (anyCan && canvas.isConnected && !document.hidden && !timer) timer = window.setTimeout(() => { timer = 0; request(); }, 90);
+  };
+  const request = () => { if (!raf && canvas.isConnected) raf = requestAnimationFrame(draw); };
+  onImgLoad = request;
+
+  const resize = () => {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    W = rect.width; H = rect.height; dpr = Math.min(2, window.devicePixelRatio || 1);
+    lastSize = { w: W, h: H };
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    draw();
+  };
+  const ro = new ResizeObserver(() => { if (canvas.isConnected) resize(); else ro.disconnect(); });
+  ro.observe(canvas);
+
+  // ---- さわる（ドラッグ・ピンチ・ホイール・タップ） ----
+  const pts = new Map<number, { x: number; y: number }>();
+  let gesture: { sx: number; sy: number; moved: boolean; t: number } | null = null;
+  let pinch: { d: number; z: number; bx: number; by: number } | null = null;
+  const local = (e: PointerEvent | WheelEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const startPinch = () => {
+    const [a, b] = [...pts.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const bp = toBoard(mid.x, mid.y);
+    pinch = { d: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), z: cam.z, bx: bp.x, by: bp.y };
+  };
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const p = local(e);
+    pts.set(e.pointerId, p);
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* 何もしない */ }
+    if (pts.size === 1) gesture = { sx: p.x, sy: p.y, moved: false, t: performance.now() };
+    if (pts.size === 2) { startPinch(); if (gesture) gesture.moved = true; }
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const prev = pts.get(e.pointerId);
+    if (!prev) return;
+    const p = local(e);
+    pts.set(e.pointerId, p);
+    if (pts.size >= 2 && pinch) {
+      const [a, b] = [...pts.values()];
+      const d = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y));
+      cam.z = Math.max(Z_MIN, Math.min(Z_MAX, pinch.z * d / pinch.d));
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      cam.x = pinch.bx - (mid.x - W / 2) / cam.z;
+      cam.y = pinch.by - (mid.y - H / 2) / cam.z;
+      clampCam();
+      request();
+      return;
+    }
+    if (!gesture) return;
+    if (!gesture.moved && Math.hypot(p.x - gesture.sx, p.y - gesture.sy) > 7) gesture.moved = true;
+    if (gesture.moved) {
+      cam.x -= (p.x - prev.x) / cam.z;
+      cam.y -= (p.y - prev.y) / cam.z;
+      clampCam();
+      request();
+    }
   });
   const end = (e: PointerEvent) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const moved = drag.moved;
-    drag = null;
-    view.classList.remove("dragging");
-    if (moved) {
-      const stop = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
-      view.addEventListener("click", stop, { capture: true, once: true });
-      setTimeout(() => view.removeEventListener("click", stop, { capture: true }), 0);
+    if (!pts.has(e.pointerId)) return;
+    const p = local(e);
+    pts.delete(e.pointerId);
+    if (pts.size === 1) { pinch = null; return; } // 1本だけ残ったら、そのままドラッグにもどる
+    if (pts.size === 0) {
+      pinch = null;
+      if (gesture && !gesture.moved && e.type === "pointerup") tap(p.x, p.y);
+      gesture = null;
     }
   };
-  view.addEventListener("pointerup", end);
-  view.addEventListener("pointercancel", end);
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = local(e);
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0018)));
+  }, { passive: false });
+
+  const zoomAt = (sx: number, sy: number, f: number) => {
+    const bp = toBoard(sx, sy);
+    cam.z = Math.max(Z_MIN, Math.min(Z_MAX, cam.z * f));
+    cam.x = bp.x - (sx - W / 2) / cam.z;
+    cam.y = bp.y - (sy - H / 2) / cam.z;
+    clampCam();
+    request();
+  };
+  const tap = (sx: number, sy: number) => {
+    let best: SkillNode | null = null, bd = Infinity;
+    for (const n of tree) {
+      const p = toScreen(n.pos.x, n.pos.y);
+      const d = Math.hypot(p.x - sx, p.y - sy);
+      const lim = Math.max(16, nodeR(n) * cam.z * 1.2) + 6;
+      if (d < lim && d < bd) { bd = d; best = n; }
+    }
+    // 遠くから見ているときは、まずそこへ近づく
+    if (best && cam.z < 0.45) {
+      cam.x = best.pos.x; cam.y = best.pos.y; cam.z = 0.9;
+      clampCam();
+    }
+    selNode = best ? best.id : null;
+    onSelect(selNode);
+    request();
+  };
+
+  // ---- ボタン（ズーム・全体・まん中・取れるところ） ----
+  const fit = () => {
+    const bw = SKILL_BOARD.maxX - SKILL_BOARD.minX + 120, bh = SKILL_BOARD.maxY - SKILL_BOARD.minY + 120;
+    cam.z = Math.max(Z_MIN, Math.min(W / bw, H / bh));
+    cam.x = (SKILL_BOARD.minX + SKILL_BOARD.maxX) / 2;
+    cam.y = (SKILL_BOARD.minY + SKILL_BOARD.maxY) / 2;
+    request();
+  };
+  const goNext = () => {
+    // 取れるノードのうち、いちばん安いもの
+    let best: SkillNode | null = null, bc = Infinity;
+    for (const n of tree) {
+      const st = state.get(n.id);
+      if (st !== "can" && st !== "poor") continue;
+      const c = nextNodeCost(save, n.id) ?? Infinity;
+      if (c < bc) { bc = c; best = n; }
+    }
+    if (!best) { ctx.toast("いま進めるところはありません", "ng"); return; }
+    cam.x = best.pos.x; cam.y = best.pos.y; cam.z = Math.max(cam.z, 0.9);
+    clampCam();
+    selNode = best.id;
+    onSelect(best.id);
+    request();
+  };
+  const btn = (label: string, ico: string | null, title: string, on: () => void, cls = "") =>
+    h("button", { class: `sb-btn ${cls}`, "aria-label": title, title, onclick: on }, ico ? svgIcon(ico) : null, label);
+  const tools = h("div", { class: "sb-tools" },
+    btn("＋", null, "大きく", () => zoomAt(W / 2, H / 2, 1.4)),
+    btn("－", null, "小さく", () => zoomAt(W / 2, H / 2, 1 / 1.4)),
+    btn("全体", null, "盤の全体を見る", fit, "sb-wide"),
+    btn("中心", null, "まん中へ", () => { cam.x = 0; cam.y = 0; cam.z = 0.9; request(); }, "sb-wide"));
+  const nextBtn = btn("取れる所へ", ICONS.paw, "いま取れる、いちばん安いスキルへ", goNext, "sb-next");
+
+  const wrap = h("div", { class: "sb-wrap" }, canvas, tools, nextBtn);
+  // 前と同じ大きさなら、すぐに描く（描きなおしで一瞬白くならないように）
+  if (W && H) {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    queueMicrotask(() => { if (canvas.isConnected) resize(); });
+  }
+  return wrap;
+}
+
+function starPath(g: CanvasRenderingContext2D, x: number, y: number, ro: number, ri: number): void {
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 ? ri : ro;
+    if (i === 0) g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    else g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  g.closePath();
+}
+
+function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, hh: number, r: number): void {
+  const rr = Math.min(r, w / 2, hh / 2);
+  g.moveTo(x + rr, y);
+  g.arcTo(x + w, y, x + w, y + hh, rr);
+  g.arcTo(x + w, y + hh, x, y + hh, rr);
+  g.arcTo(x, y + hh, x, y, rr);
+  g.arcTo(x, y, x + w, y, rr);
+  g.closePath();
 }
 
 /** そのノードを、ちゅ〜るが足りるあいだ何レベル上げられるか（と、その合計）。 */
@@ -243,16 +551,25 @@ function affordable(save: SaveData, n: SkillNode): { levels: number; cost: numbe
   return { levels, cost };
 }
 
+function kindLabel(n: SkillNode): string {
+  if (n.kind === "root") return "はじまり";
+  if (n.combo) return "宝";
+  if (n.gate) return "ねこドア";
+  return n.ring < 9 ? `輪${n.ring + 1}` : "外の道";
+}
+
 function renderNodePanel(ctx: Ctx, spent: number): HTMLElement {
   const save = ctx.save;
   const id = selNode;
   const n = id ? SKILL_MAP[id] : undefined;
-  if (!n || n.branch !== curBranch) {
+  if (!n) {
     return h("div", { class: "np np-empty" },
       svgIcon(ICONS.paw, "np-empty-ico"),
       h("div", null,
         h("div", { class: "np-empty-t" }, "スキルをタップしてね"),
-        h("div", { class: "muted small" }, "光っているスキルは、いま取れます。", h("span", { class: "np-star" }, svgIcon(COMBO_ICON)), "は複合効果のとくべつなスキル"),
+        h("div", { class: "muted small" }, "光っているスキルは、いま取れます。線でつながったとなりへ進もう。",
+          h("span", { class: "np-star" }, svgIcon(COMBO_ICON)), "は宝（複合効果）、",
+          h("span", { class: "np-star lock" }, svgIcon(ICONS.lock)), "は家族のレベルで開くねこドア"),
         h("div", { class: "muted small np-spent" }, "スキルに使った ", svgIcon(ICONS.churu), fmt(spent))));
   }
   const lv = nodeLevel(save, n.id);
@@ -275,12 +592,16 @@ function renderNodePanel(ctx: Ctx, spent: number): HTMLElement {
     }
     if (last) { sfx("levelUp"); ctx.commit(); }
   };
-  return h("div", { class: `np br-${n.branch} ${n.combo ? "np-combo" : ""}` },
+  const ico = n.combo ? COMBO_ICON : n.gate ? ICONS.lock : n.kind === "root" ? ICONS.paw : regionSvg(n.region);
+  return h("div", { class: `np br-${n.region} ${n.combo ? "np-combo" : ""} ${n.gate ? "np-gate" : ""}` },
     h("div", { class: "np-head" },
-      h("span", { class: `np-ico ic-${n.branch} ${n.combo ? "combo" : ""}` }, svgIcon(n.combo ? COMBO_ICON : branchSvg(n.branch))),
+      h("span", { class: `np-ico ic-${n.region} ${n.combo ? "combo" : ""}` }, svgIcon(ico)),
       h("div", { class: "np-title" },
-        h("div", { class: "np-name" }, n.name, combo ? h("span", { class: "np-ctag" }, "複合効果") : null),
-        h("div", { class: "np-sub" }, combo ? `${COMBO_NAMES[combo]}・` : "", `${n.role ? `${ROLE_NAMES[n.role]}の猫だけ` : BRANCH_NAMES[n.branch]}・段${n.tier + 1}・家族 Lv${n.minCharLevel}〜`)),
+        h("div", { class: "np-name" }, n.name,
+          combo ? h("span", { class: "np-ctag" }, "宝・複合効果") : null,
+          n.gate ? h("span", { class: "np-ctag np-gtag" }, `家族 Lv${n.minCharLevel}`) : null),
+        h("div", { class: "np-sub" }, combo ? `${COMBO_NAMES[combo]}・` : "",
+          `${n.kind === "root" ? "まん中" : REGION_NAMES[n.region]}・${kindLabel(n)}・段${n.tier + 1}・どの猫にも効く`)),
       h("div", { class: `np-lv ${maxed ? "max" : ""}` }, h("small", null, "Lv"), `${lv}`, h("small", null, `/${n.maxLevel}`))),
     h("div", { class: "np-eff" },
       h("span", { class: "np-now" }, lv > 0 ? effectText(n, lv) : "まだなし"),
@@ -289,7 +610,7 @@ function renderNodePanel(ctx: Ctx, spent: number): HTMLElement {
     !maxed && !can.ok ? h("div", { class: `np-reason ${open.ok ? "poor" : ""}` }, can.reason) : null,
     maxed ? null : h("div", { class: "np-btns" },
       h("button", { class: `btn ${can.ok ? "btn-gold" : "btn-gray is-off"} np-learn`, disabled: !can.ok, onclick: learnOnce },
-        h("span", { class: "np-bt" }, "習得 +1"),
+        h("span", { class: "np-bt" }, n.gate ? "ドアを開ける" : "習得 +1"),
         h("span", { class: `np-bc ${cost != null && save.churu < cost ? "lack" : ""}` }, svgIcon(ICONS.churu), cost != null ? fmt(cost) : "-")),
       h("button", { class: `btn ${many.levels > 1 ? "btn-purple" : "btn-gray is-off"} np-max`, disabled: many.levels <= 1, onclick: learnMax },
         h("span", { class: "np-bt" }, many.levels > 1 ? `まとめて +${many.levels}` : "まとめて"),

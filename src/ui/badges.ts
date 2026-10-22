@@ -1,20 +1,13 @@
 // 赤いバッジ（なにかできることがあるとき）の判定。
 import type { SaveData } from "../core/save";
-import { canLearn, canLevelUpObject, canUnlockRelic, nextRelic, partyRoles, skillTree } from "../core/progress";
-import type { SkillBranch } from "../data/skills";
+import { canLearn, canLevelUpObject, canUnlockRelic, isNodeLinked, nextRelic, skillTree } from "../core/progress";
 import { canPull } from "../core/gacha";
 import { MAX_CATS } from "../core/save";
 import { EQUIP_SLOTS, MAX_EQUIP_RARITY } from "../data/equips";
 
-/** その枝で、いま覚えられるスキルがあるか（根もとはのぞく）。 */
-export function branchCanLearn(save: SaveData, b: SkillBranch): boolean {
-  return skillTree().some((n) => n.branch === b && n.req.length > 0 && canLearn(save, n.id).ok);
-}
-
-/** いま覚えられるスキルがあるか（役割の枝は、パーティにいる役割だけ。うるさくないように）。 */
+/** いま覚えられるスキルがあるか（盤で、線でつながっていて、ちゅ〜るが足りるもの）。 */
 export function anySkillBadge(save: SaveData): boolean {
-  const roles = partyRoles(save);
-  return skillTree().some((n) => (!n.role || roles.includes(n.role)) && canLearn(save, n.id).ok);
+  return skillTree().some((n) => isNodeLinked(save, n.id) && canLearn(save, n.id).ok);
 }
 
 export function objCanLevel(save: SaveData, id: string): boolean {

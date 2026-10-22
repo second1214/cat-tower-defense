@@ -1,30 +1,24 @@
-// スキルツリー（家族みんなで1つ）。ちゅ〜るで1レベルずつ取る。
-// みんなの枝（攻撃・体力防御・速さ・技・支援）は、どの猫にも効く。
-// 役割の枝（近接・遠距離・範囲・すばやい）は、メインのわざの役割がおなじ猫にだけ効く（node.role）。
-// ステータスの枝はレベルつき（例: 攻撃 +10% × Lv1〜10）。特殊技能（会心・毒・吸血 など）も同じしくみ。
-// 同じステータスの % はツリー全体で足し算（掛け算にすると強くなりすぎるので）。
-// 複合効果（ComboId）のノードもある。深い段ほど強い・派手。
-// 深い段はコストが高く、家族の一番高いレベル（familyLevel）が足りないと取れない。
-import type { CharRole, ComboId } from "../core/types";
-import { ROLE_NAMES } from "./chars";
+// スキル盤（家族みんなで1つ）。FF10 のスフィア盤のような、1まいの大きな盤。ちゅ〜るで1レベルずつ取る。
+// 盤のノードは、どの猫にも効く（役割ごとの枝はない）。つらぬく・連続攻撃・範囲なども、使える猫に効くふつうのノード。
+// 形: まん中に「はじめの一歩」。そのまわりに輪が9本（0〜8）。5つの地方（攻撃・体力防御・速さ・技・支援）が、まん中から外へ広がる。
+//   ・偶数の輪（0・2・4・6・8）は1周つながっていて、となりの地方へ歩いていける。
+//   ・奇数の輪（1・3・5・7）は地方ごとに切れていて、切れ目の両はしに「宝」（複合効果）がある。
+//   ・輪と輪のあいだは「ねこドア」（錠）を通る。ねこドアは家族の一番高いレベル（familyLevel）が足りないと開けられない。
+//     偶数の輪から奇数の輪へは地方のまん中の道、奇数の輪から偶数の輪へは左右の道（ジグザグに進む）。
+//   ・偶数の輪（2・4・6）の外がわに、つき出た「宝」。輪8の外には、3本の道の先に大きな「宝」。
+// 取れるのは、線でつながったノードのどれかを Lv1 以上にしてから（はじめの一歩は、はじめから取れる）。
+// 同じステータスの % は盤全体で足し算（掛け算にすると強くなりすぎるので）。外の輪ほどコストが高く、量も多い。
+import type { ComboId } from "../core/types";
 
-/** みんなの枝。 */
-export type CommonBranch = "atk" | "def" | "spd" | "tech" | "support";
-/** 枝: みんなの枝 ＋ 役割の枝（役割の id と同じ）。 */
-export type SkillBranch = CommonBranch | CharRole;
-export const COMMON_BRANCHES: CommonBranch[] = ["atk", "def", "spd", "tech", "support"];
-export const ROLE_BRANCHES: CharRole[] = ["melee", "ranged", "aoe", "fast"];
-export const SKILL_BRANCHES: SkillBranch[] = [...COMMON_BRANCHES, ...ROLE_BRANCHES];
-export const BRANCH_NAMES: Record<SkillBranch, string> = {
+/** 地方（盤の5つの区分け）。 */
+export type SkillRegion = "atk" | "def" | "spd" | "tech" | "support";
+export const SKILL_REGIONS: SkillRegion[] = ["atk", "def", "spd", "tech", "support"];
+export const REGION_NAMES: Record<SkillRegion, string> = {
   atk: "攻撃",
   def: "体力・防御",
   spd: "速さ",
   tech: "技",
   support: "支援",
-  melee: ROLE_NAMES.melee,
-  ranged: ROLE_NAMES.ranged,
-  aoe: ROLE_NAMES.aoe,
-  fast: ROLE_NAMES.fast,
 };
 
 /** スキルでのびるもの。 */
@@ -42,37 +36,40 @@ export type SkillEffect =
   | { stat: SkillStat; combo?: undefined; per: number }
   | { combo: ComboId; stat?: undefined; per: number };
 
-export interface SkillReq {
-  id: string;
-  /** このノードがこのレベル以上なら OK。 */
-  lv: number;
-}
+/** ノードの種類。root = はじめの一歩、gate = ねこドア（錠）、combo = 宝（複合効果）。 */
+export type SkillKind = "root" | "normal" | "gate" | "combo";
 
 export interface SkillNode {
   id: string;
-  /** 役割の枝のノードなら、その役割（その役割の猫にだけ効く）。みんなの枝は無し。 */
-  role?: CharRole;
   name: string;
   /** 1レベルぶんの効果の説明。 */
   desc: string;
-  branch: SkillBranch;
-  /** 段（0 = 根もと … 12 = いちばん奥）。深いほど高い。 */
+  /** どの地方か（色・アイコン）。はじめの一歩は atk。 */
+  region: SkillRegion;
+  kind: SkillKind;
+  /** 輪（0 = まん中の輪 … 8 = いちばん外の輪、9 = 外の宝の道。はじめの一歩は -1）。 */
+  ring: number;
+  /** 段（0〜12）。コストと量の倍率。外の輪ほど深い。 */
   tier: number;
   maxLevel: number;
-  /** 先に取っておくスキル（すべて必要）。 */
-  req: SkillReq[];
-  /** 家族の一番高いレベル（familyLevel）がこれ以上で取れる。 */
+  /** 線でつながったノード（どれか1つが Lv1 以上なら取れる）。 */
+  links: string[];
+  /** 家族の一番高いレベル（familyLevel）がこれ以上で取れる（ねこドアだけ 2 以上）。 */
   minCharLevel: number;
   /** Lv0 → Lv1 の基本のちゅ〜る（段の倍率を掛ける前）。 */
   baseCost: number;
   effects: SkillEffect[];
-  /** 複合効果のノード（画面で目立たせる用）。 */
+  /** 複合効果のノード（宝）。 */
   combo: boolean;
-  /** 画面での位置（マスの列・行）。x: 0〜26（枝ごとに3列）、y: 0〜39（1段に3行。下に行くほど深い）。 */
+  /** ねこドア（錠）。 */
+  gate: boolean;
+  /** 盤の上の位置（まん中が 0,0。y は下が +）。 */
   pos: { x: number; y: number };
+  /** はじめの一歩から何歩か（線の数）。 */
+  steps: number;
 }
 
-/** 段ごとの、取るのに必要な家族のレベル（familyLevel）。 */
+/** 段ごとの、ねこドアを開けるのに必要な家族のレベル（familyLevel）。 */
 export const TIER_MIN_LEVEL = [1, 3, 8, 15, 25, 40, 60, 80, 110, 150, 200, 260, 330];
 /** 段が1つ深くなるごとに、コストに掛ける倍率。 */
 export const TIER_COST_MUL = 1.6;
@@ -92,7 +89,8 @@ export function nodeTotalCost(node: SkillNode, level: number): number {
 }
 
 function pct(v: number): string {
-  return String(Math.round(v * 1000) / 10);
+  // 1% より小さいときは、小数2けたまで
+  return Math.abs(v) < 0.01 ? String(Math.round(v * 10000) / 100) : String(Math.round(v * 1000) / 10);
 }
 function round2(v: number): string {
   return String(Math.round(v * 100) / 100);
@@ -184,13 +182,12 @@ export function effectsText(effects: SkillEffect[], mul = 1): string {
   return effects.map((e) => effectLine(e, mul)).join("・");
 }
 
-/** 効果の説明（level を掛けた量）。例: effectText(node, 3) → "猫の攻撃 +30%"。役割の枝なら「近接の猫：攻撃 +30%」。 */
+/** 効果の説明（level を掛けた量）。例: effectText(node, 3) → "猫の攻撃 +30%"。 */
 export function effectText(node: SkillNode, level = 1): string {
-  if (!node.role) return effectsText(node.effects, level);
-  return `${ROLE_NAMES[node.role]}の猫：` + node.effects.map((e) => effectLine(e, level).replace(/^猫(の|が)/, "")).join("・");
+  return effectsText(node.effects, level);
 }
 
-// ---- ツリーの組み立て ----
+// ---- 盤の組み立て ----
 
 const S = (stat: SkillStat, per: number): SkillEffect => ({ stat, per });
 const C = (combo: ComboId, per: number): SkillEffect => ({ combo, per });
@@ -223,323 +220,450 @@ const STAT_NAMES: Record<SkillStat, string[]> = {
   repair: ["おかたづけ", "ていねいに直す", "おうちの修理屋", "つめとぎで直す", "せっせと直す"],
 };
 const KANJI = ["", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
+/** ねこドア（錠）の名前（地方ごと）。 */
+const GATE_NAMES: Record<SkillRegion, string> = {
+  atk: "赤いねこドア", def: "緑のねこドア", spd: "青いねこドア", tech: "紫のねこドア", support: "黄色いねこドア",
+};
 
-/** 1つのノードの中身（段 t の、ある列の、上か下か）。 */
-interface Cell {
-  fx: SkillEffect[];
-  max: number;
-  cost?: number;
-}
-
+/** ステータスごとの、ふつうのノード（最大レベル max）の1レベルの量。scale なら外の輪ほど増える。 */
+const STAT_DEF: Record<SkillStat, { per: number; max: number; scale: boolean }> = {
+  atk: { per: 0.032, max: 10, scale: true },
+  hp: { per: 0.04, max: 10, scale: true },
+  atkSpd: { per: 0.006, max: 10, scale: true },
+  move: { per: 0.0125, max: 5, scale: true },
+  objAtk: { per: 0.025, max: 10, scale: true },
+  objHp: { per: 0.04, max: 5, scale: true },
+  critMul: { per: 0.03, max: 5, scale: true },
+  poison: { per: 0.015, max: 5, scale: true },
+  rest: { per: 0.006, max: 5, scale: false },
+  armor: { per: 0.006, max: 5, scale: false },
+  range: { per: 0.08, max: 3, scale: false },
+  aoe: { per: 0.025, max: 5, scale: false },
+  crit: { per: 0.005, max: 5, scale: false },
+  lifesteal: { per: 0.0025, max: 5, scale: false },
+  regen: { per: 0.0005, max: 5, scale: false },
+  knockback: { per: 0.03, max: 5, scale: false },
+  slow: { per: 0.0075, max: 5, scale: false },
+  kibble: { per: 0.0075, max: 5, scale: false },
+  aura: { per: 0.015, max: 5, scale: false },
+  repair: { per: 0.001, max: 5, scale: false },
+  revive: { per: 0.02, max: 5, scale: false },
+  dodge: { per: 0.003, max: 5, scale: false },
+  multiHit: { per: 1, max: 1, scale: false },
+  pierce: { per: 1, max: 1, scale: false },
+};
+/** 盤のノードは全部の猫に効くので、前の（役割ごとの）ツリーより1つあたり少し控えめ。 */
+const VALUE_MUL = 0.7;
 /** 段が深いほど、1レベルあたりの量を増やす。 */
 const k = (t: number) => 1 + 0.2 * t;
-/** max からレベルの数、の短い書き方。 */
-const c10 = (...fx: SkillEffect[]): Cell => ({ fx, max: 10 });
-const c5 = (...fx: SkillEffect[]): Cell => ({ fx, max: 5 });
-const c3 = (...fx: SkillEffect[]): Cell => ({ fx, max: 3 });
+const r5 = (v: number) => Math.round(v * 1e5) / 1e5;
+
+/** stat を最大レベル max のノードにしたときの1レベルの量（share = 1 で、ふつうの1ノードぶん）。 */
+function statPer(st: SkillStat, max: number, t: number, share = 1): number {
+  const d = STAT_DEF[st];
+  return r5(d.per * (d.max / max) * share * (d.scale ? k(t) : 1) * VALUE_MUL);
+}
+
+interface Cell { fx: SkillEffect[]; max: number; cost?: number }
+const single = (st: SkillStat, t: number): Cell => ({ fx: [S(st, statPer(st, STAT_DEF[st].max, t))], max: STAT_DEF[st].max });
+/** みじかいノード（最大レベルが少ないかわりに、1レベルが大きい）。 */
+const short = (st: SkillStat, t: number): Cell => {
+  const d = STAT_DEF[st].max;
+  const max = d >= 10 ? 5 : d >= 5 ? 3 : 2;
+  return { fx: [S(st, statPer(st, max, t, 0.9))], max };
+};
+/** 2つのステータスが少しずつのびるノード。 */
+const pair = (a: SkillStat, b: SkillStat, t: number, share = 0.6): Cell => {
+  const max = Math.min(STAT_DEF[a].max, STAT_DEF[b].max);
+  return { fx: [S(a, statPer(a, max, t, share)), S(b, statPer(b, max, t, share))], max };
+};
+/** 道（輪と輪をつなぐ道が通るところ）のノード。ふつうより少し大きい。 */
+const road = (st: SkillStat, t: number): Cell => ({ fx: [S(st, statPer(st, STAT_DEF[st].max, t, 1.25))], max: STAT_DEF[st].max });
 const once = (cost: number, ...fx: SkillEffect[]): Cell => ({ fx, max: 1, cost });
 
-/** 列ごとの「かたち」のならび。段の上・下（r = 2*段 + 上下）で順にまわす。 */
-type Pattern = (k: number) => Cell;
-const cycle = (list: Pattern[], t: number, r: number): Cell => list[r % list.length](k(t));
-
-/** みんなの枝（5つ）。どの猫にも効く。 */
-const COMMON_LANES: Record<CommonBranch, Pattern[][]> = {
-  atk: [
-    [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.004 * q)), (q) => c10(S("atkSpd", 0.0065 * q)), (q) => c5(S("critMul", 0.03 * q), S("atkSpd", 0.003 * q))],
-    [(q) => c10(S("atk", 0.032 * q)), (q) => c10(S("atk", 0.036 * q)), (q) => c5(S("atk", 0.022 * q), S("hp", 0.028 * q))],
-    [() => c5(S("crit", 0.005)), (q) => c5(S("critMul", 0.03 * q)), (q) => c5(S("crit", 0.004), S("critMul", 0.015 * q)), (q) => c5(S("critMul", 0.035 * q))],
-  ],
-  def: [
-    [() => c5(S("armor", 0.006)), () => c5(S("dodge", 0.003)), (q) => c5(S("armor", 0.004), S("hp", 0.03 * q)), () => c5(S("dodge", 0.003), S("move", 0.01))],
-    [(q) => c10(S("hp", 0.04 * q)), (q) => c10(S("hp", 0.045 * q)), (q) => c5(S("hp", 0.028 * q), S("armor", 0.002))],
-    [() => c5(S("regen", 0.0005)), () => c5(S("lifesteal", 0.0025)), () => c5(S("revive", 0.02)), () => c5(S("regen", 0.0003), S("lifesteal", 0.0015))],
-  ],
-  spd: [
-    [() => c5(S("rest", 0.006)), () => c5(S("rest", 0.004), S("revive", 0.01)), () => c5(S("rest", 0.007))],
-    [(q) => c5(S("move", 0.0125 * q)), (q) => c5(S("move", 0.01 * q), S("dodge", 0.002)), (q) => c5(S("move", 0.014 * q))],
-    [(q) => c10(S("atkSpd", 0.0055 * q)), (q) => c10(S("atkSpd", 0.0045 * q), S("move", 0.005 * q)), (q) => c10(S("atkSpd", 0.006 * q))],
-  ],
-  tech: [
-    [(q) => c5(S("poison", 0.015 * q)), () => c5(S("slow", 0.0075)), (q) => c5(S("poison", 0.01 * q), S("slow", 0.004)), () => c5(S("slow", 0.006), S("crit", 0.002))],
-    [(q) => c5(S("atk", 0.03 * q), S("hp", 0.03 * q)), () => c5(S("lifesteal", 0.002), S("regen", 0.0003)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025))],
-    [() => c5(S("knockback", 0.03)), () => c5(S("lifesteal", 0.0015)), () => c5(S("knockback", 0.02), S("slow", 0.004))],
-  ],
-  support: [
-    [(q) => c10(S("objAtk", 0.025 * q)), (q) => c10(S("objAtk", 0.02 * q), S("objHp", 0.01 * q)), (q) => c10(S("objAtk", 0.028 * q))],
-    [() => c5(S("kibble", 0.0075)), () => c5(S("aura", 0.015)), () => c5(S("kibble", 0.005), S("aura", 0.01))],
-    [() => c5(S("repair", 0.001)), (q) => c5(S("objHp", 0.04 * q)), (q) => c5(S("repair", 0.0007), S("objHp", 0.02 * q))],
-  ],
+/** 地方ごとのステータス。main（地方の顔。道の上・輪の上）と sub（2つのびるノードの2つめ）。 */
+const POOLS: Record<SkillRegion, { main: SkillStat[]; sub: SkillStat[] }> = {
+  atk: { main: ["atk", "critMul", "atkSpd", "crit", "knockback", "lifesteal"], sub: ["atkSpd", "hp", "critMul", "crit", "lifesteal", "move", "atk"] },
+  def: { main: ["hp", "armor", "dodge", "regen", "revive", "lifesteal"], sub: ["armor", "lifesteal", "revive", "regen", "hp", "dodge", "move"] },
+  spd: { main: ["atkSpd", "move", "rest", "dodge", "revive", "atk"], sub: ["rest", "atk", "move", "dodge", "atkSpd", "lifesteal", "revive"] },
+  tech: { main: ["poison", "slow", "crit", "critMul", "aoe", "knockback"], sub: ["critMul", "lifesteal", "poison", "slow", "atk", "range", "aoe"] },
+  support: { main: ["objAtk", "objHp", "kibble", "aura", "repair", "hp"], sub: ["objHp", "kibble", "aura", "repair", "objAtk", "hp", "atk"] },
 };
 
-/** 役割の枝（4つ）。メインのわざの役割がおなじ猫にだけ効く。とくべつな段（[段, 上下]）には、得意技のノードを置く。 */
-const ROLE_LANES: Record<CharRole, { lanes: Pattern[][]; special: [number, number, Cell][] }> = {
-  melee: {
-    lanes: [
-      [(q) => c10(S("atk", 0.03 * q)), (q) => c5(S("atk", 0.02 * q), S("hp", 0.02 * q)), () => c5(S("lifesteal", 0.003)), (q) => c10(S("atk", 0.035 * q))],
-      [() => c5(S("knockback", 0.04)), (q) => c5(S("armor", 0.005), S("hp", 0.03 * q)), (q) => c5(S("knockback", 0.03), S("atk", 0.02 * q))],
-      [(q) => c10(S("hp", 0.05 * q)), () => c5(S("armor", 0.006)), (q) => c5(S("regen", 0.0005), S("hp", 0.02 * q)), () => c5(S("dodge", 0.003), S("armor", 0.003))],
-    ],
-    special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
-  },
-  ranged: {
-    lanes: [
-      [(q) => c5(S("critMul", 0.03 * q)), () => c5(S("crit", 0.004)), (q) => c10(S("atk", 0.03 * q)), (q) => c5(S("crit", 0.003), S("critMul", 0.015 * q))],
-      [() => c3(S("range", 0.08)), (q) => c5(S("critMul", 0.03 * q), S("crit", 0.0025)), (q) => c3(S("range", 0.06), S("atkSpd", 0.004 * q))],
-      [(q) => c10(S("atkSpd", 0.008 * q)), () => c5(S("slow", 0.005)), (q) => c5(S("atkSpd", 0.006 * q), S("range", 0.03)), () => c5(S("knockback", 0.02), S("slow", 0.003))],
-    ],
-    special: [[2, 0, once(10, S("pierce", 1))], [6, 0, once(10, S("pierce", 1))], [10, 0, once(10, S("pierce", 1))]],
-  },
-  aoe: {
-    lanes: [
-      [() => c5(S("aoe", 0.025)), (q) => c10(S("atk", 0.03 * q)), (q) => c5(S("aoe", 0.015), S("atk", 0.02 * q)), (q) => c5(S("poison", 0.015 * q))],
-      [() => c5(S("aoe", 0.03)), (q) => c5(S("poison", 0.02 * q), S("slow", 0.004)), () => c5(S("aoe", 0.02), S("armor", 0.003))],
-      [(q) => c10(S("hp", 0.04 * q)), () => c5(S("slow", 0.006)), () => c5(S("regen", 0.0004), S("armor", 0.004)), (q) => c5(S("poison", 0.012 * q), S("aoe", 0.01))],
-    ],
-    special: [[6, 0, once(15, S("multiHit", 1))]],
-  },
-  fast: {
-    lanes: [
-      [(q) => c10(S("atkSpd", 0.006 * q)), (q) => c5(S("move", 0.015 * q)), (q) => c5(S("atk", 0.02 * q), S("atkSpd", 0.003 * q)), (q) => c10(S("atkSpd", 0.007 * q))],
-      [() => c5(S("dodge", 0.003), S("move", 0.01)), (q) => c5(S("atk", 0.024 * q), S("atkSpd", 0.004 * q)), () => c5(S("dodge", 0.004))],
-      [() => c5(S("dodge", 0.002)), () => c5(S("rest", 0.005)), (q) => c5(S("lifesteal", 0.003), S("move", 0.01 * q)), () => c5(S("revive", 0.02), S("rest", 0.003))],
-    ],
-    special: [[4, 0, once(15, S("multiHit", 1))], [9, 0, once(15, S("multiHit", 1))]],
-  },
-};
+/** 輪の上の、道と道のあいだのノード（j = その地方・その輪で何番め）。かたちを順にまわして、かぶらないようにする。 */
+function arcCell(region: SkillRegion, ring: number, j: number, t: number): Cell {
+  const { main, sub } = POOLS[region];
+  const a = main[(j + Math.floor(j / 6) + ring * 2) % main.length];
+  const v = (j + ring) % 3;
+  if (v === 0) return single(a, t);
+  if (v === 1) return short(a, t);
+  let b = sub[(j * 3 + ring) % sub.length];
+  if (b === a) b = sub[(j * 3 + ring + 1) % sub.length];
+  return pair(a, b, t);
+}
 
-/** 複合効果のノード: [段, 効果（1レベルの量）, 名前, 最大レベル]。1つの枝の1つの段に2つまで。 */
+/** 地方のさかいめのノード（2つの地方のステータスがまざる）。 */
+function borderCell(region: SkillRegion, other: SkillRegion, ring: number, j: number, t: number): Cell {
+  const a = POOLS[region].main[(j + ring) % 6];
+  let b = POOLS[other].main[(j * 2 + ring + 1) % 6];
+  if (b === a) b = POOLS[other].main[(j * 2 + ring + 2) % 6];
+  return pair(a, b, t, 0.65);
+}
+
+/** 複合効果の宝: [前のツリーでの段（ならべる順）, 効果（1レベルの量）, 名前, 最大レベル]。地方ごとに 17。 */
 type ComboRow = [number, SkillEffect[], string, number?];
-
-const COMBO_ROWS: Record<SkillBranch, ComboRow[]> = {
-  // ---- みんなの枝（控えめ） ----
+const REGION_COMBOS: Record<SkillRegion, ComboRow[]> = {
   atk: [
+    [0, [C("pierceGrow", 0.05)], "つらぬくほど強く"],
+    [1, [C("slowShatter", 0.08)], "ねらいうち"],
     [2, [C("bossHunter", 0.1)], "大物きらい"],
+    [2, [C("critChain", 1)], "ビリッとひっかき", 1],
+    [3, [C("venomCrit", 0.04)], "毒をねらう"],
     [4, [C("overkill", 0.15)], "あまった力"],
+    [4, [C("pierceGrow", 0.12), C("overkill", 0.1)], "一直線"],
     [6, [C("lastStand", 0.15)], "ねばり腰"],
+    [7, [C("critChain", 1), C("venomCrit", 0.02)], "いなずまの爪", 2],
     [8, [C("bossHunter", 0.2), C("overkill", 0.1)], "ボスたおし"],
-    [10, [C("critChain", 1)], "かみなりの爪", 1],
-    [12, [C("overkill", 0.4), C("bossHunter", 0.3)], "伝説のけんか猫"],
+    [8, [C("bossHunter", 0.3)], "大物ねらい"],
+    [9, [C("pierceGrow", 0.25)], "千里の一矢"],
+    [10, [C("critChain", 1)], "かみなりの爪", 3],
+    [10, [C("overkill", 0.5)], "うちぬき"],
+    [11, [C("zapVenom", 0.4)], "ビリビリ毒"],
+    [12, [C("overkill", 0.6), C("bossHunter", 0.3)], "伝説のけんか猫"],
+    [12, [C("critChain", 2), C("partyLink", 0.15)], "かみなりの雨", 2],
   ],
   def: [
-    [1, [C("killHeal", 0.004)], "ごはんで元気"],
-    [3, [C("mamaGuard", 0.06)], "ママのそば"],
-    [5, [C("wakeUp", 0.3)], "すっきり起きる"],
-    [7, [C("killHeal", 0.008), C("lastStand", 0.1)], "食べてふんばる"],
-    [9, [C("mamaGuard", 0.12)], "ママの用心棒"],
-    [12, [C("wakeUp", 0.8), C("killHeal", 0.01)], "不死身のねこ"],
-  ],
-  spd: [
-    [2, [C("frenzy", 0.012)], "ノリノリ気分"],
-    [4, [C("wakeUp", 0.25)], "とびおき"],
-    [6, [C("kibbleFever", 0.015)], "おやつでダッシュ"],
-    [8, [C("frenzy", 0.02)], "止まらない足"],
-    [10, [C("dodgeCounter", 0.2)], "ひらりと反撃"],
-    [12, [C("frenzy", 0.05), C("kibbleFever", 0.02)], "つむじ風の大暴れ"],
-  ],
-  tech: [
-    [1, [C("slowShatter", 0.06)], "にげ足ねらい"],
-    [3, [C("venomCrit", 0.03)], "毒のすきま"],
-    [5, [C("poisonBurst", 0.15)], "ぷちっと毒"],
-    [7, [C("slowShatter", 0.1), C("venomCrit", 0.02)], "じわじわ追いつめ"],
-    [9, [C("zapVenom", 0.2)], "しびれ毒"],
-    [12, [C("poisonBurst", 0.5), C("slowShatter", 0.15)], "毒のくす玉"],
-  ],
-  support: [
-    [2, [C("kibbleFever", 0.015)], "カリカリのごほうび"],
-    [4, [C("objectSync", 0.05)], "いっしょに遊ぶ"],
-    [6, [C("partyLink", 0.06)], "なかよしパワー"],
-    [8, [C("objectSync", 0.1)], "おもちゃの名コンビ"],
-    [10, [C("partyLink", 0.12)], "家族のきずな"],
-    [12, [C("objectSync", 0.15), C("partyLink", 0.1), C("kibbleFever", 0.02)], "ねこカフェの看板猫"],
-  ],
-  // ---- 役割の枝（その役割の猫だけ。強め） ----
-  melee: [
     [0, [C("knockSlam", 0.15)], "ぶつけパンチ"],
+    [1, [C("killHeal", 0.004)], "ごはんで元気"],
     [1, [C("killHeal", 0.006), C("lastStand", 0.08)], "いただきます"],
     [2, [C("lastStand", 0.2)], "ふんばり"],
+    [3, [C("mamaGuard", 0.06)], "ママのそば"],
     [3, [C("multiEcho", 0.3)], "ひびくパンチ"],
     [4, [C("knockSlam", 0.4), C("slowShatter", 0.05)], "かべドン"],
-    [5, [C("mamaGuard", 0.12)], "ママの前に立つ"],
+    [5, [C("wakeUp", 0.3)], "すっきり起きる"],
     [6, [C("overkill", 0.3)], "もう一発"],
+    [7, [C("killHeal", 0.008), C("lastStand", 0.1)], "食べてふんばる"],
     [7, [C("multiEcho", 0.5), C("knockSlam", 0.2)], "どすこい乱れうち"],
     [8, [C("bossHunter", 0.25)], "ボスとのけんか"],
+    [9, [C("mamaGuard", 0.12)], "ママの用心棒"],
     [9, [C("lastStand", 0.5)], "九つの命"],
     [10, [C("knockSlam", 0.8)], "町内一のぶちかまし"],
     [11, [C("multiEcho", 0.8)], "町いちばんのけんか"],
-    [12, [C("partyLink", 0.2), C("bossHunter", 0.2)], "ボス猫の号令"],
+    [12, [C("wakeUp", 0.8), C("killHeal", 0.01)], "不死身のねこ"],
   ],
-  ranged: [
-    [0, [C("pierceGrow", 0.05)], "つらぬくほど強く"],
-    [1, [C("slowShatter", 0.08)], "ねらいうち"],
-    [2, [C("critChain", 1)], "ビリッとひっかき", 2],
-    [3, [C("venomCrit", 0.04)], "毒をねらう"],
-    [4, [C("pierceGrow", 0.12), C("overkill", 0.1)], "一直線"],
-    [5, [C("kibbleFever", 0.025)], "カリカリでやる気"],
-    [6, [C("objectSync", 0.08)], "おもちゃと息を合わせる"],
-    [7, [C("critChain", 1), C("venomCrit", 0.02)], "いなずまの爪", 3],
-    [8, [C("bossHunter", 0.3)], "大物ねらい"],
-    [9, [C("pierceGrow", 0.25)], "千里の一矢"],
-    [10, [C("overkill", 0.5)], "うちぬき"],
-    [11, [C("zapVenom", 0.4)], "ビリビリ毒"],
-    [12, [C("critChain", 2), C("partyLink", 0.15)], "かみなりの雨", 2],
-  ],
-  aoe: [
-    [0, [C("shockwave", 0.15)], "しっぽの風"],
-    [1, [C("poisonBurst", 0.25)], "はじける毒"],
-    [2, [C("zapVenom", 0.12)], "静電気の毛"],
-    [3, [C("slowShatter", 0.1)], "まとめてつぶす"],
-    [4, [C("shockwave", 0.3), C("objectSync", 0.05)], "うずまき"],
-    [5, [C("mamaGuard", 0.15)], "ママのそばの守り神"],
-    [6, [C("poisonBurst", 0.6)], "毒の大はじけ"],
-    [7, [C("multiEcho", 0.3)], "ひびく大回転"],
-    [8, [C("shockwave", 0.5)], "大回転のうず"],
-    [9, [C("killHeal", 0.015)], "ひなたぼっこ"],
-    [10, [C("overkill", 0.5)], "なだれ"],
-    [11, [C("poisonBurst", 1.2), C("zapVenom", 0.3)], "毒の花火"],
-    [12, [C("shockwave", 0.8), C("partyLink", 0.15)], "台風の目"],
-  ],
-  fast: [
+  spd: [
     [0, [C("frenzy", 0.015)], "ノリノリ"],
     [1, [C("dodgeCounter", 0.15)], "よけてパンチ"],
+    [2, [C("frenzy", 0.02)], "ノリノリ気分"],
     [2, [C("wakeUp", 0.6)], "ねおきダッシュ"],
-    [3, [C("kibbleFever", 0.025)], "カリカリでダッシュ"],
+    [4, [C("wakeUp", 0.7)], "とびおき"],
     [4, [C("killHeal", 0.008)], "走って元気"],
     [5, [C("multiEcho", 0.3)], "れんぱのひびき"],
+    [6, [C("kibbleFever", 0.015)], "おやつでダッシュ"],
     [6, [C("frenzy", 0.05), C("dodgeCounter", 0.15)], "とまらない"],
     [7, [C("dodgeCounter", 0.6)], "みきりの反撃"],
+    [8, [C("frenzy", 0.06)], "止まらない足"],
     [8, [C("bossHunter", 0.3)], "ボスのまわりをぐるぐる"],
     [9, [C("wakeUp", 1.2)], "ねぼすけ返上"],
+    [10, [C("dodgeCounter", 0.7)], "ひらりと反撃"],
     [10, [C("overkill", 0.5)], "かけぬけ一閃"],
     [11, [C("frenzy", 0.09)], "いなずまの大暴れ"],
+    [12, [C("frenzy", 0.1), C("kibbleFever", 0.02)], "つむじ風の大暴れ"],
+  ],
+  tech: [
+    [0, [C("shockwave", 0.15)], "しっぽの風"],
+    [1, [C("slowShatter", 0.06)], "にげ足ねらい"],
+    [1, [C("poisonBurst", 0.25)], "はじける毒"],
+    [2, [C("zapVenom", 0.12)], "静電気の毛"],
+    [3, [C("venomCrit", 0.03)], "毒のすきま"],
+    [3, [C("slowShatter", 0.1)], "まとめてつぶす"],
+    [4, [C("shockwave", 0.3), C("objectSync", 0.05)], "うずまき"],
+    [5, [C("poisonBurst", 0.3)], "ぷちっと毒"],
+    [6, [C("poisonBurst", 0.6)], "毒の大はじけ"],
+    [7, [C("slowShatter", 0.12), C("venomCrit", 0.02)], "じわじわ追いつめ"],
+    [7, [C("multiEcho", 0.3)], "ひびく大回転"],
+    [8, [C("shockwave", 0.5)], "大回転のうず"],
+    [9, [C("zapVenom", 0.2)], "しびれ毒"],
+    [10, [C("overkill", 0.5)], "なだれ"],
+    [11, [C("poisonBurst", 1.2), C("zapVenom", 0.3)], "毒の花火"],
+    [11, [C("venomCrit", 0.05), C("slowShatter", 0.1)], "毒とわなの名人"],
+    [12, [C("poisonBurst", 1.5), C("slowShatter", 0.15)], "毒のくす玉"],
+  ],
+  support: [
+    [1, [C("partyLink", 0.03)], "みんなでおやつ"],
+    [2, [C("kibbleFever", 0.015)], "カリカリのごほうび"],
+    [3, [C("kibbleFever", 0.025)], "カリカリでダッシュ"],
+    [4, [C("objectSync", 0.05)], "いっしょに遊ぶ"],
+    [5, [C("kibbleFever", 0.03)], "カリカリでやる気"],
+    [5, [C("mamaGuard", 0.12)], "ママの前に立つ"],
+    [5, [C("mamaGuard", 0.15)], "ママのそばの守り神"],
+    [6, [C("partyLink", 0.06)], "なかよしパワー"],
+    [6, [C("objectSync", 0.08)], "おもちゃと息を合わせる"],
+    [7, [C("objectSync", 0.09), C("kibbleFever", 0.01)], "おもちゃ箱のひみつ"],
+    [8, [C("objectSync", 0.1)], "おもちゃの名コンビ"],
+    [9, [C("killHeal", 0.015)], "ひなたぼっこ"],
+    [10, [C("partyLink", 0.12)], "家族のきずな"],
+    [12, [C("objectSync", 0.15), C("partyLink", 0.1), C("kibbleFever", 0.02)], "ねこカフェの看板猫"],
+    [12, [C("partyLink", 0.2), C("bossHunter", 0.2)], "ボス猫の号令"],
     [12, [C("multiEcho", 0.6), C("frenzy", 0.03), C("partyLink", 0.15)], "みんなでおいかけっこ"],
+    [12, [C("shockwave", 0.8), C("partyLink", 0.15)], "台風の目"],
   ],
 };
 
-/** 段の数。 */
-export const TIERS = TIER_MIN_LEVEL.length;
-/** 1つの段の行の数（上・下のふつうのノード ＋ 複合効果の行）。 */
-export const ROWS_PER_TIER = 3;
+/** 輪の半径（盤の上の距離）。0 がまん中の輪。 */
+export const RING_R = [140, 310, 480, 650, 820, 990, 1160, 1330, 1500];
+/** 輪ごとの段（コストと量）。外の輪ほど深い。 */
+const RING_TIER = [0, 1, 2, 3, 4, 6, 8, 10, 11];
+/** 輪8の外の、宝の道の段。 */
+const OUTER_TIER = 12;
+/** 地方のまん中から、左右の道までの角度（度）。 */
+const LANE_DEG = 22;
+/** 輪の上のノードのあいだ（だいたい）。 */
+const STEP = 68;
+/** 地方のまん中の向き（度。-90 = 上）。攻撃が上で、時計まわりに 体力防御・速さ・技・支援。 */
+export function regionDeg(ri: number): number {
+  return -90 + 72 * ri;
+}
+const RAD = Math.PI / 180;
+const polar = (r: number, deg: number) => ({ x: Math.round(r * Math.cos(deg * RAD)), y: Math.round(r * Math.sin(deg * RAD)) });
 
-/** ふつうのノードの基本のちゅ〜る（最大レベルで決まる）。 */
 function defaultCost(max: number): number {
   if (max >= 10) return 1.5;
   if (max >= 5) return 3;
   if (max >= 3) return 5;
+  if (max >= 2) return 7;
   return 10;
 }
-/** 複合効果のノードの基本のちゅ〜る（みんなの枝・役割の枝）。 */
-const COMBO_COST_COMMON = 8;
-const COMBO_COST_ROLE = 15;
+const GATE_COST = 8;
+const COMBO_COST = 10;
 
-/** 枝の役割（役割の枝なら、その役割）。 */
-export function branchRole(b: SkillBranch): CharRole | undefined {
-  return (ROLE_BRANCHES as string[]).includes(b) ? (b as CharRole) : undefined;
+interface Draft {
+  id: string;
+  region: SkillRegion;
+  kind: SkillKind;
+  ring: number;
+  tier: number;
+  cell: Cell;
+  pos: { x: number; y: number };
+  minCharLevel: number;
+  links: string[];
+  name?: string;
+  /** 宝にする場所。 */
+  slot?: boolean;
 }
 
-function cellOf(b: SkillBranch, lane: number, sub: number, t: number): Cell {
-  const role = branchRole(b);
-  const r = 2 * t + sub;
-  if (role) {
-    const sp = ROLE_LANES[role].special.find(([st, ss]) => lane === 1 && st === t && ss === sub);
-    if (sp) return sp[2];
-    return cycle(ROLE_LANES[role].lanes[lane], t, r);
-  }
-  return cycle(COMMON_LANES[b as CommonBranch][lane], t, r);
-}
-
-function buildTree(): SkillNode[] {
-  const nodes: SkillNode[] = [];
-  const used = new Set<string>();
-  const add = (n: Omit<SkillNode, "desc" | "minCharLevel">) => {
-    used.add(`${n.pos.x},${n.pos.y}`);
-    const node: SkillNode = { ...n, desc: "", minCharLevel: TIER_MIN_LEVEL[n.tier] };
-    if (!n.role) delete node.role;
-    node.desc = effectText(node) + (n.maxLevel > 1 ? "（1レベルごと）" : "");
-    nodes.push(node);
+function buildBoard(): SkillNode[] {
+  const drafts = new Map<string, Draft>();
+  const add = (d: Omit<Draft, "links" | "minCharLevel"> & { minCharLevel?: number }): Draft => {
+    const x: Draft = { minCharLevel: 1, ...d, links: [] };
+    drafts.set(x.id, x);
+    return x;
   };
-
-  add({
-    id: "root", name: "はじめの一歩", branch: "atk", tier: 0, maxLevel: 1, req: [], baseCost: 2,
-    effects: [S("atk", 0.05), S("hp", 0.05)], combo: false, pos: { x: 13, y: 0 },
-  });
-
-  // 名前の重なりを数える
-  const seen = new Map<string, number>();
-  const nameOf = (fx: SkillEffect[]): string => {
-    const st = fx[0].stat!;
-    const n = seen.get(st) ?? 0;
-    seen.set(st, n + 1);
-    const list = STAT_NAMES[st];
-    const round = Math.floor(n / list.length);
-    return list[n % list.length] + (round > 0 ? `・${KANJI[Math.min(KANJI.length - 1, round)]}` : "");
+  const link = (a: string, b: string) => {
+    const A = drafts.get(a)!, B = drafts.get(b)!;
+    if (!A.links.includes(b)) A.links.push(b);
+    if (!B.links.includes(a)) B.links.push(a);
   };
+  const R = SKILL_REGIONS;
 
-  // ふつうのノード: 枝ごとに3列 × 13段 × 上下。同じ列の1つ前が前提
-  for (let t = 0; t < TIERS; t++) {
-    for (let sub = 0; sub < 2; sub++) {
-      SKILL_BRANCHES.forEach((b, bi) => {
-        for (let lane = 0; lane < 3; lane++) {
-          const c = cellOf(b, lane, sub, t);
-          const pt = sub === 0 ? t - 1 : t;
-          const ps = sub === 0 ? 1 : 0;
-          const prev = pt < 0 ? null : cellOf(b, lane, ps, pt);
-          add({
-            id: `${b}.${lane}${"ab"[sub]}${t}`,
-            role: branchRole(b),
-            name: nameOf(c.fx),
-            branch: b,
-            tier: t,
-            maxLevel: c.max,
-            req: prev ? [{ id: `${b}.${lane}${"ab"[ps]}${pt}`, lv: Math.min(3, prev.max) }] : [{ id: "root", lv: 1 }],
-            baseCost: c.cost ?? defaultCost(c.max),
-            effects: c.fx,
-            combo: false,
-            pos: { x: bi * 3 + lane, y: 1 + ROWS_PER_TIER * t + sub },
-          });
+  add({ id: "root", region: "atk", kind: "root", ring: -1, tier: 0, pos: { x: 0, y: 0 }, cell: { fx: [S("atk", 0.05), S("hp", 0.05)], max: 1, cost: 2 }, name: "はじめの一歩" });
+
+  // 輪（ring）。lanes[k][地方][0,1,2] = 左・まん中・右の道が通るノード
+  const lanes: string[][][] = [];
+  const ringNodes: Draft[][] = [];
+  for (let k = 0; k < RING_R.length; k++) {
+    const rad = RING_R[k], t = RING_TIER[k], odd = k % 2 === 1;
+    const nIn = Math.max(0, Math.round((rad * LANE_DEG * RAD) / STEP) - 1);
+    let nB = Math.max(0, Math.round((rad * (72 - 2 * LANE_DEG) * RAD) / STEP) - 1);
+    if (odd) nB = Math.max(2, nB + (nB % 2)); // 切れ目の左右に同じ数
+    const order: { d: Draft; cut?: boolean }[] = [];
+    lanes[k] = [];
+    R.forEach((reg, ri) => {
+      const base = regionDeg(ri);
+      const next = R[(ri + 1) % R.length];
+      let j = 0;
+      const ids: string[] = [];
+      const laneAt = (li: number) => {
+        const st = POOLS[reg].main[li === 1 ? 0 : (li + k) % 6];
+        const d = add({ id: `${reg}.r${k}.${"lcr"[li]}`, region: reg, kind: "normal", ring: k, tier: t, pos: polar(rad, base + (li - 1) * LANE_DEG), cell: road(st, t) });
+        ids.push(d.id);
+        order.push({ d });
+      };
+      const arc = (from: number, n: number, tag: string) => {
+        for (let i = 0; i < n; i++) {
+          const deg = from + (LANE_DEG * (i + 1)) / (n + 1);
+          order.push({ d: add({ id: `${reg}.r${k}.${tag}${i}`, region: reg, kind: "normal", ring: k, tier: t, pos: polar(rad, deg), cell: arcCell(reg, k, j++, t) }) });
         }
-      });
+      };
+      laneAt(0);
+      arc(base - LANE_DEG, nIn, "a");
+      laneAt(1);
+      arc(base, nIn, "b");
+      laneAt(2);
+      // 地方のさかいめ（前半はこの地方、後半はとなりの地方）
+      const span = 72 - 2 * LANE_DEG;
+      for (let i = 0; i < nB; i++) {
+        const deg = base + LANE_DEG + (span * (i + 1)) / (nB + 1);
+        const mine = i < nB / 2;
+        const reg2 = mine ? reg : next;
+        const d = add({
+          id: `${reg2}.r${k}.${mine ? "e" : "w"}${mine ? i : nB - 1 - i}`, region: reg2, kind: "normal", ring: k, tier: t, pos: polar(rad, deg),
+          cell: borderCell(reg2, mine ? next : reg, k, mine ? i : nB - 1 - i, t),
+        });
+        // 奇数の輪は、さかいめのまん中で切れる。切れ目の両はしが宝
+        const cutHere = odd && i === nB / 2 - 1;
+        if (odd && (i === nB / 2 - 1 || i === nB / 2)) d.slot = true;
+        order.push({ d, cut: cutHere });
+      }
+      lanes[k][ri] = ids;
+    });
+    for (let i = 0; i < order.length; i++) {
+      if (order[i].cut) continue;
+      link(order[i].d.id, order[(i + 1) % order.length].d.id);
     }
+    ringNodes[k] = order.map((o) => o.d);
   }
 
-  // 複合効果のノード: その段の、同じ枝の真ん中の列（下）が前提。ふつうのノードのすぐ下の行に置く
-  for (const b of SKILL_BRANCHES) {
-    const bi = SKILL_BRANCHES.indexOf(b);
-    const role = branchRole(b);
-    COMBO_ROWS[b].forEach(([t, fx, name, max], i) => {
-      const y = ROWS_PER_TIER * (t + 1);
-      const x = [bi * 3 + 1, bi * 3].find((cx) => !used.has(`${cx},${y}`))!;
-      const mid = cellOf(b, 1, 1, t);
-      add({
-        id: `${b}.combo${i + 1}`,
-        role,
-        name,
-        branch: b,
-        tier: t,
-        maxLevel: max ?? 3,
-        req: [{ id: `${b}.1b${t}`, lv: Math.min(3, mid.max) }],
-        baseCost: role ? COMBO_COST_ROLE : COMBO_COST_COMMON,
-        effects: fx,
-        combo: true,
-        pos: { x, y },
-      });
+  // まん中から輪0へ
+  R.forEach((_, ri) => link("root", lanes[0][ri][1]));
+
+  // 輪と輪のあいだ: ねこドア。偶数の輪 → 奇数の輪はまん中の道、奇数 → 偶数は左右の道
+  for (let k = 0; k + 1 < RING_R.length; k++) {
+    const t = RING_TIER[k + 1];
+    const mid = (RING_R[k] + RING_R[k + 1]) / 2;
+    R.forEach((reg, ri) => {
+      for (const li of k % 2 === 0 ? [1] : [0, 2]) {
+        const g = add({
+          id: `${reg}.g${k}${"lcr"[li]}`, region: reg, kind: "gate", ring: k, tier: t, pos: polar(mid, regionDeg(ri) + (li - 1) * LANE_DEG),
+          cell: once(GATE_COST, S(POOLS[reg].main[0], statPer(POOLS[reg].main[0], 1, t, 0.2)), S(POOLS[reg].sub[li], statPer(POOLS[reg].sub[li], 1, t, 0.2))),
+          minCharLevel: TIER_MIN_LEVEL[t], name: GATE_NAMES[reg],
+        });
+        link(lanes[k][ri][li], g.id);
+        link(g.id, lanes[k + 1][ri][li]);
+      }
     });
   }
+
+  // 偶数の輪（2・4・6）の外がわに、つき出た宝
+  for (const k of [2, 4, 6]) {
+    R.forEach((reg, ri) => {
+      for (const side of [-1, 1]) {
+        const deg = regionDeg(ri) + side * LANE_DEG / 2;
+        const p = add({ id: `${reg}.p${k}${side < 0 ? "l" : "r"}`, region: reg, kind: "normal", ring: k, tier: RING_TIER[k], pos: polar(RING_R[k] + 62, deg), cell: single("atk", 0), slot: true });
+        // いちばん近い輪のノードにつなぐ
+        const near = ringNodes[k].filter((d) => d.region === reg && d.kind === "normal" && !d.slot)
+          .sort((a, b) => Math.hypot(a.pos.x - p.pos.x, a.pos.y - p.pos.y) - Math.hypot(b.pos.x - p.pos.x, b.pos.y - p.pos.y))[0];
+        link(near.id, p.id);
+      }
+    });
+  }
+
+  // 輪8の外: 3本の宝の道（まん中は長い）。入口はねこドア
+  const last = RING_R.length - 1;
+  R.forEach((reg, ri) => {
+    for (const li of [0, 1, 2]) {
+      const deg = regionDeg(ri) + (li - 1) * LANE_DEG;
+      const len = li === 1 ? 4 : 3;
+      let prev = lanes[last][ri][li];
+      for (let i = 0; i < len; i++) {
+        const rad = RING_R[last] + 80 * (i + 1) + (i === len - 1 ? 8 : 0);
+        const kind: SkillKind = i === 0 ? "gate" : "normal";
+        const st = POOLS[reg].main[(li * 2 + i) % 6];
+        const d = add({
+          id: `${reg}.o${"lcr"[li]}${i}`, region: reg, kind, ring: last + 1, tier: OUTER_TIER, pos: polar(rad, deg),
+          cell: kind === "gate" ? once(GATE_COST, S(POOLS[reg].main[0], statPer(POOLS[reg].main[0], 1, OUTER_TIER, 0.2)), S(POOLS[reg].sub[li + 3], statPer(POOLS[reg].sub[li + 3], 1, OUTER_TIER, 0.2)))
+            : i % 2 ? single(st, OUTER_TIER) : pair(st, POOLS[reg].sub[(li + i) % 7] === st ? POOLS[reg].sub[(li + i + 1) % 7] : POOLS[reg].sub[(li + i) % 7], OUTER_TIER),
+          minCharLevel: kind === "gate" ? TIER_MIN_LEVEL[OUTER_TIER] : 1, name: kind === "gate" ? GATE_NAMES[reg] : undefined,
+          slot: i === len - 1,
+        });
+        link(prev, d.id);
+        prev = d.id;
+      }
+    }
+  });
+
+  // つらぬく・連続攻撃（1回だけのとくべつなノード。使える猫に効く）
+  const special = (id: string, cell: Cell) => { drafts.get(id)!.cell = cell; };
+  special("tech.r2.l", once(10, S("pierce", 1)));
+  special("tech.r5.r", once(10, S("pierce", 1)));
+  special("tech.r8.c", once(10, S("pierce", 1)));
+  special("atk.r4.c", once(15, S("multiHit", 1)));
+  special("spd.r7.c", once(15, S("multiHit", 1)));
+
+  // はじめの一歩から何歩か（線をたどる）
+  const steps = new Map<string, number>([["root", 0]]);
+  const queue = ["root"];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const nb of drafts.get(id)!.links) if (!steps.has(nb)) { steps.set(nb, steps.get(id)! + 1); queue.push(nb); }
+  }
+
+  // 宝: 地方ごとに、浅い場所から順に、前のツリーの浅い段の複合効果を置く。同じ複合効果は、奥ほど強く
+  for (const reg of R) {
+    const slots = [...drafts.values()].filter((d) => d.region === reg && d.slot)
+      .sort((a, b) => a.tier - b.tier || steps.get(a.id)! - steps.get(b.id)! || (a.id < b.id ? -1 : 1));
+    const rows = [...REGION_COMBOS[reg]].sort((a, b) => a[0] - b[0]);
+    if (rows.length !== slots.length) throw new Error(`宝の数が合わない: ${reg} ${rows.length}/${slots.length}`);
+    const best = new Map<ComboId, number>();
+    slots.forEach((d, i) => {
+      const [, fx, name, max = 3] = rows[i];
+      const out = fx.map((e) => {
+        const prev = best.get(e.combo!) ?? 0;
+        let per = e.per;
+        if (per * max <= prev) per = Math.ceil((prev * 1.15 / max) * 1000) / 1000;
+        best.set(e.combo!, per * max);
+        return C(e.combo!, per);
+      });
+      d.kind = "combo";
+      d.cell = { fx: out, max, cost: COMBO_COST };
+      d.name = name;
+    });
+  }
+
+  // 名前（はじめの一歩から近い順。同じステータスが何度も出るときは「・二」などをつける）
+  const list = [...drafts.values()].sort((a, b) => steps.get(a.id)! - steps.get(b.id)!);
+  const seen = new Map<string, number>();
+  const nodes: SkillNode[] = list.map((d) => {
+    let name = d.name;
+    if (!name) {
+      const st = d.cell.fx[0].stat!;
+      const n = seen.get(st) ?? 0;
+      seen.set(st, n + 1);
+      const names = STAT_NAMES[st];
+      const round = Math.floor(n / names.length);
+      name = names[n % names.length] + (round > 0 ? `・${KANJI[Math.min(KANJI.length - 1, round)]}` : "");
+    }
+    const node: SkillNode = {
+      id: d.id, name, desc: "", region: d.region, kind: d.kind, ring: d.ring, tier: d.tier, maxLevel: d.cell.max,
+      links: d.links, minCharLevel: d.minCharLevel, baseCost: d.cell.cost ?? defaultCost(d.cell.max), effects: d.cell.fx,
+      combo: d.kind === "combo", gate: d.kind === "gate", pos: d.pos, steps: steps.get(d.id) ?? -1,
+    };
+    node.desc = effectText(node) + (node.maxLevel > 1 ? "（1レベルごと）" : "");
+    return node;
+  });
   return nodes;
 }
 
-/** 家族みんなで1つのスキルツリー。 */
-export const SKILL_TREE: SkillNode[] = buildTree();
+/** 家族みんなで1つのスキル盤（はじめの一歩から近い順）。 */
+export const SKILL_TREE: SkillNode[] = buildBoard();
 
 export const SKILL_MAP: Record<string, SkillNode> = Object.fromEntries(SKILL_TREE.map((n) => [n.id, n]));
 
-/** その猫（メインのわざの役割）に効くノードか。 */
-export function nodeAppliesTo(node: SkillNode, role: CharRole): boolean {
-  return !node.role || node.role === role;
-}
+/** 盤の線（つながり）。1本につき1つ（[a, b]）。 */
+export const SKILL_LINKS: [string, string][] = (() => {
+  const out: [string, string][] = [];
+  for (const n of SKILL_TREE) for (const m of n.links) if (n.id < m) out.push([n.id, m]);
+  return out;
+})();
 
-/** ツリーの大きさ（画面のスクロール用。マスの数）。 */
-export const SKILL_TREE_SIZE = { w: SKILL_BRANCHES.length * 3, h: 1 + ROWS_PER_TIER * TIERS };
+/** 盤の大きさ（ノードの位置のはし）。 */
+export const SKILL_BOARD = {
+  minX: Math.min(...SKILL_TREE.map((n) => n.pos.x)),
+  maxX: Math.max(...SKILL_TREE.map((n) => n.pos.x)),
+  minY: Math.min(...SKILL_TREE.map((n) => n.pos.y)),
+  maxY: Math.max(...SKILL_TREE.map((n) => n.pos.y)),
+};
+
 // ---- 補正のまとめ ----
 
 /** スキル（と、わざ）で猫（とオブジェクト）にかかる補正。Mul は掛け算（1 から）、それ以外は足し算（0 から）。 */

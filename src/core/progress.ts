@@ -5,7 +5,7 @@ import { type Rng, pickWeighted, randInt } from "./rng";
 import { type CatSave, type SaveData, MAX_CATS, MAX_LOADOUT, PARTY_SIZE, ROLES, newCatSave } from "./save";
 import { BOND_STAT_PER, CAT_LOOKS, CHARS, CHAR_MAP, MAX_BOND, MAX_CAT_NAME, bondToNext } from "../data/chars";
 import {
-  SKILL_MAP, SKILL_TREE, nodeAppliesTo, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
+  SKILL_MAP, SKILL_TREE, type CharMods, type SkillNode, type SkillTotals, addEffects, addNodeTotals, emptyTotals,
   modsFromTotals, nodeCost, nodeTotalCost,
 } from "../data/skills";
 import {
@@ -288,11 +288,11 @@ export function partyRoles(save: SaveData): CharRole[] {
   return out;
 }
 
-// ================= スキルツリー（家族みんなで1つ） =================
+// ================= スキル盤（家族みんなで1つ） =================
 
 export { nodeCost, nodeTotalCost };
 
-/** スキルツリー（みんなの枝 ＋ 役割の枝）。 */
+/** スキル盤（家族みんなで1つ。はじめの一歩から近い順）。 */
 export function skillTree(): SkillNode[] {
   return SKILL_TREE;
 }
@@ -310,16 +310,23 @@ export function nextNodeCost(save: SaveData, nodeId: string): number | null {
   return lv >= node.maxLevel ? null : nodeCost(node, lv);
 }
 
-/** 前提・家族のレベルだけを見る（ちゅ〜るは見ない）。ツリーで「開いている」ノードを光らせる用。 */
+/** 盤で、となりにつながったノードのどれかを Lv1 以上にしているか（はじめの一歩は、いつでも）。 */
+export function isNodeLinked(save: SaveData, nodeId: string): boolean {
+  const node = SKILL_MAP[nodeId];
+  if (!node) return false;
+  return node.kind === "root" || nodeLevel(save, nodeId) > 0 || node.links.some((id) => nodeLevel(save, id) > 0);
+}
+
+/** つながり・家族のレベル（ねこドア）だけを見る（ちゅ〜るは見ない）。盤で「開いている」ノードを光らせる用。 */
 export function isNodeOpen(save: SaveData, nodeId: string): Result {
   const node = SKILL_MAP[nodeId];
   if (!node) return ng("このスキルはありません");
   if (nodeLevel(save, nodeId) >= node.maxLevel) return ng("もう最大レベルです");
-  const miss = node.req.filter((r) => nodeLevel(save, r.id) < r.lv);
-  if (miss.length) {
-    return ng(`先に${miss.map((r) => `「${SKILL_MAP[r.id]?.name ?? r.id}」を Lv${r.lv}`).join("・")}まで上げてね`);
+  if (!isNodeLinked(save, nodeId)) {
+    const names = [...node.links].sort((a, b) => SKILL_MAP[a].steps - SKILL_MAP[b].steps).map((id) => `「${SKILL_MAP[id].name}」`);
+    return ng(`先に、線でつながった${names.slice(0, 2).join("か")}${names.length > 2 ? "など" : ""}を覚えてね`);
   }
-  if (familyLevel(save) < node.minCharLevel) return ng(`家族のだれかのレベルが ${node.minCharLevel} になったら覚えられます`);
+  if (familyLevel(save) < node.minCharLevel) return ng(`ねこドア: 家族のだれかのレベルが ${node.minCharLevel} になったら開けられます`);
   return ok(undefined);
 }
 
@@ -360,26 +367,24 @@ export function resetSkills(save: SaveData): number {
 }
 
 /** スキルの合計の覚え書き（skills の中身が同じなら、計算しなおさない）。 */
-const skillCache = new WeakMap<Record<string, number>, Map<CharRole, { sig: string; t: SkillTotals }>>();
+const skillCache = new WeakMap<Record<string, number>, { sig: string; t: SkillTotals }>();
 
-/** その役割の猫に効くノード（みんなの枝 ＋ その役割の枝）を合計に足す。 */
-function addSkillTotals(t: SkillTotals, save: SaveData, role: CharRole): void {
+/** 盤で取ったノード（どの猫にも効く）を合計に足す。 */
+function addSkillTotals(t: SkillTotals, save: SaveData): void {
   const sk = save.skills;
   // 中身のしるし（ノードの数・レベルの合計・重みつきの合計）
   let n = 0, sum = 0, w = 0;
   for (const id in sk) { const lv = sk[id]; n++; sum += lv; w += lv * (id.length + id.charCodeAt(id.length - 1)) * n; }
   const sig = `${n}/${sum}/${w}`;
-  let byRole = skillCache.get(sk);
-  if (!byRole) { byRole = new Map(); skillCache.set(sk, byRole); }
-  let hit = byRole.get(role);
+  let hit = skillCache.get(sk);
   if (!hit || hit.sig !== sig) {
     const st = emptyTotals();
     for (const id in sk) {
       const node = SKILL_MAP[id];
-      if (node && nodeAppliesTo(node, role)) addNodeTotals(st, node, sk[id]);
+      if (node) addNodeTotals(st, node, sk[id]);
     }
     hit = { sig, t: st };
-    byRole.set(role, hit);
+    skillCache.set(sk, hit);
   }
   for (const key in hit.t) {
     if (key === "combos") {
@@ -388,19 +393,19 @@ function addSkillTotals(t: SkillTotals, save: SaveData, role: CharRole): void {
   }
 }
 
-/** その役割の猫にかかる、スキルツリーだけの補正。 */
-export function skillMods(save: SaveData, role: CharRole): CharMods {
+/** スキル盤だけの補正（どの猫も同じ）。 */
+export function skillMods(save: SaveData): CharMods {
   const t = emptyTotals();
-  addSkillTotals(t, save, role);
+  addSkillTotals(t, save);
   return modsFromTotals(t);
 }
 
-/** その猫にかかる合計（スキルツリーのみんなの枝と役割の枝・メインのわざ・サブのわざ）。 */
+/** その猫にかかる合計（スキル盤・メインのわざ・サブのわざ）。 */
 export function catTotals(save: SaveData, uid: string): SkillTotals {
   const t = emptyTotals();
   const c = save.cats[uid];
   const main = mainWazaOf(save, uid);
-  addSkillTotals(t, save, main.role!);
+  addSkillTotals(t, save);
   addEffects(t, main.effects, wazaLevelMul(save.wazas[main.id]?.level ?? 1));
   for (const sid of c?.waza.subs ?? []) {
     const s = WAZA_MAP[sid];
