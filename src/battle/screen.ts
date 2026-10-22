@@ -345,6 +345,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   const popPerks = el("div", "bt-pop-perks", pop);
   const popBtn = el("button", "bt-pop-up", pop);
   popBtn.type = "button";
+  // どける（カリカリは戻らない。どけるたびに高くなる）
+  const rmBtn = el("button", "bt-pop-rm", pop);
+  rmBtn.type = "button";
   const popLast = { key: "" };
   function openPop(o: ObjState): void {
     popObj = o;
@@ -380,7 +383,8 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (o.hp <= 0) { closePop(); return; }
     const chk = battle.upgradeCheck(o);
     const d = o.def;
-    const key = `${o.level}|${chk.ok}|${fmt(o.upgradeCost)}|${fmt(o.atk)}|${fmt(Math.ceil(o.hp))}`;
+    const rm = battle.removeCheck(o);
+    const key = `${o.level}|${chk.ok}|${fmt(o.upgradeCost)}|${fmt(o.atk)}|${fmt(Math.ceil(o.hp))}|${rm.ok}|${rm.cost}`;
     if (key === popLast.key) return;
     popLast.key = key;
     popTitle.textContent = `${d.name}  Lv${o.level + 1}`;
@@ -403,6 +407,12 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     el("span", "", c, fmt(o.upgradeCost));
     popBtn.classList.toggle("disabled", !chk.ok);
     popBtn.setAttribute("aria-disabled", String(!chk.ok));
+    rmBtn.replaceChildren();
+    el("span", "bt-pop-up-t", rmBtn, "どける");
+    const rc = el("span", "bt-pop-up-c", rmBtn);
+    paintIcon(iconCanvas("bt-mini-kibble", rc, 14), getSprite("pickup", "kibble"));
+    el("span", "", rc, fmt(rm.cost ?? 0));
+    rmBtn.classList.toggle("disabled", !rm.ok);
   }
   pop.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
   popClose.addEventListener("click", () => closePop());
@@ -412,6 +422,14 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (!r.ok) { showToast(r.reason ?? "強化できません"); bump(popBtn, "shake"); return; }
     bump(popBtn, "press");
     updatePop();
+  });
+
+  rmBtn.addEventListener("click", () => {
+    if (!popObj || paused || endShown) return;
+    const r = battle.remove(popObj);
+    if (!r.ok) { showToast(r.reason ?? "どけられません"); bump(rmBtn, "shake"); return; }
+    showToast(`どけた（次は ${fmt(battle.removeCost(r.obj!))} カリカリ）`);
+    closePop();
   });
 
   // ---- 入力: 盤面（スティック・置く・タップ） ----

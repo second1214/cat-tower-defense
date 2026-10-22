@@ -526,3 +526,7 @@
 .bt-special.ready { opacity: 1; animation: bt-spec-glow 0.9s ease-in-out infinite alternate; }
 @keyframes bt-spec-glow { from { box-shadow: 0 3px 0 var(--bt-ink), 0 0 0 0 rgba(255,216,74,.9); } to { box-shadow: 0 3px 0 var(--bt-ink), 0 0 16px 6px rgba(255,216,74,.9); } }
 .bt-special[hidden] { display: none; }
+
+/* どけるボタン（強化の下。少し控えめ） */
+.bt-pop-rm { display: flex; width: 100%; margin-top: 6px; justify-content: space-between; align-items: center; padding: 4px 10px; border: 2px solid var(--bt-ink); border-radius: 10px; background: #f3e6dc; font-weight: 900; font-size: 13px; cursor: pointer; }
+.bt-pop-rm.disabled { opacity: .5; }

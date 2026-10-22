@@ -34,6 +34,8 @@ export interface Ctx {
   confirm(msg: string, okLabel?: string, danger?: boolean): Promise<boolean>;
   goTab(tab: Tab, sub?: GrowSub): void;
   play(stageId: string): void;
+  /** エンドレスを始める。 */
+  playEndless(): void;
 }
 
 export interface ModalOpts {

@@ -157,6 +157,8 @@ export interface BugDef {
 /** ステージの1つの波。 */
 export interface WaveDef {
   at: number;                      // 開始からの秒数
+  hpMul?: number;                  // この波の虫の体力に、さらに掛ける倍率（エンドレスで波ごとに強くする）。なければ 1
+  atkMul?: number;                 // この波の虫の攻撃に、さらに掛ける倍率。なければ 1
   bugs: { bug: string; count: number; every: number; lanes?: number[] }[];   // every: 何秒おきに出すか。lanes: 出てくる上の端の列（なければ、ばらばら）
 }
 
@@ -194,6 +196,8 @@ export interface StageDef {
   wall?: 0 | 1 | 2;
   /** 部屋のようす（"living" "kitchen" "bedroom" "washitsu" "study" "bath" など）。床や家具のえらび方に使う。 */
   theme?: string;
+  /** エンドレス（波がいつまでも続く。ママがやられるまでに何波こえたかを競う）。 */
+  endless?: boolean;
 }
 
 /** ステージクリアでもらえるもの（目安。実際の抽選は core 側）。 */

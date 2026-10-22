@@ -428,3 +428,60 @@ function makeStage(g: number): StageDef {
 export const STAGES: StageDef[] = Array.from({ length: CHAPTERS * STAGES_PER_CHAPTER }, (_, g) => makeStage(g));
 
 export const STAGE_MAP: Record<string, StageDef> = Object.fromEntries(STAGES.map((s) => [s.id, s]));
+
+// ================= エンドレス =================
+
+/** エンドレスで、1つ波が進むごとに虫の体力に掛ける倍率。 */
+export const ENDLESS_HP_GROWTH = 1.2;
+/** エンドレスで、1つ波が進むごとに虫の攻撃に掛ける倍率。 */
+export const ENDLESS_ATK_GROWTH = 1.12;
+/** 1回のエンドレスで用意する波の数（ふつうは、その前にママがやられる）。 */
+export const ENDLESS_WAVES = 300;
+/** エンドレスの id。 */
+export const ENDLESS_ID = "endless";
+
+/**
+ * エンドレスのステージ。波の番号 w（0 始まり・全員共通のものさし）で強さが決まる。start 番目の波から始める
+ * （自分の記録の少し手前から始められる。ランキングは「何番目の波までこえたか」）。10波ごとに、ぬし。
+ */
+export function makeEndlessStage(start = 0): StageDef {
+  const rng = mulberry32(777 + start * 31);
+  const waves: WaveDef[] = [];
+  let t = 3;
+  for (let k = 0; k < ENDLESS_WAVES; k++) {
+    const w = start + k;
+    const g = Math.min(CHAPTERS * STAGES_PER_CHAPTER - 1, w);   // 出てくる虫の種類（ステージの通し番号と同じ）
+    const pool = BUGS.filter((b) => !b.boss && b.from <= g);
+    const groups = Math.min(3, 1 + Math.floor(w / 15));
+    const bugs: WaveDef["bugs"] = [];
+    for (let j = 0; j < groups; j++) {
+      const b = pick(rng, pool);
+      const pack = Math.max(1, b.pack ?? 1);
+      const count = Math.max(3, Math.round((8 + Math.min(20, w * 0.25)) * Math.pow(2 / b.hp, 0.5) / pack));
+      bugs.push({ bug: b.id, count, every: pack > 1 ? 1.4 : 0.8, lanes: pickLanes(rng, Math.min(4, 1 + Math.floor(w / 20))) });
+    }
+    if (w % 10 === 9) {
+      const ch = Math.min(CHAPTERS, 1 + Math.floor(w / 10));
+      bugs.push({ bug: bossIdOf(ch), count: 1, every: 1, lanes: [MAMA_COL, MAMA_COL + 1] });
+    }
+    waves.push({ at: t, bugs, hpMul: Math.pow(ENDLESS_HP_GROWTH, w), atkMul: Math.pow(ENDLESS_ATK_GROWTH, w) });
+    const longest = Math.max(...bugs.map((x) => x.count * x.every));
+    t += Math.max(10, Math.round(longest * 0.8));
+  }
+  return {
+    id: ENDLESS_ID,
+    chapter: 0,
+    index: start,
+    name: "エンドレス",
+    hpMul: 1,
+    atkMul: 1,
+    waves,
+    obstacles: makeObstacles(12, 2, 0, CHAPTER_THEMES[0], "living", mulberry32(9090)),
+    startKibble: 60 + start * 15,
+    kibblePerSec: 0,
+    rewards: { exp: 0, coins: 0, relicPoints: 0, churu: 0, equipDrops: 0, objectDrops: 0 },
+    wall: 0,
+    theme: "living",
+    endless: true,
+  };
+}

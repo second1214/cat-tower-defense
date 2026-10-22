@@ -1624,3 +1624,24 @@ button.card:active { transform: translateY(2px); }
 .pr-grid:not(.pr-one) .pr-glow { top: 40px !important; }
 .tab-gacha .btn-gray { color: #fff; }
 .modal-pull .btn-gray { color: #fff; }
+
+/* メインのプレイ・エンドレス・ランキング */
+.mn-playrow { display: flex; gap: 8px; align-items: stretch; height: 58px; }
+.mn-playrow .btn-play { min-height: 0; height: 100%; }
+.mn-playrow .btn-play { flex: 1; min-width: 0; }
+.mn-modes { display: flex; flex-direction: column; gap: 4px; width: 96px; flex: none; }
+.mn-mode { flex: 1; min-height: 0; padding: 0 4px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.mn-mode b { font-size: 12px; }
+.mn-mode small { font-size: 9px; opacity: .8; }
+.mn-mode.is-off { opacity: .5; }
+/* ランキング */
+.rk-me { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,.08); margin-bottom: 8px; }
+.rk-me b { font-size: 22px; color: #ffd84a; }
+.rk-edit { display: flex; gap: 6px; margin-bottom: 10px; }
+.rk-name { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 10px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: inherit; font: inherit; }
+.rk-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.rk-row { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.rk-rank { width: 28px; text-align: center; font-weight: 900; }
+.rk-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-s { font-weight: 900; }
+.rk-row.top1 .rk-rank { color: #ffd84a; } .rk-row.top2 .rk-rank { color: #d8e0ea; } .rk-row.top3 .rk-rank { color: #e0a070; }

@@ -252,6 +252,10 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** どけるときの、いちばん安いカリカリ。 */
+export const REMOVE_MIN_COST = 10;
+/** どけるたびに、次にどけるカリカリに掛ける倍率。 */
+export const REMOVE_COST_GROWTH = 2;
 /** ぬしの1回のかじりは、少なくともオブジェクトの最大体力のこの割合。強化しすぎた壁でも、いつかはこわれる。 */
 export const CHEW_MIN_FRAC = 0.06;
 
@@ -906,6 +910,36 @@ export class Battle {
     return { ok: true, cost: chk.cost, obj: o };
   }
 
+  /** 置いたオブジェクトをどけるのにかかるカリカリ（どけるたびに REMOVE_COST_GROWTH 倍。置きなおして迷路を何度も作りなおせないように）。 */
+  removeCost(o: ObjState): number {
+    return Math.ceil(Math.max(REMOVE_MIN_COST, o.def.cost * 0.5) * Math.pow(REMOVE_COST_GROWTH, this.removals));
+  }
+
+  /** 置いたオブジェクトをどけられるか。 */
+  removeCheck(o: ObjState | null | undefined): UpgradeCheck {
+    if (this.s.result) return { ok: false, reason: "戦闘は終わりました" };
+    if (!o || o.hp <= 0) return { ok: false, reason: "オブジェクトがありません" };
+    const cost = this.removeCost(o);
+    if (this.s.kibble < cost) return { ok: false, reason: "カリカリが足りません", cost, obj: o };
+    return { ok: true, cost, obj: o };
+  }
+
+  /** 置いたオブジェクトをどける（カリカリは戻らない）。 */
+  remove(target: ObjState | number): UpgradeCheck {
+    const o = typeof target === "number" ? this.objectByUid(target) : target;
+    const chk = this.removeCheck(o);
+    if (!chk.ok || !o) return chk;
+    this.s.kibble -= chk.cost!;
+    this.removals++;
+    this.removeObject(o, false);
+    this.emit("push", o.cx, o.cy, 0);
+    return chk;
+  }
+
+  /** この戦闘でどけた回数。 */
+  private removals = 0;
+  get removeCount(): number { return this.removals; }
+
   // ---- 進める ----
   step(dt: number, input: BattleInput): void {
     const s = this.s;
@@ -1172,7 +1206,7 @@ export class Battle {
 
   private spawnBug(def: BugDef, sp: { col: number; row: number; side: -1 | 0 | 1 }, wave: number, back = 0): void {
     const st = this.loadout.stage;
-    const hp = def.hp * st.hpMul;
+    const hp = def.hp * st.hpMul * (st.waves[wave]?.hpMul ?? 1);
     const offX = (this.rng() * 2 - 1) * BUG_SPREAD;
     const offY = (this.rng() * 2 - 1) * BUG_SPREAD;
     // back: 同じマスに重なるときは、少しうしろ（外側）から出す
@@ -1187,7 +1221,7 @@ export class Battle {
       y,
       hp,
       maxHp: hp,
-      atk: def.atk * st.atkMul,
+      atk: def.atk * st.atkMul * (st.waves[wave]?.atkMul ?? 1),
       speed: def.speed,
       slowMul: 1,
       slowTimer: 0,
