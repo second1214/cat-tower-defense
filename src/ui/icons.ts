@@ -235,16 +235,16 @@ export const ICONS = {
   shard: S(`<path d="M20 8 L44 14 L54 38 L34 58 L12 40 Z" fill="#7fd4ff" stroke="#1f5a8a" stroke-width="3.5"/><path d="M20 8 L30 34 L54 38 M30 34 L12 40 M30 34 L34 58" stroke="#1f5a8a" stroke-width="2" opacity=".6"/>`),
   equipBox: S(`<rect x="8" y="22" width="48" height="34" rx="5" fill="#ff9f43" stroke="#7a3d00" stroke-width="3.5"/><path d="M4 16 H60 V26 H4 Z" fill="#ffc46b" stroke="#7a3d00" stroke-width="3.5"/><path d="M32 16 V56" stroke="#ff4d6d" stroke-width="6"/>`),
   kibble: S(`<path d="M10 32 Q24 14 44 26 L56 18 L54 46 L44 38 Q24 50 10 32 Z" fill="#c98a4b" stroke="#5a3210" stroke-width="3.5"/><circle cx="20" cy="30" r="3" fill="#5a3210"/>`),
-  lock: S(`<rect x="12" y="28" width="40" height="30" rx="6" fill="#8e86b8" stroke="#2b2350" stroke-width="3.5"/><path d="M20 28 V20 Q20 8 32 8 Q44 8 44 20 V28" stroke="#2b2350" stroke-width="5"/><circle cx="32" cy="42" r="4" fill="#2b2350"/>`),
-  gear: S(`<path d="M28 4 h8 l2 8 l6 3 l7 -4 l6 6 l-4 7 l3 6 l8 2 v8 l-8 2 l-3 6 l4 7 l-6 6 l-7 -4 l-6 3 l-2 8 h-8 l-2 -8 l-6 -3 l-7 4 l-6 -6 l4 -7 l-3 -6 l-8 -2 v-8 l8 -2 l3 -6 l-4 -7 l6 -6 l7 4 l6 -3 Z" fill="#c9c3ef" stroke="#2b2350" stroke-width="3"/><circle cx="32" cy="32" r="9" fill="#2b2350"/>`),
+  lock: S(`<rect x="12" y="28" width="40" height="30" rx="6" fill="#cdb596" stroke="#4a3121" stroke-width="3.5"/><path d="M20 28 V20 Q20 8 32 8 Q44 8 44 20 V28" stroke="#4a3121" stroke-width="5"/><circle cx="32" cy="42" r="4" fill="#4a3121"/>`),
+  gear: S(`<path d="M28 4 h8 l2 8 l6 3 l7 -4 l6 6 l-4 7 l3 6 l8 2 v8 l-8 2 l-3 6 l4 7 l-6 6 l-7 -4 l-6 3 l-2 8 h-8 l-2 -8 l-6 -3 l-7 4 l-6 -6 l4 -7 l-3 -6 l-8 -2 v-8 l8 -2 l3 -6 l-4 -7 l6 -6 l7 4 l6 -3 Z" fill="#ecd6b4" stroke="#4a3121" stroke-width="3"/><circle cx="32" cy="32" r="9" fill="#4a3121"/>`),
   check: S(`<path d="M12 34 L26 48 L52 18" stroke="currentColor" stroke-width="9"/>`),
   close: S(`<path d="M16 16 L48 48 M48 16 L16 48" stroke="currentColor" stroke-width="8"/>`),
-  left: S(`<path d="M42 8 L16 32 L42 56 Z" fill="currentColor" stroke="#1a1238" stroke-width="4"/>`),
-  right: S(`<path d="M22 8 L48 32 L22 56 Z" fill="currentColor" stroke="#1a1238" stroke-width="4"/>`),
+  left: S(`<path d="M42 8 L16 32 L42 56 Z" fill="currentColor" stroke="#4a3121" stroke-width="4"/>`),
+  right: S(`<path d="M22 8 L48 32 L22 56 Z" fill="currentColor" stroke="#4a3121" stroke-width="4"/>`),
   paw: S(`<ellipse cx="32" cy="42" rx="13" ry="11" fill="currentColor"/><ellipse cx="15" cy="28" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="25" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="39" cy="16" rx="6" ry="7.5" fill="currentColor"/><ellipse cx="49" cy="28" rx="6" ry="7.5" fill="currentColor"/>`),
-  shield: S(`<path d="M32 6 L54 14 V32 Q54 50 32 58 Q10 50 10 32 V14 Z" fill="currentColor"/><path d="M32 16 V48 M20 28 H44" stroke="#1a1238" stroke-width="4" opacity=".35"/>`),
+  shield: S(`<path d="M32 6 L54 14 V32 Q54 50 32 58 Q10 50 10 32 V14 Z" fill="currentColor"/><path d="M32 16 V48 M20 28 H44" stroke="#4a3121" stroke-width="4" opacity=".35"/>`),
   sparkle: S(`<path d="M32 4 L37 26 L60 32 L37 38 L32 60 L27 38 L4 32 L27 26 Z" fill="currentColor"/><circle cx="52" cy="12" r="4" fill="currentColor"/>`),
-  toybox: S(`<rect x="8" y="26" width="48" height="30" rx="5" fill="currentColor"/><path d="M4 18 H60 V28 H4 Z" fill="currentColor"/><circle cx="24" cy="12" r="7" fill="currentColor"/><path d="M38 6 l10 10 M48 6 l-10 10" stroke="currentColor" stroke-width="5"/><path d="M8 34 H56" stroke="#1a1238" stroke-width="3" opacity=".35"/>`),
+  toybox: S(`<rect x="8" y="26" width="48" height="30" rx="5" fill="currentColor"/><path d="M4 18 H60 V28 H4 Z" fill="currentColor"/><circle cx="24" cy="12" r="7" fill="currentColor"/><path d="M38 6 l10 10 M48 6 l-10 10" stroke="currentColor" stroke-width="5"/><path d="M8 34 H56" stroke="#4a3121" stroke-width="3" opacity=".35"/>`),
   churu: S(`<g transform="rotate(-35 32 32)"><rect x="22" y="2" width="20" height="60" rx="6" fill="#ff9ec4" stroke="#7a2350" stroke-width="3.5"/>
     <path d="M22 10 h20" stroke="#7a2350" stroke-width="2.5"/><path d="M24 4 l3 3 3 -3 3 3 3 -3 3 3" stroke="#7a2350" stroke-width="1.8"/>
     <rect x="25" y="22" width="14" height="24" rx="4" fill="#fff6ea"/>
@@ -315,7 +315,7 @@ export const COMBO_ICON = S(`<path d="M32 3 L39 22 L60 24 L44 37 L49 58 L32 47 L
 export const STAR_ICON = S(`<path d="M32 5 L40 24 L60 25 L44 38 L50 58 L32 47 L14 58 L20 38 L4 25 L24 24 Z" fill="currentColor"/>`);
 
 /** えんぴつ（なまえを変える）。 */
-export const PEN_ICON = S(`<path d="M12 52 L16 38 L44 10 L54 20 L26 48 Z" fill="currentColor"/><path d="M12 52 L16 38 L26 48 Z" fill="#ffe0a8"/><path d="M40 14 L50 24" stroke="#1a1238" stroke-width="3" opacity=".4"/>`);
+export const PEN_ICON = S(`<path d="M12 52 L16 38 L44 10 L54 20 L26 48 Z" fill="currentColor"/><path d="M12 52 L16 38 L26 48 Z" fill="#ffe0a8"/><path d="M40 14 L50 24" stroke="#4a3121" stroke-width="3" opacity=".4"/>`);
 
 /** たす（＋）。 */
 export const PLUS_ICON = S(`<path d="M32 12 V52 M12 32 H52" stroke="currentColor" stroke-width="9"/>`);
