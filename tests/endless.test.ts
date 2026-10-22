@@ -72,3 +72,19 @@ describe("エンドレスの EX", () => {
     expect(ENDLESS_REWARDS.length).toBeGreaterThanOrEqual(8);
   });
 });
+
+describe("エンドレスの波", () => {
+  test("前の波の虫を全部たおすまで、次の波は始まらない", () => {
+    const b = new Battle(buildEndlessLoadout(newSave()), 3);
+    const inp = { move: { x: 0, y: 0 }, place: null, upgrade: false };
+    let starts = 0;
+    for (let i = 0; i < 3000 && !b.result; i++) {
+      const w0 = b.waveIndex;
+      const prevAlive = b.bugs.some((g) => g.alive && g.wave === w0 - 1);
+      b.step(0.1, inp);
+      // 新しい波が始まったなら、その直前に前の波の虫は残っていない
+      if (b.waveIndex > w0) { starts++; if (w0 > 0) expect(prevAlive).toBe(false); }
+    }
+    expect(starts).toBeGreaterThan(1);
+  });
+});
