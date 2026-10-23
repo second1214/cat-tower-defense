@@ -44,6 +44,8 @@ export interface ObjectDef {
   base: ObjectBase;
   /** レベルで解放される特殊効果（レベルの小さい順）。 */
   perks: ObjectPerk[];
+  /** 攻撃に掛けるならし（同じレベルなら、レアリティが高いほど強くなるように。N 1・R 1.5・SR 2.2・SSR 3.2・EX 4.5 倍くらい。おそくする物はその半分）。なければ 1。 */
+  power?: number;
 }
 
 export const KIND_NAMES: Record<ObjectKind, string> = {
@@ -141,6 +143,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "mizudeppo", name: "水鉄砲", kind: "shooter", rarity: "R", unlockStage: 2,
+    power: 1.89,
     desc: "ぴゅっぴゅっと連射。水の勢いで虫をおしもどす。猫はちょっと苦手。",
     base: B("shooter", { cost: 25, maxHp: 10, atk: 1.2, interval: 0.5, range: 3.5 }),
     perks: [
@@ -156,6 +159,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "tape", name: "粘着テープ", kind: "slow", rarity: "R", unlockStage: 4,
+    power: 5.56,
     desc: "床にはったテープ。ぺたぺたで虫がのろのろ。上は通れる。",
     base: B("slow", { cost: 12, maxHp: 25, atk: 0.5, interval: 1, range: 0.6, slow: 0.5 }),
     perks: [
@@ -171,6 +175,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "shitajiki", name: "静電気の下敷き", kind: "zap", rarity: "R", unlockStage: 5,
+    power: 2.09,
     desc: "髪の毛でこすった下敷き。ぱちっ！近くの虫から虫へ、静電気が飛びうつる。",
     base: B("zap", { cost: 35, maxHp: 10, atk: 2, interval: 1.4, range: 3, chain: 2, chainRange: 1.8 }),
     perks: [
@@ -186,6 +191,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "nezumitori", name: "ねずみ捕り", kind: "mine", rarity: "R", unlockStage: 7,
+    power: 1.25,
     desc: "ふんだ虫をばちん。1回きり。",
     base: B("mine", { cost: 20, maxHp: 1, atk: 15, interval: 1, range: 0.6 }),
     perks: [
@@ -201,6 +207,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "soujiki", name: "掃除機", kind: "aoe", rarity: "SR", unlockStage: 10,
+    power: 2.89,
     desc: "まわりの虫をまとめてすいこむ。音で猫がにげる。",
     base: B("aoe", { cost: 60, maxHp: 35, atk: 3, interval: 2, range: 2.2, w: 2, h: 2 }),
     perks: [
@@ -216,6 +223,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "katorisenko", name: "蚊取り線香", kind: "poison", rarity: "R", unlockStage: 13,
+    power: 1.72,
     desc: "うずまきのけむりで、まわりの虫に毒がじわじわ。夏のにおい。",
     base: B("poison", { cost: 35, maxHp: 12, atk: 0.6, interval: 1.5, range: 2.2, poison: 1 }),
     perks: [
@@ -243,6 +251,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "kirifuki", name: "霧吹き", kind: "slow", rarity: "SR", unlockStage: 18,
+    power: 2.52,
     desc: "しゅっしゅっ。まわりの虫をしっとり遅くする。",
     base: B("slow", { cost: 35, maxHp: 20, atk: 1, interval: 1.2, range: 2, slow: 0.4, block: true }),
     perks: [
@@ -270,6 +279,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "moufu", name: "フリース毛布", kind: "zap", rarity: "SR", unlockStage: 28,
+    power: 1.7,
     desc: "床に広げた毛布。上を通る虫にぱちぱち静電気。上は通れる。",
     base: B("zap", {
       cost: 60, maxHp: 30, atk: 3, interval: 1.6, range: 2.5, chain: 4, chainRange: 1.5, w: 2, h: 2, block: false,
@@ -287,6 +297,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "senpuki", name: "扇風機", kind: "shooter", rarity: "SSR", unlockStage: 32,
+    power: 0.74,
     desc: "強い風で、虫をまとめてふきとばす。",
     base: B("shooter", { cost: 70, maxHp: 25, atk: 4, interval: 0.6, range: 4.5, pierce: 1, knockback: 0.3, w: 2, h: 2 }),
     perks: [
@@ -302,6 +313,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "spray", name: "防虫スプレー", kind: "poison", rarity: "SSR", unlockStage: 38,
+    power: 0.43,
     desc: "しゅーっ。ママの必需品。かかった虫から、まわりの虫へ毒がうつる。",
     base: B("poison", { cost: 55, maxHp: 15, atk: 2, interval: 1.2, range: 3, poison: 1.5, poisonSpread: 1 }),
     perks: [
@@ -317,6 +329,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "surippa", name: "ママのスリッパ", kind: "aoe", rarity: "SSR", unlockStage: 42,
+    power: 1.22,
     desc: "ママの最終兵器。左右そろってぱしーん！",
     base: B("aoe", { cost: 80, maxHp: 30, atk: 14, interval: 2.5, range: 1.8, crit: 0.1, critMul: 2, w: 2, h: 1 }),
     perks: [
@@ -348,6 +361,7 @@ export const OBJECTS: ObjectDef[] = [
   // ======== エンドレスでだけ手に入る（EX）。unlockStage はストーリーでは来ない数 ========
   {
     id: "laser", name: "レーザーポインター", kind: "shooter", rarity: "EX", unlockStage: EX_ONLY,
+    power: 0.36,
     desc: "赤い点がビュンビュン走る。光は虫をまっすぐつらぬく。",
     base: B("shooter", { cost: 45, maxHp: 14, atk: 2.2, interval: 0.3, range: 6, pierce: 4 }),
     perks: [
@@ -363,6 +377,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "hotcarpet", name: "ホットカーペット", kind: "poison", rarity: "EX", unlockStage: EX_ONLY,
+    power: 0.76,
     desc: "上を通る虫はぽかぽか…じわじわ。倒れた虫から熱がうつる。虫は上を通れる。",
     base: B("poison", { cost: 40, maxHp: 60, atk: 1.6, interval: 0.8, range: 1.2, poison: 0.8, poisonSpread: 1.2, slow: 0.8, block: false, w: 2, h: 2 }),
     perks: [
@@ -378,6 +393,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "robot", name: "お掃除ロボ", kind: "aoe", rarity: "EX", unlockStage: EX_ONLY,
+    power: 1.69,
     desc: "ウィーン。まわりの虫をまとめて吸いこみ、はじきとばす。",
     base: B("aoe", { cost: 60, maxHp: 45, atk: 4, interval: 1.1, range: 2.2, knockback: 0.5, w: 2, h: 2 }),
     perks: [
@@ -393,6 +409,7 @@ export const OBJECTS: ObjectDef[] = [
   },
   {
     id: "seijouki", name: "空気清浄機", kind: "zap", rarity: "EX", unlockStage: EX_ONLY,
+    power: 0.69,
     desc: "プラズマでお部屋まるごときれいに。電気が虫から虫へどこまでも飛ぶ。",
     base: B("zap", { cost: 70, maxHp: 40, atk: 3.5, interval: 0.9, range: 3.5, chain: 6, chainRange: 2.4, w: 2, h: 2 }),
     perks: [
