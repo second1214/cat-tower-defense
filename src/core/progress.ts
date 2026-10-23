@@ -1379,7 +1379,8 @@ export const FIRST_CLEAR_CHURU_MUL = 2;
  * ステージに勝ったときに呼ぶ。報酬を抽選して save に入れ、クリアを記録する。
  * 経験値: パーティ（主人公・相棒）は全部、控えの猫は IDLE_EXP_RATE。なかよし度: パーティの猫に戦闘1回ぶん。
  */
-export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: Rng): RewardResult {
+/** laps: 何周ぶんか（連続周回）。bonus: 報酬に掛ける上乗せ。 */
+export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: Rng, laps = 1, bonus = 1): RewardResult {
   const stage = typeof stageOrId === "string" ? stageById(stageOrId) : stageOrId;
   if (!stage) throw new Error(`ステージがありません: ${String(stageOrId)}`);
   const g = stageIndexOf(stage.id);
@@ -1387,10 +1388,11 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   const rel = relicBonus(save);
   const rw = stage.rewards;
 
-  const exp = Math.round(rw.exp * (1 + rel.exp));
-  const coins = Math.round(rw.coins * (1 + rel.coins));
+  const m = Math.max(1, laps) * bonus;
+  const exp = Math.round(rw.exp * (1 + rel.exp) * m);
+  const coins = Math.round(rw.coins * (1 + rel.coins) * m);
   const relicPoints = firstClear ? rw.relicPoints : 0;
-  const churu = Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu));
+  const churu = Math.round(rw.churu * (firstClear ? FIRST_CLEAR_CHURU_MUL : 1) * (1 + rel.churu) * m);
 
   save.coins += coins;
   save.relicPoints += relicPoints;
@@ -1403,19 +1405,19 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
     const inParty = party.includes(uid);
     const ups = addExp(save, uid, inParty ? exp : Math.round(exp * IDLE_EXP_RATE));
     if (ups) levelUps[uid] = ups;
-    if (inParty && addBondExp(save, uid, 1)) bondUps[uid] = save.cats[uid].bond;
+    if (inParty && addBondExp(save, uid, Math.max(1, laps))) bondUps[uid] = save.cats[uid].bond;
   }
   const churuFromLevels = save.churu - churuBefore;
 
   // 装備
   const equips: EquipItem[] = [];
-  const nEq = rollCount(rw.equipDrops * (1 + rel.drop), rng);
+  const nEq = Math.min(60, rollCount(rw.equipDrops * (1 + rel.drop) * m, rng));
   for (let i = 0; i < nEq; i++) equips.push(addEquip(save, rng, rollDropRarity(g, rng)));
 
   // オブジェクトのかけら（持っているものから）
   const shardMap = new Map<string, number>();
   const owned = OBJECTS.filter((o) => save.objects[o.id]);
-  const nSh = rollCount(rw.objectDrops * (1 + rel.drop), rng);
+  const nSh = Math.min(200, rollCount(rw.objectDrops * (1 + rel.drop) * m, rng));
   const lvs = save.loadout.map((id) => save.objects[id]?.level ?? 1).sort((a, b) => a - b);
   const mid = lvs.length ? lvs[lvs.length >> 1] : 1;
   for (let i = 0; i < nSh && owned.length; i++) {
@@ -1429,7 +1431,7 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   for (const [id, cnt] of shardMap) save.objects[id].shards += cnt;
 
   // クリアの記録
-  save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + 1;
+  save.clearCounts[stage.id] = (save.clearCounts[stage.id] ?? 0) + Math.max(1, laps);
   if (firstClear) save.cleared = g;
   const { newObjects } = syncUnlocks(save);
 

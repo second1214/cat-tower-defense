@@ -13,6 +13,7 @@ import { ICONS, PLUS_ICON, objectSvg } from "./icons";
 import { rarityPill, roleTag } from "./parts";
 import { openCatDetail } from "./grow-char";
 import { openRanking } from "./ranking";
+import { LOOP_BONUS, MAX_LAPS } from "../data/stages";
 import { renderCafe, catIcon } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
@@ -96,7 +97,9 @@ export function renderMain(ctx: Ctx): HTMLElement {
       h("span", { class: "mn-pow-sp" }),
       !unlocked ? h("span", { class: "chip chip-lock" }, svgIcon(ICONS.lock), `${stageIdOf(g - 1)} をクリア`)
         : clears > 0 ? h("span", { class: "chip chip-ok" }, `クリア ${clears}回`)
-          : h("span", { class: "chip chip-new" }, "はじめて")),
+          : h("span", { class: "chip chip-new" }, "はじめて"),
+      // 連続周回（クリアしたステージだけ）
+      g <= save.cleared ? h("button", { class: "btn btn-small btn-green mn-loop", onclick: () => openLoop(ctx, id) }, "連続周回") : null),
   );
 
   // ---- 下: もちもの・プレイ ----
@@ -197,3 +200,26 @@ function openCatBubble(ctx: Ctx, uid: string): void {
 }
 
 const CAT_TALK = ["にゃ〜ん（なでて）", "ごはんまだかにゃ？", "ママはぼくが守るにゃ", "ねむいにゃ…", "窓の外、なにかいたにゃ！", "あそんでくれるの？"];
+
+
+/** 連続周回: 何周するかを決めて始める。 */
+function openLoop(ctx: Ctx, id: string): void {
+  let laps = Math.max(1, Math.min(MAX_LAPS, ctx.ui.loopLaps ?? 10));
+  const stage = STAGES[stageIndexOf(id)];
+  const m = ctx.modals.open({
+    title: `連続周回 ${id}`,
+    cls: "modal-small",
+    render: () => {
+      const input = h("input", { class: "lp-in", type: "number", min: "1", max: String(MAX_LAPS), value: String(laps), inputmode: "numeric", "aria-label": "周回数" }) as HTMLInputElement;
+      input.addEventListener("change", () => { laps = Math.max(1, Math.min(MAX_LAPS, Math.floor(Number(input.value) || 1))); ctx.modals.rerenderAll(); });
+      const step = (d: number) => h("button", { class: "btn btn-small", onclick: () => { laps = Math.max(1, Math.min(MAX_LAPS, laps + d)); ctx.modals.rerenderAll(); } }, d > 0 ? `+${d}` : String(d));
+      return h("div", { class: "lp" },
+        h("p", { class: "muted small" }, "ステージの波を、周の数だけつなげて続けて戦います。周ごとに虫が少しずつ強くなり、ママは1周ごとに少し回復します。報酬は、こえた周の数 × 1.2 倍。"),
+        h("div", { class: "lp-row" }, step(-10), step(-1), input, step(1), step(10)),
+        h("p", { class: "lp-sum" }, `${laps}周・なみ ${laps * stage.waves.length}・報酬 約 ×${(laps * LOOP_BONUS).toFixed(1)}`));
+    },
+    footer: () => h("div", { class: "row" },
+      h("button", { class: "btn", onclick: () => m.close() }, "やめる"),
+      h("button", { class: "btn btn-gold", onclick: () => { ctx.ui.loopLaps = laps; m.close(); ctx.playLoop(id, laps); } }, "はじめる")),
+  });
+}

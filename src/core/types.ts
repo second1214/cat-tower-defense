@@ -201,6 +201,8 @@ export interface StageDef {
   wall?: 0 | 1 | 2;
   /** 部屋のようす（"living" "kitchen" "bedroom" "washitsu" "study" "bath" など）。床や家具のえらび方に使う。 */
   theme?: string;
+  /** 連続周回: 1周の波の数・周の数・1周ごとにママが回復する量。 */
+  loop?: { lapWaves: number; laps: number; heal: number };
   /** エンドレス（波がいつまでも続く。ママがやられるまでに何波こえたかを競う）。 */
   endless?: boolean;
 }

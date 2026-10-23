@@ -15,6 +15,8 @@ export interface UiState {
   fuseMode: boolean;
   fuseSel: string[];
   equipFilter: EquipFilter;
+  /** 連続周回で前に選んだ周の数。 */
+  loopLaps?: number;
 }
 
 export interface Ctx {
@@ -34,6 +36,8 @@ export interface Ctx {
   play(stageId: string): void;
   /** エンドレスを始める。 */
   playEndless(): void;
+  /** 連続周回（クリアしたステージを laps 周つなげて）。 */
+  playLoop(stageId: string, laps: number): void;
 }
 
 export interface ModalOpts {

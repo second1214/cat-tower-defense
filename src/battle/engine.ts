@@ -1211,6 +1211,9 @@ export class Battle {
     } else {
       while (s.waveIndex < waves.length && s.time >= waves[s.waveIndex].at) {
         s.waveIndex++;
+        // 連続周回: 新しい周に入ったら、ママが少し回復
+        const lp = this.loadout.stage.loop;
+        if (lp && s.waveIndex > 1 && (s.waveIndex - 1) % lp.lapWaves === 0) s.mamaHp = Math.min(s.mamaMaxHp, s.mamaHp + lp.heal);
         this.emit("wave", COLS / 2, 0, s.waveIndex);
       }
     }

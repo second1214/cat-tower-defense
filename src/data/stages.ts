@@ -490,3 +490,29 @@ export function makeEndlessStage(start = 0): StageDef {
     endless: true,
   };
 }
+
+// ================= 連続周回 =================
+
+/** 連続周回の上限。 */
+export const MAX_LAPS = 99;
+/** 1周ごとに虫の体力に足す割合（10周で +27%・99周で約 ×3.9）。 */
+export const LOOP_HP_PER_LAP = 0.03;
+/** 1周ごとに、ママが回復する量。 */
+export const LOOP_HEAL = 3;
+/** 連続周回の報酬の上乗せ（ふつうに1回ずつ回すより少し多い）。 */
+export const LOOP_BONUS = 1.2;
+
+/** 連続周回のステージ（stage の波を laps 回つなげる。周ごとに少しずつ強くなる）。 */
+export function makeLoopStage(stage: StageDef, laps: number): StageDef {
+  const n = Math.max(1, Math.min(MAX_LAPS, Math.floor(laps)));
+  const last = stage.waves[stage.waves.length - 1];
+  const lastLen = Math.max(...last.bugs.map((b) => b.count * b.every));
+  const lapLen = last.at + Math.max(8, Math.round(lastLen * 0.7));
+  const waves: WaveDef[] = [];
+  for (let k = 0; k < n; k++) {
+    for (const w of stage.waves) {
+      waves.push({ ...w, at: w.at + k * lapLen, hpMul: (w.hpMul ?? 1) * (1 + LOOP_HP_PER_LAP * k) });
+    }
+  }
+  return { ...stage, waves, loop: { lapWaves: stage.waves.length, laps: n, heal: LOOP_HEAL } };
+}
