@@ -863,7 +863,7 @@ export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): {
 }
 
 /** オブジェクトの攻撃の底上げ（押し戻しで足止めできなくなったぶん。オブジェクトが主役）。 */
-export const OBJ_ATK_BOOST = 1.5;
+export const OBJ_ATK_BOOST = 1.3;
 
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
@@ -875,7 +875,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const sk = modsFromTotals(catTotals(save, heroUid(save)));
   const { stats: b, names } = applyPerks(def.base, def.perks, lv);
   // 装備の基本の攻撃・体力は、猫が置くオブジェクトにも効く
-  const atkMul = OBJ_ATK_BOOST * eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
+  const atkMul = OBJ_ATK_BOOST * (def.power ?? 1) * eq.baseAtkMul * (1 + eq.objAtk + (eq.objAtkKind[def.kind] ?? 0)) * sk.objAtkMul * rel.dmg;
   const intMul = Math.max(0.4, 1 - eq.objInterval - (eq.objIntervalKind[def.kind] ?? 0));
   const costMul = Math.max(0.4, 1 - eq.objCost - rel.objCost);
   const attacks = b.atk > 0;
