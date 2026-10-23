@@ -1340,7 +1340,8 @@ describe("戦闘の準備・報酬", () => {
     }
     const { totalHp, duration } = stageLoad(lo.stage);
     expect(totalHp).toBeLessThan(80);
-    expect(lo.stage.startKibble).toBe(60);
+    expect(lo.stage.startKibble).toBe(100); // 序盤はカリカリ多め
+    expect(lo.stage.kibbleMul).toBe(1.5);
     expect(lo.stage.kibblePerSec).toBe(0);
     expect(estimateDps(lo).total * duration).toBeGreaterThan(totalHp * 2);
     expect(buildLoadout(s, "11-1")).toBeNull();

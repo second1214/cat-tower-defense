@@ -194,6 +194,7 @@ export interface StageDef {
   waves: WaveDef[];
   startKibble: number;
   obstacles?: Obstacle[]; // 最初からある障害物（家具）
+  kibbleMul?: number;   // 虫が落とすカリカリに掛ける倍率（序盤は多め）。なければ 1
   kibblePerSec: number; // 自然に増えるカリカリ（今は 0。カリカリは虫を倒すと、すぐに手に入る）
   rewards: StageRewards;
   /** 難しさの山: 0 ふつう / 1 難関（章の5番目）/ 2 大難関（章のぬし）。画面で「難関」と出す。 */
