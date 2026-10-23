@@ -61,8 +61,8 @@ describe("バランス（本物の戦闘で）", () => {
     expect(get("1-3").catArrive.win).toBe(true);
     for (const x of results.filter((r) => r.wall > 0)) {
       expect(x.catArrive.win).toBe(false);
-      // 必殺技があるので、1・2章の難関は、たくさん育てれば猫だけでもこえられる。3章からは無理
-      if (STAGE_MAP[x.id].chapter >= 3) expect(x.catReady.win).toBe(false);
+      // 必殺技・スキル盤があるので、3章までの難関は、たくさん育てれば猫だけでもこえられる。4章からは無理
+      if (STAGE_MAP[x.id].chapter >= 4) expect(x.catReady.win).toBe(false);
     }
     const late = results.filter((r) => STAGE_MAP[r.id].chapter >= 2);
     expect(late.filter((r) => r.catArrive.win).length).toBe(0);
