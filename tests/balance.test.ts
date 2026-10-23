@@ -59,7 +59,8 @@ describe("バランス（本物の戦闘で）", () => {
 
   test("猫だけ: 1章のはじめは勝てる・難関は勝てない・2章からはほぼ勝てない", () => {
     expect(get("1-3").catArrive.win).toBe(true);
-    for (const x of results.filter((r) => r.wall > 0)) {
+    // 1・2章はやさしいので、難関の山は 3章から
+    for (const x of results.filter((r) => r.wall > 0 && STAGE_MAP[r.id].chapter >= 3)) {
       expect(x.catArrive.win).toBe(false);
       // 必殺技があるので、1・2章の難関は、たくさん育てれば猫だけでもこえられる。3章からは無理
       if (STAGE_MAP[x.id].chapter >= 3) expect(x.catReady.win).toBe(false);
@@ -73,7 +74,7 @@ describe("バランス（本物の戦闘で）", () => {
   });
 
   test("難関: 来たときは負ける・前のステージを回して育てたら勝てる", () => {
-    const walls = results.filter((r) => r.wall > 0);
+    const walls = results.filter((r) => r.wall > 0 && STAGE_MAP[r.id].chapter >= 3);
     for (const x of walls) {
       expect(x.grinds).toBeGreaterThan(0);
       // 時間切れは負け

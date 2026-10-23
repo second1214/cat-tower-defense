@@ -70,7 +70,7 @@ export function wallOf(g: number): 0 | 1 | 2 {
 export const IN_CHAPTER_GROWTH = 1.1;
 /** 章ごとの体力の倍率（ふつうに進めたときの成長のしかた（特殊効果・装備の合成・レリック）に合わせて、ならした表）。 */
 /** 難関ごとの上乗せ（本物の戦闘のボットで、来たときに勝ててしまう難関をならす）。[難関, 大難関] × 章。 */
-export const WALL_EXTRA: number[][] = [[], [1, 2.5, 1, 1, 1, 1, 1, 0.6, 0.8, 1], [1, 1, 2.5, 1, 1, 1, 1, 1, 1, 1]];
+export const WALL_EXTRA: number[][] = [[], [1, 1, 1, 1, 1, 1, 1, 0.6, 0.8, 1], [1, 1, 2.5, 1, 1, 1, 1, 1, 1, 1]];
 export const CHAPTER_HP_MUL = [1, 4.5, 6, 17, 26, 130, 820, 2200, 2600, 1800];
 
 /** 虫の体力の倍率（ふつうの伸び × 章の中の伸び × 章の倍率 × 難関の上乗せ）。 */
@@ -79,7 +79,15 @@ export function stageHpMul(g: number): number {
   const base = HP_BASE_START + (HP_BASE - HP_BASE_START) * Math.pow(Math.min(1, g / STAGES_PER_CHAPTER), 2);
   const w = wallOf(g);
   const spike = w > 0 ? WALL_HP_MUL[w] * (1 + WALL_HP_PER_CHAPTER * ch) * (WALL_EXTRA[w][ch] ?? 1) : 1;
-  return base * Math.pow(HP_GROWTH, g) * Math.pow(IN_CHAPTER_GROWTH, i) * (CHAPTER_HP_MUL[ch] ?? 1) * spike;
+  return base * Math.pow(HP_GROWTH, g) * Math.pow(IN_CHAPTER_GROWTH, i) * (CHAPTER_HP_MUL[ch] ?? 1) * spike * earlyEase(g);
+}
+
+/** 序盤（1・2章）は、ほとんどレベル上げなしで 2-10 まで進めるように、虫をよわく。難関の山も低め。3章から本番。 */
+export function earlyEase(g: number): number {
+  if (g >= 2 * STAGES_PER_CHAPTER) return 1;
+  const w = wallOf(g);
+  const ch = Math.floor(g / STAGES_PER_CHAPTER);
+  return (ch === 0 ? 0.35 : 0.11) * (w === 1 ? 0.4 : w === 2 ? 0.5 : 1);
 }
 
 /** ステージの報酬の目安（core の grantRewards がこれをもとに抽選）。難関は多め。 */
