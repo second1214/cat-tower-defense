@@ -35,7 +35,6 @@ import {
   FURNITURE_SIZES, MAMA_COL, MAMA_H, MAMA_ROW, MAMA_W, OBSTACLE_ROW_MAX, OBSTACLE_ROW_MIN, STAGES, boardConnected,
   mazeLength, obstacleCells, stageBlocked, stageIndexOf, wallOf,
 } from "../src/data/stages";
-import { earlyEase } from "../src/data/stages";
 import { bugShapeOf } from "../src/battle/sprites";
 import { COLS, FURNITURE_KINDS, ROWS, type CharRole, type ComboId } from "../src/core/types";
 import type { SaveData } from "../src/core/save";
@@ -439,8 +438,7 @@ describe("データ", () => {
       expect(s.wall).toBe(s.index === 10 ? 2 : s.index === 5 ? 1 : 0);
       expect(wallOf(stageIndexOf(s.id))).toBe(s.wall);
     }
-    // 1・2章はやさしく（earlyEase）。山の形は 3章から（2-10 → 3-1 の境目もとばす）
-    for (let g = 21; g < 100; g++) {
+    for (let g = 1; g < 100; g++) {
       const r = STAGES[g].hpMul / STAGES[g - 1].hpMul;
       if (STAGES[g].wall) expect(r).toBeGreaterThan(2.5);          // 難関でぐっと上がる
       else if (STAGES[g - 1].wall) expect(r).toBeLessThan(1);      // 難関のあとは、やさしくなる
@@ -498,8 +496,8 @@ describe("データ", () => {
       const hasBoss = s.waves.some((w) => w.bugs.some((g) => BUGS.find((b) => b.id === g.bug)?.boss));
       expect(hasBoss).toBe(s.index === 10);
     }
-    expect(stageById("1-1")!.hpMul).toBeCloseTo(earlyEase(0));
-    expect(stageById("1-2")!.hpMul / stageById("1-1")!.hpMul).toBeGreaterThan(1.3);
+    expect(stageById("1-1")!.hpMul).toBe(1);
+    expect(stageById("1-2")!.hpMul).toBeGreaterThan(1.3);
   });
 });
 
@@ -1332,7 +1330,7 @@ describe("戦闘の準備・報酬", () => {
     expect(lo.companions).toEqual([]);
     expect(lo.objects.length).toBe(3);
     expect(lo.objects.find((o) => o.id === "danboru")!.block).toBe(true);
-    expect(lo.stage.hpMul).toBeCloseTo(earlyEase(0));
+    expect(lo.stage.hpMul).toBe(1);
     expect(lo.bugs.ari.hp).toBe(2);
     expect(lo.global.mamaHp).toBeGreaterThan(0);
     for (const o of lo.objects) {
@@ -1423,9 +1421,10 @@ describe("インフレの曲線", () => {
     expect(totalGrinds).toBeGreaterThan(80);
     expect(totalGrinds).toBeLessThan(320);
     expect(Math.max(...rows.map((r) => r.grinds))).toBeLessThan(SIM_MAX_GRIND);
-    expect(wallRows.filter((r) => r.grinds > 0).length).toBeGreaterThanOrEqual(12);
-    // 1・2章は、ほとんどレベル上げなしで進める（2-10 まで）
-    expect(rows.slice(0, 20).reduce((a, r) => a + r.grinds, 0)).toBeLessThanOrEqual(8);
+    expect(wallRows.filter((r) => r.grinds > 0).length).toBeGreaterThanOrEqual(14);
+    // 1-5 と 1-10 では、かならず止まる
+    expect(rows[4].grinds).toBeGreaterThan(0);
+    expect(rows[9].grinds).toBeGreaterThan(0);
     // ふつうのステージは、ほとんど止まらない
     expect(normalRows.reduce((s, r) => s + r.grinds, 0)).toBeLessThan(totalGrinds * 0.25);
     // のこぎりの歯: 難関に来たときの余裕は、ふつうのステージよりずっと小さい
