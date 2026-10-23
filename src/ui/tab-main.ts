@@ -17,12 +17,14 @@ import { renderCafe, catIcon } from "./cafe";
 
 /** 戦力の目安（DPS を見やすい数にしたもの）。 */
 const POWER_SCALE = 10;
+/** おすすめ戦力は「目安の計算でこのくらいあれば、本物の戦闘でもまず勝てる」倍率（ボットの戦闘で合わせた）。 */
+const REC_MARGIN = 2;
 
 /** エンドレスが遊べるようになる、クリアしたステージの通し番号（1-5）。 */
 const ENDLESS_UNLOCK = 4;
 
 export function difficultyOf(ratio: number): { label: string; cls: string } {
-  if (ratio >= 2) return { label: "楽勝", cls: "easy" };
+  if (ratio >= 1.6) return { label: "楽勝", cls: "easy" };
   if (ratio >= 1) return { label: "ちょうどいい", cls: "fair" };
   return { label: "きびしい", cls: "hard" };
 }
@@ -52,7 +54,7 @@ export function renderMain(ctx: Ctx): HTMLElement {
 
   const lo = buildLoadout(save, id)!;
   const load = stageLoad(stage);
-  const need = (load.totalHp / load.duration) * POWER_SCALE;
+  const need = (load.totalHp / load.duration) * POWER_SCALE * REC_MARGIN;
   const mine = estimateDps(lo).total * POWER_SCALE;
   const ratio = need > 0 ? mine / need : 0;
   const diff = difficultyOf(ratio);

@@ -87,7 +87,13 @@ export function createAutoPilot(b: Battle, lo: Loadout): AutoPilot {
     return best;
   };
 
-  const objValue = (d: ResolvedObject, atkMul: number) => objectDps(d) * atkMul;
+  // 範囲・毒・電撃の強さは、虫がこんでいるほど上がる。いま盤面にいる虫の数から、こみ具合を見積もる
+  const crowd = () => {
+    let n = 0;
+    for (const g of b.bugs) if (g.alive && g.y >= 0) n++;
+    return Math.max(1.5, Math.min(4, (n / Math.max(12, route.length)) * 4));
+  };
+  const objValue = (d: ResolvedObject, atkMul: number) => objectDps(d, crowd()) * atkMul;
   /** 置いたオブジェクトの今の効き目（届く道のマスの数 × DPS）。 */
   const placedValue = (o: ObjState) => {
     const cov = new Map<number, number>();
