@@ -420,7 +420,9 @@ function makeStage(g: number): StageDef {
     atkMul: Math.pow(ATK_GROWTH, g) * WALL_ATK_MUL[wall],
     waves,
     obstacles: makeObstacles(g, chapter, wall, themes, theme, mulberry32(4242 + g * 131)),
-    startKibble: 60,
+    // 序盤（1・2章）はカリカリを多めに（はじめの手持ちと、虫が落とす量）
+    startKibble: g < 10 ? 100 : g < 20 ? 85 : 60,
+    kibbleMul: g < 10 ? 1.5 : g < 20 ? 1.3 : 1,
     kibblePerSec: 0,   // カリカリは時間では増えない。虫を倒して落とす（と餌皿）だけ
     rewards: rewardsOf(g, wall),
     wall,

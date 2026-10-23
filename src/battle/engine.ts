@@ -2591,7 +2591,7 @@ export class Battle {
       b.hp = 0;
       this.s.kills++;
       this.waveAlive[b.wave]--;
-      const drop = b.def.drop * this.loadout.global.kibbleMul * (1 + this.kibbleBonus);
+      const drop = b.def.drop * this.loadout.global.kibbleMul * (this.loadout.stage.kibbleMul ?? 1) * (1 + this.kibbleBonus);
       const kx = clamp(b.x, 0.2, COLS - 0.2), ky = clamp(b.y, 0.2, ROWS - 0.2);
       if (drop > 0) {
         this.s.kibble += drop;
