@@ -840,7 +840,7 @@ export function catPower(save: SaveData, uid: string): number {
 export function objectPerks(save: SaveData, id: string): { level: number; id: string; name: string; desc: string; unlocked: boolean }[] {
   const def = OBJECT_MAP[id];
   if (!def) return [];
-  const lv = save.objects[id]?.level ?? 1;
+  const lv = objectPowerLevel(save, id);
   return def.perks.map((p) => ({ level: p.level, id: p.id, name: p.name, desc: p.desc, unlocked: lv >= p.level }));
 }
 
@@ -867,7 +867,7 @@ export const OBJ_ATK_BOOST = 1.5;
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
   if (!def) return null;
-  const lv = save.objects[id]?.level ?? 1;
+  const lv = objectPowerLevel(save, id);
   const g = Math.pow(OBJ_LEVEL_GROWTH, lv - 1);
   const eq = equipBonus(save);
   const rel = relicBonus(save);
@@ -1331,7 +1331,23 @@ function medianObjectLevel(save: SaveData): number {
 
 /** 新しく手に入ったオブジェクトのはじめのレベル。 */
 export function catchUpLevel(save: SaveData): number {
-  return Math.max(1, Math.floor(medianObjectLevel(save) * 0.6));
+  return Math.max(1, Math.floor(topObjectLevel(save) * OBJ_FLOOR));
+}
+
+/** 底上げ: 持っているオブジェクトのいちばん高いレベルのこの割合までは、どのオブジェクトも（戦闘では）その強さになる。 */
+export const OBJ_FLOOR = 0.85;
+
+/** 持っているオブジェクトの、いちばん高いレベル。 */
+export function topObjectLevel(save: SaveData): number {
+  let t = 1;
+  for (const o of Object.values(save.objects)) if (o.level > t) t = o.level;
+  return t;
+}
+
+/** 戦闘での強さのレベル（自分のレベルか、底上げのレベルの高い方）。新しく手に入れたオブジェクトも、すぐ使える。 */
+export function objectPowerLevel(save: SaveData, id: string): number {
+  const own = save.objects[id]?.level ?? 1;
+  return Math.max(own, Math.floor(topObjectLevel(save) * OBJ_FLOOR));
 }
 
 export function syncUnlocks(save: SaveData): { newObjects: string[] } {
@@ -1396,8 +1412,9 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
   const mid = lvs.length ? lvs[lvs.length >> 1] : 1;
   for (let i = 0; i < nSh && owned.length; i++) {
     // 持っていくオブジェクトの中で、レベルが真ん中より高いものほど出にくい（1つだけ育ちすぎないように）
-    const o = pickWeighted(rng, owned, (x) => OBJ_RARITY_DROP[x.rarity] * (save.loadout.includes(x.id)
-      ? 2 * Math.pow(0.7, Math.max(0, save.objects[x.id].level - mid)) : 1));
+    // 持っていく中でレベルが真ん中より高いものほど出にくい（新しいものは底上げ OBJ_FLOOR で、すぐ使える強さになる）
+    const o = pickWeighted(rng, owned, (x) => OBJ_RARITY_DROP[x.rarity]
+      * (save.loadout.includes(x.id) ? 2 * Math.pow(0.7, Math.max(0, save.objects[x.id].level - mid)) : 1));
     const cnt = 5 + g * 2 + randInt(rng, 3);
     shardMap.set(o.id, (shardMap.get(o.id) ?? 0) + cnt);
   }

@@ -1170,6 +1170,8 @@ describe("オブジェクト", () => {
     // 電撃の連鎖・毒の伝染
     s.objects.shitajiki = { level: 50, shards: 0 };
     expect(resolveObject(s, "shitajiki")!.chain).toBe(2 + 1 + 1 + 2 + 2);
+    // 底上げ（いちばん高いレベルの OBJ_FLOOR）が効かないように、ほかを低くしてから
+    for (const o of Object.values(s.objects)) o.level = Math.min(o.level, 10);
     s.objects.katorisenko = { level: 10, shards: 0 };
     const k = resolveObject(s, "katorisenko")!;
     expect(k.poisonSpread).toBe(1);
@@ -1182,7 +1184,8 @@ describe("オブジェクト", () => {
     // 壁は体力
     s.objects.danboru.level = 10;
     expect(resolveObject(s, "danboru")!.maxHp).toBeGreaterThan(40 * Math.pow(1.22, 9) * 2.9);
-    // 特殊効果で群れへの DPS が上がる
+    // 特殊効果で群れへの DPS が上がる（底上げが効かないように、ほかを低くしてから）
+    for (const o of Object.values(s.objects)) o.level = 1;
     s.objects.wagomu.level = 5;
     const d5 = objectDps(resolveObject(s, "wagomu")!) / resolveObject(s, "wagomu")!.atk;
     s.objects.wagomu.level = 6;

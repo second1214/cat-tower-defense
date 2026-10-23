@@ -1,6 +1,6 @@
 // 成長 > オブジェクト（持っていく5つ・一覧・レベルアップ）。
 import { ENDLESS_REWARDS } from "../data/endless";
-import { canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
+import { objectPowerLevel, canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
 import { fmt } from "../core/num";
 import { sfx } from "../audio";
 import { MAX_LOADOUT, type SaveData } from "../core/save";
@@ -47,7 +47,7 @@ export function renderObjList(ctx: Ctx): HTMLElement {
       svgIcon(objectSvg(def.id, def.kind), "card-ico"),
       h("span", { class: "card-tags" }, blockTag(ro.block), h("span", { class: "sz-tag" }, `${sizeOf(ro, def.id).w}×${sizeOf(ro, def.id).h}`)),
       h("div", { class: "card-name small" }, def.name),
-      h("div", { class: "card-row" }, h("span", { class: "card-lv" }, `Lv${os.level}`), h("span", { class: "kib" }, svgIcon(ICONS.kibble), String(ro.cost))),
+      h("div", { class: "card-row" }, h("span", { class: "card-lv" }, lvText(save, def.id)), h("span", { class: "kib" }, svgIcon(ICONS.kibble), String(ro.cost))),
       bar(os.shards / cost.shards, `bar-shard ${os.shards >= cost.shards ? "full" : ""}`, `${fmt(os.shards)}/${fmt(cost.shards)}`));
   });
   const owned = Object.keys(save.objects).length;
@@ -144,7 +144,7 @@ export function openObjDetail(ctx: Ctx, id: string): void {
             h("div", { class: "cd-row" },
               h("span", { class: `rar-pill r-${def.rarity}` }, def.rarity),
               h("span", { class: "kind-pill" }, svgIcon(kindSvg(def.kind)), KIND_NAMES[def.kind]),
-              h("span", { class: "cd-lv" }, `Lv ${os.level}`)),
+              h("span", { class: "cd-lv" }, lvText(ctx.save, def.id))),
             h("div", { class: "cd-desc" }, def.desc),
             h("div", { class: "od-size" },
               sizeGlyph(size.w, size.h, ro.block),
@@ -183,4 +183,12 @@ export function openObjDetail(ctx: Ctx, id: string): void {
             h("span", { class: save.coins >= cost.coins ? "" : "lack" }, svgIcon(ICONS.coin), fmt(cost.coins)))));
     },
   });
+}
+
+
+/** レベルの表示。底上げで強くなっているときは「Lv3→12」のように、戦闘での強さのレベルも出す。 */
+function lvText(save: SaveData, id: string): string {
+  const own = save.objects[id]?.level ?? 1;
+  const p = objectPowerLevel(save, id);
+  return p > own ? `Lv${own}→${p}` : `Lv${own}`;
 }
