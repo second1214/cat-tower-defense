@@ -14,6 +14,7 @@ import { type Ctx, type GrowSub, Modals, type StartBattle, type Tab, type UiStat
 import { badge, h, svgIcon } from "./dom";
 import { ICONS, bagSvg, objectSvg } from "./icons";
 import { WAZA_MAP } from "../data/waza";
+import { LOOP_BONUS, makeLoopStage, stageIndexOf } from "../data/stages";
 import { POWER_NAMES, powerMode, setPowerMode, type PowerMode } from "../core/power";
 import { openRanking, submitScore } from "./ranking";
 import { catIcon, loadCatSprites } from "./cafe";
@@ -124,6 +125,7 @@ export function createApp(root: HTMLElement): AppHandle {
     },
     play,
     playEndless,
+    playLoop,
   };
 
   function toast(msg: string, kind: "ok" | "ng" = "ok"): void {
@@ -367,6 +369,25 @@ export function createApp(root: HTMLElement): AppHandle {
       toast("戦闘を始められませんでした", "ng");
       finish(() => undefined);
     }
+  }
+
+  /** 連続周回（クリアしたステージだけ）。こえた周の数ぶん、報酬 × LOOP_BONUS。 */
+  async function playLoop(stageId: string, laps: number): Promise<void> {
+    if (inBattle) return;
+    const lo = buildLoadout(save, stageId);
+    const stage = stageById(stageId);
+    if (!lo || !stage || stageIndexOf(stageId) > save.cleared) { toast("クリアしたステージだけ周回できます", "ng"); return; }
+    lo.stage = makeLoopStage(lo.stage, laps);
+    const lapWaves = stage.waves.length;
+    await runBattle(lo, (result) => {
+      const done = result.win ? laps : Math.floor(result.wavesCleared / lapWaves);
+      if (done <= 0) { showLose(result); return; }
+      const res = ctx.withRng((rng) => grantRewards(save, stage, rng, done, LOOP_BONUS));
+      writeSave(save);
+      render();
+      if (!result.win) toast(`${done}周まで こえた分の報酬をもらいました`);
+      showRewards(res);
+    });
   }
 
   function finishBattle(result: BattleResult): void {
