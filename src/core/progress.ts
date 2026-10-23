@@ -509,6 +509,7 @@ export function levelUpObject(save: SaveData, id: string): Result {
   o.shards -= cost.shards;
   save.coins -= cost.coins;
   o.level++;
+  syncObjectFloor(save);
   return r;
 }
 
@@ -969,6 +970,7 @@ export function syncEndlessRewards(save: SaveData): EndlessReward[] {
     else if (!save.objects[r.id]) save.objects[r.id] = { level: catchUpLevel(save), shards: 0 };
     got.push(r);
   }
+  if (got.length) syncObjectFloor(save);
   return got;
 }
 
@@ -1344,10 +1346,15 @@ export function topObjectLevel(save: SaveData): number {
   return t;
 }
 
-/** 戦闘での強さのレベル（自分のレベルか、底上げのレベルの高い方）。新しく手に入れたオブジェクトも、すぐ使える。 */
+/** 戦闘での強さのレベル（= そのオブジェクトのレベル。底上げは syncObjectFloor で、レベルそのものを引き上げる）。 */
 export function objectPowerLevel(save: SaveData, id: string): number {
-  const own = save.objects[id]?.level ?? 1;
-  return Math.max(own, Math.floor(topObjectLevel(save) * OBJ_FLOOR));
+  return save.objects[id]?.level ?? 1;
+}
+
+/** 底上げ: 持っているオブジェクトのレベルを、いちばん高いレベルの OBJ_FLOOR までそのまま引き上げる（表示と強さがずれないように）。 */
+export function syncObjectFloor(save: SaveData): void {
+  const floor = Math.floor(topObjectLevel(save) * OBJ_FLOOR);
+  for (const o of Object.values(save.objects)) if (o.level < floor) o.level = floor;
 }
 
 export function syncUnlocks(save: SaveData): { newObjects: string[] } {
@@ -1361,6 +1368,7 @@ export function syncUnlocks(save: SaveData): { newObjects: string[] } {
       if (save.loadout.length < MAX_LOADOUT) save.loadout.push(o.id);
     }
   }
+  syncObjectFloor(save);
   return { newObjects };
 }
 
