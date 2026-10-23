@@ -1,6 +1,6 @@
 // 成長 > オブジェクト（持っていく5つ・一覧・レベルアップ）。
 import { ENDLESS_REWARDS } from "../data/endless";
-import { objectPowerLevel, canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
+import { canLevelUpObject, objectPerks, levelUpObject, objectUpgradeCost, resolveObject, toggleLoadout } from "../core/progress";
 import { fmt } from "../core/num";
 import { sfx } from "../audio";
 import { MAX_LOADOUT, type SaveData } from "../core/save";
@@ -186,9 +186,7 @@ export function openObjDetail(ctx: Ctx, id: string): void {
 }
 
 
-/** レベルの表示。底上げで強くなっているときは「Lv3→12」のように、戦闘での強さのレベルも出す。 */
+/** レベルの表示。 */
 function lvText(save: SaveData, id: string): string {
-  const own = save.objects[id]?.level ?? 1;
-  const p = objectPowerLevel(save, id);
-  return p > own ? `Lv${own}→${p}` : `Lv${own}`;
+  return `Lv${save.objects[id]?.level ?? 1}`;
 }
