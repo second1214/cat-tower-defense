@@ -254,6 +254,8 @@ export interface ObjState {
 
 /** ぬし（ボス）がオブジェクトから受けるダメージの倍率。 */
 export const BOSS_OBJ_MUL = 0.35;
+/** 光線の太さ（線からこのマス以内の虫に当たる）。 */
+export const BEAM_WIDTH = 0.4;
 /** この秒数より新しい、近くの同じ種類のダメージの数字には、足してまとめる。 */
 export const FLOAT_MERGE_AGE = 0.25;
 /** 1コマに出す「当たり」のイベントの上限。 */
@@ -402,6 +404,7 @@ export type BattleEventType =
   | "counter"      // よけて反撃（value = 半径。x, y は猫）
   | "echo"         // 連続攻撃の最後の一撃が範囲攻撃に（value = 半径）
   | "overkill"     // 余ったダメージが次の虫へ（x, y → x2, y2）
+  | "beam"         // 光線（x, y → x2, y2。value = 何本目か）
   | "special"      // 必殺技（value = 猫の添字。x, y は中心か始まり、x2, y2 は半径か終わり）
   | "wakeUp"       // 休けいから戻って、無敵＋速い（value = 秒数。x, y は猫）
   | "objectSync"   // 猫の攻撃で、近くのオブジェクトの次の発動が早まった（x, y はオブジェクトの中心）
@@ -2220,9 +2223,51 @@ export class Battle {
     this.qtop = start;
   }
 
+  /**
+   * 光線（レーザーポインター）: 弾を飛ばさず、ねらった虫まで まっすぐの線で すぐ当てる。線の上の虫もつらぬく（pierce まで）。
+   * multishot は扇形に散らさず、ちがう虫を1匹ずつねらう（散ってはずれないように）。
+   */
+  private fireBeam(o: ObjState, t: BugState, range: number): void {
+    const d = o.def;
+    const ms = Math.max(0, d.multishot || 0);
+    const n = 1 + Math.floor(ms) + (this.rng() < ms % 1 ? 1 : 0);
+    const base = this.objAtk(o);
+    const pierce = Math.max(0, Math.floor(d.pierce || 0));
+    const mark = this.markId++;
+    let target: BugState | null = t;
+    for (let k = 0; k < n && target; k++) {
+      const dx = target.x - o.cx, dy = target.y - o.cy;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const reach = range + Math.max(o.w, o.h) / 2;
+      // 線の上の虫（近い順に pierce + 1 匹まで）
+      const hits: { b: BugState; a: number }[] = [];
+      for (const b of this.s.bugs) {
+        if (!b.alive || b.y < 0) continue;
+        const px = b.x - o.cx, py = b.y - o.cy;
+        const along = px * ux + py * uy;
+        if (along < 0 || along > reach) continue;
+        if (Math.abs(px * uy - py * ux) <= BEAM_WIDTH) hits.push({ b, a: along });
+      }
+      hits.sort((p, q) => p.a - q.a);
+      let endA = len;
+      for (let i = 0; i < hits.length && i <= pierce; i++) {
+        const crit = this.rollCrit(d);
+        hits[i].b.mark = mark;
+        this.objHit(o, hits[i].b, crit ? base * this.critMul(d) : base, crit, base);
+        endA = hits[i].a;
+      }
+      this.emit("beam", o.cx, o.cy, k, o.cx + ux * Math.max(endA, 0.5), o.cy + uy * Math.max(endA, 0.5));
+      // 次の線は、まだ当てていない近くの虫へ
+      target = this.nearestBug(o.cx, o.cy, range, mark);
+    }
+    this.emit("shoot", o.cx, o.cy, n);
+  }
+
   /** shooter が撃つ（multishot なら扇形に）。 */
   private fire(o: ObjState, t: BugState, range: number): void {
     const d = o.def;
+    if (d.beam) { this.fireBeam(o, t, range); return; }
     const ms = Math.max(0, d.multishot || 0);
     const n = 1 + Math.floor(ms) + (this.rng() < ms % 1 ? 1 : 0);
     const spread = n > 1 ? ((d.spread || 0) > 0 ? d.spread : DEFAULT_SPREAD) : 0;

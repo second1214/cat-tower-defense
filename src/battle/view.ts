@@ -88,6 +88,8 @@ export class BattleView {
   L: Layout = { w: 1, h: 1, cw: 1, ch: 1, u: 1, ox: 0, oy: 0 };
   private fx: Fx[] = [];
   private bolts: Bolt[] = [];
+  /** 光線（レーザーポインター）。細い半とうめいの線が、すぐ消える。 */
+  private beams: { x0: number; y0: number; x1: number; y1: number; t: number }[] = [];
   private shake = 0;
   private shx = 0;
   private shy = 0;
@@ -354,6 +356,9 @@ export class BattleView {
         case "echo":
           this.addFx({ type: "ring", x: e.x, y: e.y, r: e.value, life: 0.35, color: "#ffb04a" });
           this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.25, life: 0.25, color: "#ffd84a" });
+          break;
+        case "beam":
+          if (this.beams.length < 60) this.beams.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0 });
           break;
         case "overkill":
           if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
@@ -895,6 +900,7 @@ export class BattleView {
       this.resetTf();
     }
     // 電撃
+    this.drawBeams(g, dt);
     this.drawBolts(g, dt);
     // 演出
     this.drawFx(g, dt);
@@ -1478,6 +1484,33 @@ export class BattleView {
       return Math.floor(this.simClock * 6 + cat.index * 0.5) % 2 ? "walk2" : "walk1";
     }
     return null;
+  }
+
+  /** 光線を描く（細い・半とうめい・0.18 秒で消える。色は少しずつ虹色にうつる）。 */
+  private drawBeams(g: CanvasRenderingContext2D, dt: number): void {
+    if (this.beams.length === 0) return;
+    const { cw, ch, u, ox, oy } = this.L;
+    const LIFE = 0.18;
+    let w = 0;
+    g.lineCap = "round";
+    for (let i = 0; i < this.beams.length; i++) {
+      const b = this.beams[i];
+      b.t += dt;
+      if (b.t >= LIFE) continue;
+      this.beams[w++] = b;
+      const k = 1 - b.t / LIFE;
+      const hue = (this.simClock * 160 + i * 30) % 360;
+      const x0 = ox + b.x0 * cw, y0 = oy + b.y0 * ch, x1 = ox + b.x1 * cw, y1 = oy + b.y1 * ch;
+      g.strokeStyle = `hsla(${hue},100%,70%,${0.22 * k})`;
+      g.lineWidth = Math.max(3, u * 0.14);
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      g.strokeStyle = `rgba(255,${120 + Math.round(80 * k)},${140 + Math.round(60 * k)},${0.6 * k})`;
+      g.lineWidth = Math.max(1.2, u * 0.045);
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      g.fillStyle = `rgba(255,240,245,${0.7 * k})`;
+      g.beginPath(); g.arc(x1, y1, Math.max(2, u * 0.07), 0, Math.PI * 2); g.fill();
+    }
+    this.beams.length = w;
   }
 
   /** EX のオブジェクトのまわりの虹色の光（色が流れる・ときどき星がきらめく）。 */

@@ -1208,3 +1208,20 @@ describe("がれき", () => {
     expect(k.placeCheck(0, 3, 8).ok).toBe(true);
   });
 });
+
+describe("光線（レーザーポインター）", () => {
+  it("弾を飛ばさず、ねらった虫にすぐ当たる・線の上の虫もつらぬく・光線の数だけ別の虫をねらう", () => {
+    const k = new Battle(loadout({ objects: [obj({ atk: 1, interval: 0.5, range: 6, beam: true, pierce: 1, multishot: 1 })], waves: later(0, [{ bug: "ant", count: 3, every: 0.3, lanes: [7] }]) }));
+    parkCat(k);
+    expect(k.place(0, 7, 12).ok).toBe(true);
+    let beams = 0, hurt = false;
+    for (let i = 0; i < 400 && !hurt; i++) {
+      const evs = stepEvents(k, 0.05);
+      beams += evs.filter((e) => e.type === "beam").length;
+      if (k.bugs.some((b) => b.hp < b.maxHp)) hurt = true;
+      expect(k.projectiles.length).toBe(0);
+    }
+    expect(hurt).toBe(true);
+    expect(beams).toBeGreaterThan(0);
+  });
+});

@@ -135,6 +135,8 @@ export interface ResolvedObject {
   crit: number;         // 会心の確率
   critMul: number;      // 会心の倍率
   perks: string[];
+  /** 光線: 弾を飛ばさず、まっすぐの線ですぐ当てる（レーザーポインター）。 */
+  beam?: boolean;
   /** エンドレスで手に入る特別なオブジェクト（虹色に光る・弾がきらきら）。 */
   ex?: boolean;
 }
