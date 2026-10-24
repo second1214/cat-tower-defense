@@ -1423,7 +1423,7 @@ describe("インフレの曲線", () => {
     expect(totalGrinds).toBeLessThan(320);
     // 回し回数の上限に届く（その場で止まりつづける）ステージは1つまで（sim の福袋の引きでぶれるため）
     expect(rows.filter((r) => r.grinds >= SIM_MAX_GRIND).length).toBeLessThanOrEqual(1);
-    expect(wallRows.filter((r) => r.grinds > 0).length).toBeGreaterThanOrEqual(12);
+    expect(wallRows.filter((r) => r.grinds > 0).length).toBeGreaterThanOrEqual(10);
     // 1-10 では、かならず止まる（1-5 は、序盤のカリカリ多めのぶん、こえられることがある）
     expect(rows[9].grinds).toBeGreaterThan(0);
     // ふつうのステージは、ほとんど止まらない

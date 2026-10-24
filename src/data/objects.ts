@@ -71,9 +71,9 @@ export const OBJ_PRODUCE_PER_LEVEL = 0.02;
 
 /** レアリティごとの、レベルアップに使うお金の倍率。 */
 export const OBJ_RARITY_COST: Record<ObjRarity, number> = { N: 1, R: 1.5, SR: 2.5, SSR: 4, EX: 6 };
-
 /** ドロップのしやすさ（かけら）。 */
-export const OBJ_RARITY_DROP: Record<ObjRarity, number> = { N: 10, R: 7, SR: 4, SSR: 2, EX: 2 };
+/** レアリティが低いものばかり育って、高いものが弱いままにならないように、ほぼ同じ（少しだけ高いものが出やすい）。 */
+export const OBJ_RARITY_DROP: Record<ObjRarity, number> = { N: 1, R: 1.05, SR: 1.1, SSR: 1.2, EX: 1.2 };
 
 /** ストーリーでは手に入らない（エンドレスで手に入れる）オブジェクトの unlockStage。 */
 export const EX_ONLY = 99999;

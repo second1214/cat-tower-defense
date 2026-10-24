@@ -864,6 +864,8 @@ export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): {
 
 /** オブジェクトの攻撃の底上げ（押し戻しで足止めできなくなったぶん。オブジェクトが主役）。 */
 export const OBJ_ATK_BOOST = 1.3;
+/** 1回に落ちる、かけらの数の倍率。 */
+export const SHARD_MUL = 2;
 
 export function resolveObject(save: SaveData, id: string): ResolvedObject | null {
   const def = OBJECT_MAP[id];
@@ -1426,7 +1428,8 @@ export function grantRewards(save: SaveData, stageOrId: StageDef | string, rng: 
     // 持っていく中でレベルが真ん中より高いものほど出にくい（新しいものは底上げ OBJ_FLOOR で、すぐ使える強さになる）
     const o = pickWeighted(rng, owned, (x) => OBJ_RARITY_DROP[x.rarity]
       * (save.loadout.includes(x.id) ? 2 * Math.pow(0.7, Math.max(0, save.objects[x.id].level - mid)) : 1));
-    const cnt = 5 + g * 2 + randInt(rng, 3);
+    // かけらはレアリティにかかわらずほぼ同じ確率で出るので（育てたいものに集まりにくい）、1回の数を多めに
+    const cnt = Math.round((5 + g * 2 + randInt(rng, 3)) * SHARD_MUL);
     shardMap.set(o.id, (shardMap.get(o.id) ?? 0) + cnt);
   }
   for (const [id, cnt] of shardMap) save.objects[id].shards += cnt;

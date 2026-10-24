@@ -42,6 +42,9 @@ export interface BattleScreenHandle {
 const STICK_R = 46;       // スティックの半径（CSS px）
 const STICK_DEAD = 0.12;  // これより小さい傾きは無視
 const MAX_DT = 0.1;
+/** 速さの切りかえ（x1 → x2 → x3 → x5 → x1）。 */
+const SPEEDS = [1, 2, 3, 5];
+const nextSpeed = (v: number) => SPEEDS[(SPEEDS.indexOf(v) + 1) % SPEEDS.length] ?? 1;
 const DRAG_START = 8;     // これだけ動いたらドラッグ（CSS px）
 const TAP_SLOP = 10;      // オブジェクトのタップとスティックの境目
 
@@ -243,6 +246,9 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     speedBtn.textContent = `x${v}`;
     speedBtn.classList.toggle("fast", v > 1);
     speedBtn.classList.toggle("faster", v > 2);
+    speedBtn.classList.toggle("fastest", v > 3);
+    // 速いときは、計算の1こまを少し大きく（電池と重さのため）
+    battle.coarse = v >= 3;
     savePref("bt-speed", String(v));
   }
   let paused = false;
@@ -641,7 +647,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     c.btn.addEventListener("click", (e) => { if (e.detail === 0) toggleSel(i); }); // キーボードの Enter
   });
   pauseBtn.addEventListener("click", () => setPaused(true));
-  speedBtn.addEventListener("click", () => setSpeed(speed >= 3 ? 1 : speed + 1));
+  speedBtn.addEventListener("click", () => setSpeed(nextSpeed(speed)));
   autoBtn.addEventListener("click", () => setAuto(!autoOn));
   /** 置く・強化をやめて、戦闘にもどる。 */
   function cancelPlacing(): void {
@@ -689,7 +695,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
     if (e.code === "KeyP") { e.preventDefault(); if (!endShown) setPaused(!paused); return; }
     const m = /^(?:Digit|Numpad)([1-5])$/.exec(e.code);
     if (m) { e.preventDefault(); toggleSel(Number(m[1]) - 1); return; }
-    if (e.code === "KeyF") { e.preventDefault(); setSpeed(speed >= 3 ? 1 : speed + 1); }
+    if (e.code === "KeyF") { e.preventDefault(); setSpeed(nextSpeed(speed)); }
   }
   function onKeyUp(e: KeyboardEvent): void { keys.delete(e.code); }
   function onBlur(): void { keys.clear(); }
@@ -994,7 +1000,7 @@ export function startBattle(root: HTMLElement, loadout: Loadout, opts: BattleScr
   }
   setAuto(loadPref("bt-auto") === "1");
   const sp = Number(loadPref("bt-speed"));
-  if (sp === 2 || sp === 3) setSpeed(sp);
+  if (SPEEDS.includes(sp)) setSpeed(sp);
   updateMode();
   resize();
   updateHud();
