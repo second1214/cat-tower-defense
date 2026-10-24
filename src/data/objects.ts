@@ -366,11 +366,11 @@ export const OBJECTS: ObjectDef[] = [
     base: B("shooter", { cost: 45, maxHp: 14, atk: 2.2, interval: 0.3, range: 6, pierce: 4 }),
     perks: [
       P(3, "focus", "しぼる", "攻撃 ×1.3", mul("atk", 1.3)),
-      P(6, "twin", "ふたつの点", "弾 +1", add("multishot", 1), add("spread", 0.25)),
+      P(6, "twin", "ふたつの点", "光線 +1（ちがう虫をねらう）", add("multishot", 1)),
       P(10, "through", "どこまでも", "貫通 +4", add("pierce", 4)),
       P(15, "crit", "急所を照らす", "会心 15%・×2.5", add("crit", 0.15), add("critMul", 2.5)),
       P(20, "fast", "高速点滅", "間隔 -25%", mul("interval", 0.75)),
-      P(30, "prism", "プリズム", "弾 +2", add("multishot", 2), add("spread", 0.5)),
+      P(30, "prism", "プリズム", "光線 +2（ちがう虫をねらう）", add("multishot", 2)),
       P(40, "max", "最大出力", "攻撃 ×1.6", mul("atk", 1.6)),
       P(50, "rainbow", "虹の光", "貫通 +8・会心 +15%", add("pierce", 8), add("crit", 0.15)),
     ],

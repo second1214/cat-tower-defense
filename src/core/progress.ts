@@ -911,6 +911,7 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
     critMul: Math.max(1.5, b.critMul),
     perks: names,
     ex: def.rarity === "EX" || undefined,
+    beam: def.id === "laser" || undefined,
   };
 }
 
