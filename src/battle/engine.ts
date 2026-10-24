@@ -119,6 +119,8 @@ export const SIDE_SPAWN_ROWS = 6;     // 左右から出るときの行（0〜5�
 export const FLOAT_LIFE = 0.8;        // ダメージ数字の表示時間
 export const KNOCK_TIME = 0.15;       // 押し戻し・押し出しの見た目の秒数
 const MAX_SUBSTEP = 1 / 60;
+/** 速いとき（x3・x5）の1こま。 */
+const COARSE_SUBSTEP = 1 / 30;
 const MAX_FLOATS = 90;
 const MAX_EVENTS = 2500;              // 1 回の step で出すイベントの上限（"hit" などの細かいものから捨てる）
 const EVENT_POOL = 8192;
@@ -1022,7 +1024,7 @@ export class Battle {
         const o = this.objectAt(cc.col, cc.row);
         if (o) this.upgrade(o);
       }
-      const n = Math.max(1, Math.ceil(dt / MAX_SUBSTEP - 1e-9));
+      const n = Math.max(1, Math.ceil(dt / (this.coarse ? COARSE_SUBSTEP : MAX_SUBSTEP) - 1e-9));
       const h = dt / n;
       for (let k = 0; k < n && !s.result; k++) this.substep(h, input);
     } finally {
@@ -1403,6 +1405,12 @@ export class Battle {
   // ---- 猫 ----
   /** マスごとの、がれきが片づく時刻。 */
   readonly debris = new Float64Array(COLS * ROWS);
+
+  /** オブジェクトが与えたダメージの合計（バランスの調べもの用）。 */
+  objDamage = 0;
+
+  /** 速いとき（x3・x5）は、計算の1こまを大きくする（画面が決める）。 */
+  coarse = false;
 
   /** このコマで出した「当たり」のイベントの数。 */
   private hitEvents = 0;
@@ -2629,6 +2637,7 @@ export class Battle {
     if (!this.curCat && b.def.boss) dmg *= BOSS_OBJ_MUL;
     const before = b.hp;
     const dealt = Math.min(dmg, b.hp);
+    if (!this.curCat) this.objDamage += dealt;
     b.hp -= dmg;
     b.hurt = 0.12;
     this.addFloat(dmg, b.x, b.y - 0.3, kind);

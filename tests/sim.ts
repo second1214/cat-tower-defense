@@ -136,9 +136,15 @@ export function spendAll(save: SaveData, rng: Rng, st: SimState): void {
   const scored = resolveObjects(save, owned)
     .filter((o) => o.kind !== "producer" && o.kind !== "wall")
     // 群れへのだいたいの DPS（拡散・貫通・爆発・連鎖・毒・範囲もふくむ）
-    .map((o) => ({ id: o.id, v: objectDps(o) }))
+    // はじめのカリカリで置けないと序盤の波に負けるので、値段も見る（DPS ÷ √値段）。安いもの（35 以下）を1つはかならず入れる
+    .map((o) => ({ id: o.id, v: (objectDps(o, 4) * Math.pow(o.maxHp, 0.25)) / Math.sqrt(o.cost), cheap: o.cost <= 35 }))
     .sort((a, b) => b.v - a.v);
-  setLoadout(save, ["esara", ...scored.slice(0, 4).map((x) => x.id)]);
+  const pick4 = scored.slice(0, 4);
+  if (!pick4.some((x) => x.cheap)) {
+    const c = scored.find((x) => x.cheap);
+    if (c) pick4[3] = c;
+  }
+  setLoadout(save, ["esara", ...pick4.map((x) => x.id)]);
   // オブジェクトのレベルアップ: 安いものから
   for (;;) {
     const c = save.loadout

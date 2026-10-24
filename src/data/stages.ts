@@ -86,8 +86,8 @@ export function stageHpMul(g: number): number {
 function rewardsOf(g: number, wall: 0 | 1 | 2) {
   const m = [1, 1.5, 2][wall];
   return {
-    // ちゅ〜るは後半ほど大きくふえる（スキル盤の奥は高いので、終盤でも育てられるように）
-    churu: Math.round((6 + g * 0.5) * Math.pow(1.035, g) * m),
+    // ちゅ〜るは後半ほどふえる（連続周回でまとめて集められるので、1回ぶんはひかえめ）
+    churu: Math.round((5 + g * 0.3) * Math.pow(1.028, g) * m),
     exp: Math.round(10 * Math.pow(1.25, g) * m),
     coins: Math.round(20 * Math.pow(1.22, g) * m),
     relicPoints: 1 + Math.floor(g / 20) + [0, 1, 2][wall],
