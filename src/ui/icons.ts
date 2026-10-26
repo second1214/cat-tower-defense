@@ -154,8 +154,27 @@ const OBJ_SVG: Record<string, string> = {
     <rect x="25" y="10" width="12" height="10" rx="2" fill="#fff" stroke="${OUT}" stroke-width="2.5"/><path d="M37 13 h6" stroke="${OUT}" stroke-width="3"/>
     <circle cx="50" cy="10" r="2" fill="#b8f08a"/><circle cx="55" cy="16" r="2.4" fill="#b8f08a"/><circle cx="52" cy="22" r="1.8" fill="#b8f08a"/><path d="M24 34 h14" stroke="#fff" stroke-width="3" opacity=".7"/>`,
   dengen: `<rect x="10" y="22" width="44" height="22" rx="6" fill="#f4f0e6" stroke="${OUT}" stroke-width="2.5"/><circle cx="22" cy="33" r="4" fill="#5a4a3a"/><circle cx="34" cy="33" r="4" fill="#5a4a3a"/><circle cx="46" cy="33" r="3" fill="#ffb03d"/><path d="M10 33 Q2 33 4 50 Q6 58 16 58" stroke="${OUT}" stroke-width="3" fill="none"/>`,
-  surippa: `<path d="M14 50 Q6 30 18 14 Q30 4 38 16 Q44 30 40 50 Q28 60 14 50 Z" fill="#ff7eb6" stroke="${OUT}" stroke-width="2.5"/>
-    <path d="M14 26 Q28 18 40 26 L42 36 Q28 30 12 36 Z" fill="#fff" stroke="${OUT}" stroke-width="2.2"/><path d="M52 14 l6 -4 M54 24 l7 0 M50 6 l2 -5" stroke="#ffd23f" stroke-width="3"/>`,
+  // EX（2026-10-26: 仮置きだった 物を ちゃんと した 絵に）
+  gatling: `<path d="M22 40 h20 l4 18 h-16 Z" fill="#a86f3c" stroke="${OUT}" stroke-width="2.5"/>
+    <rect x="16" y="10" width="8" height="34" rx="3" fill="#e0ad6e" stroke="${OUT}" stroke-width="2.2"/><rect x="28" y="8" width="8" height="36" rx="3" fill="#e0ad6e" stroke="${OUT}" stroke-width="2.2"/><rect x="40" y="10" width="8" height="34" rx="3" fill="#e0ad6e" stroke="${OUT}" stroke-width="2.2"/>
+    <rect x="14" y="32" width="36" height="6" rx="3" fill="#ff7a3a" stroke="${OUT}" stroke-width="2"/>
+    <ellipse cx="32" cy="9" rx="7" ry="3" stroke="#ffd23f" stroke-width="3"/><path d="M50 26 h8 v8" stroke="${OUT}" stroke-width="3"/><circle cx="58" cy="37" r="3.5" fill="#ff6b6b" stroke="${OUT}" stroke-width="2"/>`,
+  laser: `<rect x="26" y="20" width="12" height="38" rx="5" fill="#9aa0b2" stroke="${OUT}" stroke-width="2.5"/>
+    <rect x="28" y="32" width="8" height="6" rx="2" fill="#ff5a5a"/><circle cx="32" cy="12" r="9" fill="#ff5a5a" opacity=".35"/><circle cx="32" cy="12" r="4" fill="#ff3d3d" stroke="${OUT}" stroke-width="2"/>
+    <path d="M44 8 l10 -4 M46 16 l12 0" stroke="#ff5a5a" stroke-width="2.5"/>`,
+  hotcarpet: `<path d="M6 36 L44 28 L58 44 L20 54 Z" fill="#f39a6a" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M18 34 L32 52 M30 31 L44 49 M12 44 L50 36" stroke="#ffe2be" stroke-width="2" opacity=".85"/>
+    <path d="M22 24 q-4 -6 0 -12 M34 22 q-4 -6 0 -12 M46 24 q-4 -6 0 -12" stroke="#ff7a3a" stroke-width="2.8"/>`,
+  robot: `<ellipse cx="32" cy="40" rx="24" ry="12" fill="#3d4250" stroke="${OUT}" stroke-width="2.5"/>
+    <ellipse cx="32" cy="35" rx="24" ry="12" fill="#6a7284" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M18 30 L20 20 L26 27 M46 30 L44 20 L38 27" fill="#6a7284" stroke="${OUT}" stroke-width="2.2"/>
+    <ellipse cx="32" cy="31" rx="4" ry="2.4" fill="#8fffb0" stroke="${OUT}" stroke-width="1.6"/>`,
+  seijouki: `<rect x="16" y="12" width="32" height="46" rx="8" fill="#f7f6f1" stroke="${OUT}" stroke-width="2.5"/>
+    <path d="M22 18 v8 M28 18 v8 M34 18 v8 M40 18 v8" stroke="#b9b5aa" stroke-width="2.2"/><circle cx="32" cy="40" r="5" fill="#6fd0ff" stroke="${OUT}" stroke-width="2"/>
+    <path d="M22 8 q-4 -4 0 -6 M42 8 q4 -4 0 -6" stroke="#8cd2ff" stroke-width="2.5"/><path d="M54 30 l-4 6 h4 l-3 6" stroke="#ffd23f" stroke-width="2.5"/>`,
+  surippa: `<ellipse cx="32" cy="46" rx="26" ry="8" fill="#c85a86" stroke="${OUT}" stroke-width="2.5"/><ellipse cx="32" cy="43" rx="25" ry="7" fill="#ffb3cf" stroke="${OUT}" stroke-width="2.2"/>
+    <path d="M28 44 Q30 22 46 23 Q58 25 56 40 Q44 46 28 44 Z" fill="#ff8ab8" stroke="${OUT}" stroke-width="2.5"/><circle cx="46" cy="22" r="6" fill="#fff3f8" stroke="${OUT}" stroke-width="2.2"/>
+    <path d="M8 20 l6 6 M4 30 l8 2" stroke="#f7b23a" stroke-width="2.5"/>`,
 };
 
 const KIND_COLOR: Record<ObjectKind, string> = {
