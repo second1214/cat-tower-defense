@@ -1,6 +1,10 @@
-// 効果音（ぜんぶ合成）。猫と家の、やわらかくて短い音。
+// 効果音（素材が 読めた 物は Kenney の 音、それ以外と 読めない時は 合成）。猫と家の、やわらかくて短い音。
 // たくさん鳴っても耳が痛くならないように、同時に鳴る数と、同じ音の間かくをしぼる。
-import { audioCtx, noise, sfxOut, sfxSilent } from "./core";
+import { audioCtx, noise, onAudioReady, rawCtx, sfxOut, sfxSilent } from "./core";
+import { loadSamples, playSample } from "./samples";
+
+// 音が 使えるように なったら 素材の 効果音を 読む
+onAudioReady(() => { const ac = rawCtx(); if (ac) loadSamples(ac); });
 
 export type SfxName =
   | "tap" | "confirm" | "cancel" | "tab" | "error"
@@ -335,7 +339,7 @@ export function sfx(name: SfxName, pitch = 1): void {
   if (now - prev < gap) return;
   if (activeVoices(now) >= MAX_VOICES && !PRIORITY.has(name)) return;
   lastAt.set(name, now);
-  const len = MAKERS[name](ac, out, now + 0.005, pitch);
+  const len = playSample(ac, out, name, now + 0.005, pitch) ?? MAKERS[name](ac, out, now + 0.005, pitch);
   voiceEnds.push(now + len);
 }
 
