@@ -584,7 +584,7 @@ function drawObject(id: string, hint?: ObjectKind): HTMLCanvasElement {
     case "shooter": drawShooter(g, id); break;
     case "wall": drawWall(g, id); break;
     case "aoe": drawVacuum(g, id); break;
-    case "slow": drawTape(g); break;
+    case "slow": if (id.includes("kirifuki")) drawMist(g); else drawTape(g); break;
     case "producer": drawBowl(g, id); break;
     case "mine": drawTrap(g); break;
     case "zap": drawZap(g, id); break;
@@ -601,6 +601,29 @@ function bolt(g: G, x: number, y: number, k: number, color = "#ffe14a"): void {
 }
 
 function drawZap(g: G, id: string): void {
+  if (id.includes("seijouki")) {
+    // 空気清浄機（白い 箱・上の 吹き出し口・青い ランプ・きれいな 風と ぱちぱち）
+    rr(g, 32, 26, 64, 86, 16);
+    fs(g, "#f7f6f1", () => {
+      rr(g, 32, 26, 64, 22, 0);
+      g.fillStyle = "#e4e2da";
+      g.fill();
+      for (let x = 40; x <= 88; x += 8) line(g, [x, 30, x, 44], 3, "#b9b5aa");
+      for (let y = 62; y <= 100; y += 7) line(g, [42, y, 86, y], 2, "rgba(150,145,135,0.35)");
+      line(g, [40, 54, 40, 104], 4, "rgba(255,255,255,0.8)");
+    });
+    ell(g, 64, 76, 9, 9);
+    fs(g, "#6fd0ff", () => dot(g, 61, 73, 3, "#e8f8ff"), 4);
+    // 葉っぱの しるし
+    poly(g, [64, 92, 72, 86, 70, 96]);
+    fs(g, "#7cc576", undefined, 3);
+    // きれいな 風（上へ）と 静電気
+    curve(g, 46, 20, 40, 8, 50, 0, 4, "rgba(140,210,255,0.85)");
+    curve(g, 82, 20, 90, 8, 80, -2, 4, "rgba(140,210,255,0.85)");
+    bolt(g, 106, 40, 0.75);
+    bolt(g, 22, 54, 0.6);
+    return;
+  }
   if (id.includes("moufu")) {
     // フリース毛布（たたんだ毛布から、ぱちぱち）
     rr(g, 14, 46, 100, 62, 18);
@@ -625,6 +648,25 @@ function drawZap(g: G, id: string): void {
 }
 
 function drawPoison(g: G, id: string): void {
+  if (id.includes("hotcarpet")) {
+    // ホットカーペット（ななめから 見た しきもの・ゆらゆらの 熱・リモコン）
+    poly(g, [12, 74, 92, 58, 120, 86, 40, 104]);
+    fs(g, "#f39a6a", () => {
+      for (let k = 1; k < 4; k++) line(g, [12 + 20 * k, 74 - 4 * k, 40 + 20 * k, 104 - 4.5 * k], 3, "rgba(255,226,190,0.7)");
+      for (let k = 1; k < 3; k++) line(g, [12 + 9.3 * k, 74 + 10 * k, 92 + 9.3 * k, 58 + 9.3 * k], 3, "rgba(255,226,190,0.7)");
+    });
+    poly(g, [40, 104, 120, 86, 120, 92, 40, 110]);
+    fs(g, "#d46e44", undefined, 4);
+    for (const x of [44, 66, 88]) {
+      curve(g, x, 52, x - 8, 40, x, 28, 5, "rgba(255,150,80,0.85)");
+      curve(g, x, 28, x + 8, 16, x, 6, 4, "rgba(255,150,80,0.55)");
+    }
+    // リモコン
+    curve(g, 22, 86, 10, 96, 14, 106, 4, OL);
+    rr(g, 6, 98, 22, 16, 4);
+    fs(g, "#f6f2e8", () => dot(g, 17, 106, 3, "#ff5a3a"), 4);
+    return;
+  }
   if (id.includes("spray")) {
     // 防虫スプレー
     rr(g, 40, 34, 46, 80, 12);
@@ -683,6 +725,34 @@ function drawShooter(g: G, id: string): void {
     gr.addColorStop(0, "rgba(255,70,70,0.95)"); gr.addColorStop(1, "rgba(255,70,70,0)");
     g.fillStyle = gr; g.beginPath(); g.arc(64, 26, 24, 0, Math.PI * 2); g.fill();
     dot(g, 64, 26, 7, "#ffe9e9");
+    return;
+  }
+  if (id === "gatling") {
+    // わりばしガトリング（わりばしを 束ねた 3本の 銃身・輪ゴムが 3つ・横の ハンドル）
+    poly(g, [50, 76, 78, 76, 84, 110, 60, 112]);
+    fs(g, "#a86f3c");
+    for (const x of [42, 58, 74]) {
+      rr(g, x, 16, 12, 66, 5);
+      fs(g, "#e0ad6e", () => line(g, [x + 4, 22, x + 4, 76], 2, "rgba(255,255,255,0.45)"), 4);
+    }
+    // 束ねる 輪ゴム（銃身の 根元）
+    rr(g, 38, 60, 52, 10, 5);
+    fs(g, "#f2783a", undefined, 4);
+    // 先の 輪ゴム（3つ）
+    for (const x of [48, 64, 80]) {
+      g.beginPath();
+      g.ellipse(x, 18, 10, 5, 0, 0, Math.PI * 2);
+      g.lineWidth = 7; g.strokeStyle = OL; g.stroke();
+      g.lineWidth = 3.5; g.strokeStyle = x === 64 ? "#ffd23f" : "#f2783a"; g.stroke();
+    }
+    // 回す ハンドル
+    line(g, [90, 50, 106, 50, 106, 64], 7, OL);
+    line(g, [90, 50, 106, 50, 106, 64], 3, "#c9ced6");
+    ell(g, 106, 68, 6, 6);
+    fs(g, "#ff6b6b", undefined, 4);
+    // 洗濯ばさみの 引き金
+    rr(g, 30, 74, 14, 20, 4);
+    fs(g, "#f7d34a", undefined, 4);
     return;
   }
   const water = id.includes("deppo") || id.includes("mizu");
@@ -778,16 +848,63 @@ function drawWall(g: G, id: string): void {
 
 function drawVacuum(g: G, id: string): void {
   if (id.includes("surippa")) {
-    // ママのスリッパ
-    ell(g, 64, 70, 30, 46, 0.25);
-    fs(g, "#ff9ac0");
-    ell(g, 60, 52, 26, 22, 0.25);
-    fs(g, "#ffffff", () => {
-      ell(g, 60, 52, 18, 14, 0.25);
-      g.fillStyle = "#ffd0e0";
-      g.fill();
+    // ママのスリッパ（横から: 底・甲の かぶせ・ぽんぽん）
+    path((p) => { p.ellipse(64, 92, 50, 15, -0.12, 0, Math.PI * 2); });
+    g.beginPath(); g.ellipse(64, 92, 50, 15, -0.12, 0, Math.PI * 2);
+    fs(g, "#c85a86");
+    path((p) => { p.ellipse(64, 86, 48, 13, -0.12, 0, Math.PI * 2); });
+    fs(g, "#ffb3cf", () => line(g, [26, 88, 60, 82], 3, "rgba(255,255,255,0.5)"), 4);
+    // 甲の かぶせ（前の 半分）
+    path((p) => {
+      p.moveTo(56, 88);
+      p.quadraticCurveTo(62, 44, 92, 46);
+      p.quadraticCurveTo(116, 50, 112, 78);
+      p.quadraticCurveTo(88, 90, 56, 88);
+      p.closePath();
     });
-    dot(g, 60, 48, 6, "#f7d34a");
+    fs(g, "#ff8ab8", () => {
+      curve(g, 68, 66, 82, 52, 100, 56, 4, "rgba(255,255,255,0.45)");
+      for (const [x, y] of [[80, 70], [96, 66], [90, 78]]) dot(g, x, y, 3, "#ffd0e2");
+    });
+    // ぽんぽん
+    ell(g, 88, 46, 13, 11);
+    fs(g, "#fff3f8", () => dot(g, 84, 42, 4, "#ffffff"), 4);
+    // ばしっ（たたく しるし）
+    for (const [x0, y0, x1, y1] of [[20, 50, 30, 60], [14, 66, 28, 70], [30, 36, 38, 50]]) line(g, [x0, y0, x1, y1], 4, "#f7b23a");
+    return;
+  }
+  if (id.includes("robot")) {
+    // お掃除ロボ（まるい ロボ・前の バンパー・緑の ランプ・横の ブラシ）
+    path((p) => { p.ellipse(64, 86, 48, 22, 0, 0, Math.PI * 2); });
+    fs(g, "#3d4250");
+    path((p) => { p.ellipse(64, 76, 48, 22, 0, 0, Math.PI * 2); });
+    fs(g, "#626a7c", () => {
+      g.beginPath(); g.ellipse(64, 76, 30, 13, 0, 0, Math.PI * 2);
+      g.fillStyle = "#7a8396"; g.fill();
+      g.beginPath(); g.ellipse(52, 70, 16, 5, -0.1, 0, Math.PI * 2);
+      g.fillStyle = "rgba(255,255,255,0.3)"; g.fill();
+    });
+    // バンパー（前）
+    g.beginPath(); g.ellipse(64, 80, 48, 22, 0, 0.15, Math.PI - 0.15);
+    g.lineWidth = 6; g.strokeStyle = "#2a2e38"; g.stroke();
+    // ランプ・ボタン
+    ell(g, 64, 66, 7, 4);
+    fs(g, "#8fffb0", undefined, 3);
+    ell(g, 64, 80, 6, 3);
+    fs(g, "#f7d34a", undefined, 3);
+    // ブラシ（くるくる）
+    for (const [cx, cy] of [[20, 94], [108, 94]]) {
+      for (let k = 0; k < 3; k++) {
+        const ang = (k / 3) * Math.PI * 2 + 0.4;
+        line(g, [cx, cy, cx + Math.cos(ang) * 12, cy + Math.sin(ang) * 5], 3, "#c9ced6");
+      }
+      dot(g, cx, cy, 3.5, "#5a5f6a");
+    }
+    // ねこの 耳（かざり）
+    poly(g, [44, 62, 48, 46, 58, 58]);
+    fs(g, "#626a7c", undefined, 4);
+    poly(g, [84, 62, 80, 46, 70, 58]);
+    fs(g, "#626a7c", undefined, 4);
     return;
   }
   // ホース
@@ -818,6 +935,30 @@ function drawVacuum(g: G, id: string): void {
   // ボタン
   ell(g, 58, 78, 9, 9);
   fs(g, "#f7d34a", undefined, 4);
+}
+
+/** 霧吹き（水の 入った ボトル・白い 引き金・しゅっと 霧）。 */
+function drawMist(g: G): void {
+  rr(g, 40, 50, 46, 62, 14);
+  fs(g, "#bfe8ff", () => {
+    rr(g, 40, 74, 46, 40, 0);
+    g.fillStyle = "#7cc8f2";
+    g.fill();
+    line(g, [48, 58, 48, 104], 4, "rgba(255,255,255,0.7)");
+    for (const [x, y] of [[66, 88], [74, 98], [60, 100]]) dot(g, x, y, 3, "rgba(255,255,255,0.75)");
+  });
+  rr(g, 52, 38, 22, 14, 4);
+  fs(g, "#f0f0f0", undefined, 4);
+  // 頭と ノズル
+  poly(g, [44, 22, 86, 22, 92, 30, 86, 40, 46, 40]);
+  fs(g, "#ffffff", undefined, 5);
+  rr(g, 86, 24, 12, 10, 3);
+  fs(g, "#5a5f6a", undefined, 3);
+  // 引き金
+  poly(g, [52, 40, 60, 40, 56, 64, 48, 60]);
+  fs(g, "#ffffff", undefined, 4);
+  // しゅっ（霧）
+  for (const [x, y, r] of [[106, 26, 5], [114, 18, 4], [116, 34, 4], [122, 26, 3], [108, 12, 3], [110, 40, 3]]) dot(g, x, y, r, "rgba(140,210,255,0.8)");
 }
 
 function drawTape(g: G): void {
