@@ -1,4 +1,4 @@
-// 音の土台（Web Audio API）。音のファイルは使わず、ぜんぶその場で作る。
+// 音の土台（Web Audio API）。BGM と 多くの 効果音は その場で 作る（一部の 効果音は public/sfx の 素材）。
 // AudioContext は、最初にさわった（タップ・キー）ときに1つだけ作る（スマホは、さわるまで音を出せない）。
 
 export interface AudioSettings {
@@ -58,6 +58,8 @@ export function audioCtx(): AudioContext | null {
 }
 
 export function sfxOut(): GainNode | null { return sfxBus; }
+/** 止まっていても 返す（素材の 読みこみ用）。 */
+export function rawCtx(): AudioContext | null { return ctx; }
 export function bgmOut(): GainNode | null { return bgmBus; }
 
 /** 消音か（音を作る手間をはぶくため）。 */

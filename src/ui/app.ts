@@ -239,7 +239,9 @@ export function createApp(root: HTMLElement): AppHandle {
               scrollMem.clear(); modals.closeAll(); render(); toast("データを消しました");
               openSetup(ctx);
             },
-          }, "データを消す"));
+          }, "データを消す"),
+          h("p", { class: "muted small" }, "効果音・ジングル・エフェクトの一部に Kenney（kenney.nl）の素材（CC0）を使っています。",
+            h("a", { href: "./third-party-licenses.txt", target: "_blank", rel: "noopener" }, "くわしく")));
       },
     });
   }

@@ -1,0 +1,12 @@
+このゲームで使っている外部の素材
+
+■ Kenney（https://kenney.nl/）
+ライセンス: Creative Commons Zero (CC0) — 表示は任意ですが、感謝をこめて記します。
+- Interface Sounds（public/sfx/: click, confirmation, back, select, error, drop, minimize, maximize, pluck）
+  https://kenney.nl/assets/interface-sounds
+- Impact Sounds（public/sfx/: impactSoft, impactPunch, impactGeneric, impactWood）
+  https://kenney.nl/assets/impact-sounds
+- Music Jingles（public/sfx/: jingles_STEEL02, jingles_PIZZI01/04/12）
+  https://kenney.nl/assets/music-jingles
+- Particle Pack（public/fx/: star_06, star_08, light_01, smoke_04, spark_04, circle_02, twirl_02。64px・白に変換）
+  https://kenney.nl/assets/particle-pack

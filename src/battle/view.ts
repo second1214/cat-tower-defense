@@ -21,6 +21,7 @@ import { COLS, ROWS } from "../core/types";
 import type { Battle, BattleEvent, BugState, CatState, ObjState } from "./engine";
 import { FEVER_MAX, FLOAT_LIFE, FRENZY_MAX, GOAL_COL, GOAL_H, GOAL_ROW, GOAL_W, GOAL_X, KNOCK_TIME, SIDE_SPAWN_ROWS, SPAWN_Y } from "./engine";
 import { drawFurniture, getCatIdlePose, getCatPose, getFlashSprite, getSprite, imageSize, spriteVersion, type CatPose, type SpriteHint } from "./sprites";
+import { fxTex, loadFxTextures, type FxTex } from "./fxtex";
 import { fmt } from "../core/num";
 
 /** 上の壁（虫の出てくる所）の、少なくともの高さ（マスに対する割合）。 */
@@ -43,6 +44,8 @@ interface Fx {
   r: number;      // 大きさ（マス）
   color: string;
   text?: string;
+  /** 粒子画像（読めて いれば これで 描く。fxtex.ts）。 */
+  tex?: FxTex;
 }
 
 interface Bolt { x0: number; y0: number; x1: number; y1: number; t: number; life: number; k: number; hot?: boolean }
@@ -124,6 +127,7 @@ export class BattleView {
 
   constructor(canvas: HTMLCanvasElement, private readonly battle: Battle) {
     this.canvas = canvas;
+    loadFxTextures();
     this.g = canvas.getContext("2d", { alpha: false })!;
     for (const c of battle.cats) {
       this.catLooks.push(c.char.look || c.char.id);
@@ -284,7 +288,7 @@ export class BattleView {
           // 会心: 当たった所が一瞬光る
           if (e.x2 === 1 && crits++ < 3 && this.fx.length < 280) {
             this.addFx({ type: "flash", x: e.x, y: e.y, r: e.y2 === 1 ? 0.9 : 0.55, life: 0.12, color: "#fff8d0" });
-            this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.3, life: 0.22, color: "#ffe14a" });
+            this.addFx({ type: "spark", x: e.x, y: e.y, r: 0.3, life: 0.22, color: "#ffe14a", tex: "star_08" });
           }
           break;
         case "kibble":
@@ -307,7 +311,7 @@ export class BattleView {
         case "zap":
           if (this.bolts.length >= MAX_BOLTS) this.bolts.shift();
           this.bolts.push({ x0: e.x, y0: e.y, x1: e.x2, y1: e.y2, t: 0, life: 0.3, k: e.value });
-          if (this.fx.length < 300) this.addFx({ type: "spark", x: e.x2, y: e.y2, r: 0.16, life: 0.25, color: "#bfe8ff" });
+          if (this.fx.length < 300) this.addFx({ type: "spark", x: e.x2, y: e.y2, r: 0.22, life: 0.25, color: "#bfe8ff", tex: "spark_04" });
           break;
         case "poisonCloud":
           for (let i = 0; i < 5; i++) {
@@ -386,7 +390,8 @@ export class BattleView {
             const a = (k / np) * Math.PI * 2, v = 2.5 + Math.random() * 3;
             this.addFx({ type: "pop", x: cxp, y: cyp, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, r: 0.11, life: 0.6, color: `hsl(${(k * 360) / np},100%,70%)` });
           }
-          // 光の筋・二重の衝撃波・画面の光
+          // 光の うず（素材）・光の筋・二重の衝撃波・画面の光
+          this.addFx({ type: "rays", x: cxp, y: cyp, r: line ? 2.4 : Math.max(2, e.x2 * 1.1), life: 0.7, color: "#ffe9a0", tex: "twirl_02" });
           this.addFx({ type: "rays", x: cxp, y: cyp, r: line ? 3 : Math.max(2.5, e.x2 * 1.4), life: 0.75, color: "255,236,160" });
           this.addFx({ type: "ring", x: cxp, y: cyp, r: (line ? 2.2 : e.x2) * 1.8, life: 0.7, color: "rgba(255,255,255,0.8)" });
           this.flashScreen("#fff4c8", 0.45, 0.35);
@@ -475,7 +480,7 @@ export class BattleView {
     if (this.fx.length >= MAX_FX) { const old = this.fx.shift(); if (old) this.fxPool.push(old); }
     const o = this.fxPool.pop() ?? { type: "pop", x: 0, y: 0, vx: 0, vy: 0, t: 0, life: 1, r: 0.2, color: "" };
     o.type = f.type; o.x = f.x; o.y = f.y; o.vx = f.vx ?? 0; o.vy = f.vy ?? 0; o.t = 0;
-    o.life = f.life; o.r = f.r ?? 0.2; o.color = f.color; o.text = f.text;
+    o.life = f.life; o.r = f.r ?? 0.2; o.color = f.color; o.text = f.text; o.tex = f.tex;
     this.fx.push(o);
   }
 
@@ -1569,6 +1574,28 @@ export class BattleView {
     g.lineCap = "butt";
   }
 
+  /** 粒子画像で 描けたら true（読めて いない 時は 図形で 描く）。 */
+  private drawTexFx(g: CanvasRenderingContext2D, f: Fx, x: number, y: number, k: number, u: number): boolean {
+    const name: FxTex | undefined = f.tex ?? (f.type === "spark" ? "star_06" : f.type === "flash" ? "light_01" : f.type === "puff" ? "smoke_04" : undefined);
+    if (!name) return false;
+    const img = fxTex(name, f.color);
+    if (!img) return false;
+    // 大きさ: きらめきは 小さく なりながら、光・けむりは ふくらみながら 消える
+    const grow = f.type === "spark" ? 1 - k * 0.4 : f.type === "rays" ? 0.6 + k * 0.6 : 0.6 + k * 0.8;
+    const size = f.r * u * 2 * (f.type === "spark" ? 1.8 : f.type === "puff" ? 1.4 : 1.2) * grow;
+    g.globalAlpha = (f.type === "puff" ? 0.75 : 1) * (1 - k);
+    if (f.type === "spark" || f.type === "rays") {
+      // くるっと 回す（毎回 ちがう 向きに 見えるよう 場所で ずらす）
+      const rot = (f.x * 3.1 + f.y * 1.7) % (Math.PI * 2) + k * (f.type === "rays" ? 2 : 1.2);
+      g.save();
+      g.translate(x, y);
+      g.rotate(rot);
+      g.drawImage(img, -size / 2, -size / 2, size, size);
+      g.restore();
+    } else g.drawImage(img, x - size / 2, y - size / 2, size, size);
+    return true;
+  }
+
   private drawFx(g: CanvasRenderingContext2D, dt: number): void {
     const { cw, ch, u, ox, oy } = this.L;
     let w = 0;
@@ -1582,6 +1609,7 @@ export class BattleView {
       f.y += f.vy * dt;
       if (f.type === "pop" || f.type === "debris") f.vy += 6 * dt;
       const x = ox + f.x * cw, y = oy + f.y * ch;
+      if (this.drawTexFx(g, f, x, y, k, u)) continue;
       switch (f.type) {
         case "pop":
         case "debris":
