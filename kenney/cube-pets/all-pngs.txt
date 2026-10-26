@@ -1,0 +1,28 @@
+Models/OBJ format/Textures/colormap.png
+Models/FBX format/Textures/colormap.png
+Models/GLB format/Textures/colormap.png
+Previews/animal-beaver.png
+Previews/animal-cat.png
+Previews/animal-monkey.png
+Previews/animal-bee.png
+Previews/animal-caterpillar.png
+Previews/animal-crab.png
+Previews/animal-pig.png
+Previews/animal-parrot.png
+Previews/animal-penguin.png
+Previews/animal-elephant.png
+Previews/animal-polar.png
+Previews/animal-giraffe.png
+Previews/animal-fox.png
+Previews/animal-fish.png
+Previews/animal-lion.png
+Previews/animal-bunny.png
+Previews/animal-koala.png
+Previews/animal-cow.png
+Previews/animal-hog.png
+Previews/animal-dog.png
+Previews/animal-tiger.png
+Previews/animal-panda.png
+Previews/animal-chick.png
+Previews/animal-deer.png
+Preview.png
