@@ -8,6 +8,7 @@ export interface EndlessReward {
 
 export const ENDLESS_REWARDS: EndlessReward[] = [
   { wave: 10, kind: "object", id: "laser" },
+  { wave: 15, kind: "object", id: "gatling" },
   { wave: 20, kind: "waza", id: "nijiironokenami" },
   { wave: 30, kind: "object", id: "hotcarpet" },
   { wave: 40, kind: "waza", id: "hyakuretsu" },

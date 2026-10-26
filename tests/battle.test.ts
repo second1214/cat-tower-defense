@@ -1140,7 +1140,7 @@ describe("たくさんの虫（相棒・複合効果つき）", () => {
     const kills0 = b.kills;
     const seen = new Set<string>();
     const t0 = performance.now();
-    const frames = 120;
+    const frames = 240; // 攻撃の 間隔を のばしたので 少し 長く 見る
     for (let i = 0; i < frames; i++) {
       b.step(1 / 60, idle);
       for (const e of b.events) seen.add(e.type);

@@ -1,0 +1,60 @@
+# Kenney（kenney.nl・CC0＝だれでも自由に使える素材）の 効果音・ジングル・粒子画像を ダウンロードして、free-assets ブランチに 置く。
+# 作業用の環境からは kenney.nl に つながらないため、GitHub の 自動処理で 取ってくる（らくがきアリーナの kenney.yml と 同じ 形）。
+# 音は iPhone でも 鳴るように mp3（モノラル・64k）、画像は 128px の png に 小さく する。ゲームへの 組みこみは 別の作業で 必要な物だけ えらぶ。
+name: フリー素材を取る
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/gallant-pascal-rydg8z]
+    paths: [.github/workflows/free-assets.yml]
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ffmpeg と imagemagick を入れる
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg imagemagick > /dev/null
+      - name: ダウンロードして 変換する
+        run: |
+          set -e
+          mkdir -p out
+          for pack in interface-sounds impact-sounds music-jingles particle-pack; do
+            echo "== $pack"
+            curl -sSL -A "Mozilla/5.0" "https://kenney.nl/assets/$pack" -o page.html
+            # ページには ほかの パックの zip も 並ぶので、名前が 合う zip だけを えらぶ
+            key=$(echo "$pack" | tr -d '-')
+            grep -oE '(https?://kenney\.nl)?/[^"'"'"' ]+\.zip' page.html | sort -u > "zips-$pack.txt" || true
+            url=$(while read -r u; do k=$(basename "$u" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9.'); case "$k" in *"$key"*) echo "$u";; esac; done < "zips-$pack.txt" | head -1)
+            case "$url" in /*) url="https://kenney.nl$url";; esac
+            mkdir -p "out/$pack"
+            cp "zips-$pack.txt" "out/$pack/zips-on-page.txt"
+            if [ -z "$url" ]; then echo "zip が 見つからない: $pack"; continue; fi
+            echo "$url" | tee "out/$pack/url.txt"
+            curl -sSL -A "Mozilla/5.0" "$url" -o pack.zip
+            rm -rf x && mkdir x && unzip -q pack.zip -d x
+            find x -iname 'license*' -exec cp {} "out/$pack/License.txt" \; -quit
+            find x -type f \( -iname '*.ogg' -o -iname '*.wav' -o -iname '*.mp3' \) | while read -r f; do
+              n=$(basename "${f%.*}")
+              ffmpeg -loglevel error -y -i "$f" -ac 1 -ar 44100 -b:a 64k "out/$pack/$n.mp3" < /dev/null
+            done
+            # 粒子は 透明つきの png（大きい物は 128px に）。同じ名前が いくつも ある時は 最初の1つ
+            find x -type f -iname '*.png' | grep -iv preview | while read -r f; do
+              n=$(basename "$f")
+              [ -e "out/$pack/$n" ] || convert "$f" -resize '128x128>' "out/$pack/$n"
+            done
+            ( cd "out/$pack" && ls *.mp3 2>/dev/null | while read -r m; do d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$m"); echo "$m $d"; done > index.txt; ls *.png 2>/dev/null >> index.txt || true )
+            echo "$(ls out/$pack | wc -l) files"
+          done
+          du -sh out/*
+      - name: free-assets ブランチに 置く（前の版は 消して 作り直す）
+        run: |
+          cd out
+          git init -q -b free-assets
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          printf '# Kenney の素材（CC0）\nhttps://kenney.nl/ から 取った 効果音・ジングル（mp3 に 変換）と 粒子の 画像（128px）。ライセンスは 各フォルダの License.txt（Creative Commons Zero）。\n' > README.md
+          git add -A && git commit -q -m "Kenney の素材（CC0）"
+          remote="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push "$remote" --delete free-assets || true
+          git push "$remote" free-assets

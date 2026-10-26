@@ -127,6 +127,9 @@ const EVENT_POOL = 8192;
 const SQRT2 = Math.SQRT2;
 
 // ---- オブジェクトの耐久 ----
+/** 猫に これより 長く 足止めされた 虫は、かじりながら BITE_PUSH の 速さで 押し進む（秒）。 */
+const BITE_PATIENCE = 6;
+const BITE_PUSH = 0.35;
 /** 通れるオブジェクトの上を歩く虫が与えるダメージの倍率（攻撃力 × これ を atkInterval ごと）。 */
 export const WEAR_MUL = 0.5;
 /** かじる虫の道で、通れないオブジェクトのマスに入るときに足す長さ（歩数）。 */
@@ -193,6 +196,8 @@ export interface BugState {
   slowMul: number;     // 今かかっている slow の倍率（1 なら無し）
   slowTimer: number;
   atkTimer: number;
+  /** 猫を かじりつづけている 時間（長くなると かじりながら 少しずつ 押し進む）。 */
+  biteTime: number;
   mode: BugMode;
   hurt: number;        // 攻撃を受けてからの残り表示時間（点滅用）
   alive: boolean;
@@ -1303,7 +1308,7 @@ export class Battle {
       speed: def.speed,
       slowMul: 1,
       slowTimer: 0,
-      atkTimer: 0,
+      atkTimer: 0, biteTime: 0,
       mode: "walk",
       hurt: 0,
       alive: true,
@@ -2042,8 +2047,9 @@ export class Battle {
   }
 
   // ---- オブジェクト ----
+  // 電源の 速さの 上乗せは、攻撃する オブジェクトでは 威力に まわす（撃つ回数は ふやさない）
   private objAtk(o: ObjState): number {
-    return o.atk * (1 + this.auraBonus(o));
+    return o.atk * (1 + this.auraBonus(o)) * (1 + this.buffOf(o).spd);
   }
 
   /** 会心の判定（当たるたびに）。 */
@@ -2095,8 +2101,8 @@ export class Battle {
       if (o.hurt > 0) o.hurt -= h;
       const d = o.def;
       const cx = o.cx, cy = o.cy;
-      // 電源タップ（buff）が近くにあると速くなる
-      const oh = h * (1 + this.buffOf(o).spd);
+      // 電源タップ（buff）が近くにあると 生産は 速くなる（攻撃は 威力が 上がる: objAtk）
+      const oh = d.kind === "producer" ? h * (1 + this.buffOf(o).spd) : h;
       // range はしめるマスの中心からの半径
       const range = d.range || 0;
       switch (d.kind) {
@@ -2486,12 +2492,19 @@ export class Battle {
       if (bit) {
         if (b.mode !== "bite") { b.mode = "bite"; b.atkTimer = 0; }
         b.atkTimer += h;
+        b.biteTime += h;
         if (b.atkTimer >= b.def.atkInterval) {
           b.atkTimer -= b.def.atkInterval;
           this.damageCat(bit, b.atk);
         }
+        // 長く 足止めされた 虫（ぬし 以外）は、かじりながら 少しずつ 押し進む（相棒が 出口で ずっと 止めて 終わらないのを ふせぐ）
+        if (b.biteTime > BITE_PATIENCE && !b.def.boss) {
+          this.moveGround(b, b.speed * b.slowMul * h * BITE_PUSH);
+          if (s.result) return;
+        }
         continue;
       }
+      b.biteTime = 0;
       // 行く手のオブジェクトをかじる（かじる虫）
       const co = b.chewObj;
       if (co) {
