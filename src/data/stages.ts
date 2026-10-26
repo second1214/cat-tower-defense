@@ -17,7 +17,8 @@ import { COLS, ROWS, type Obstacle, type StageDef, type WaveDef } from "../core/
 import { BUGS, bossIdOf, isTraitBug, type BugInfo } from "./bugs";
 import { mulberry32, pick } from "../core/rng";
 
-export const CHAPTERS = 10;
+// 2026-10-26: 11・12章を 足した（家族 Lv150〜260 の ねこドアの 先で 手ごたえの ある ステージ）
+export const CHAPTERS = 12;
 export const STAGES_PER_CHAPTER = 10;
 
 /** 1ステージ進むごとの虫の体力・攻撃の倍率。 */
@@ -26,6 +27,10 @@ export const HP_GROWTH = 1.34;
 export const HP_BASE = 3.4;
 export const HP_BASE_START = 1;
 export const ATK_GROWTH = 1.25;
+/** 群れの 虫の 数を これで わり、1匹の 体力を これ倍に（体力の 合計は 同じ）。虫が 多くなる 6章から。 */
+export const SWARM_PACE = 1.6;
+export const SWARM_FROM_CHAPTER = 6;
+export const swarmPaceOf = (chapter: number) => (chapter >= SWARM_FROM_CHAPTER ? SWARM_PACE : 1);
 
 /** 難関の、ふつうの伸びに上乗せする体力の倍率（[ふつう, 難関, 大難関]）。大難関は、このほかに「ぬしの波」がある。 */
 export const WALL_HP_MUL = [1, 6, 4.5] as const;
@@ -38,12 +43,14 @@ export const WALL_ATK_MUL = [1, 1.3, 1.6] as const;
 export const CHAPTER_NAMES = [
   "リビング", "だいどころ", "しんしつ", "わしつ", "しょさい",
   "おふろば", "こどもべや", "ひろいリビング", "はなれ", "やねうら",
+  "ものおき", "おにわ",
 ];
 
 /** 章ごとの部屋（床の見た目と家具）。いくつかあるときは、ステージごとに床を変え、家具はまぜる。 */
 export const CHAPTER_THEMES: string[][] = [
   ["living"], ["kitchen"], ["bedroom"], ["washitsu"], ["study"], ["bath"],
   ["bedroom", "study"], ["living", "kitchen"], ["washitsu", "living"], ["study", "kitchen", "bedroom", "bath"],
+  ["study", "washitsu"], ["living", "bath", "kitchen"],
 ];
 
 /** 通し番号（0 始まり）→ "章-番号"。 */
@@ -70,8 +77,13 @@ export function wallOf(g: number): 0 | 1 | 2 {
 export const IN_CHAPTER_GROWTH = 1.1;
 /** 章ごとの体力の倍率（ふつうに進めたときの成長のしかた（特殊効果・装備の合成・レリック）に合わせて、ならした表）。 */
 /** 難関ごとの上乗せ（本物の戦闘のボットで、来たときに勝ててしまう難関をならす）。[難関, 大難関] × 章。 */
-export const WALL_EXTRA: number[][] = [[], [1, 2.5, 1, 1, 1, 1, 1, 0.6, 0.8, 1], [1, 1, 2.5, 1, 1, 1, 1, 1, 1, 1]];
-export const CHAPTER_HP_MUL = [1, 4.5, 6, 17, 26, 130, 820, 2200, 2600, 1800];
+export const WALL_EXTRA: number[][] = [[], [1, 2.5, 1, 1, 3, 1, 1, 0.6, 0.8, 1], [1, 1, 2.5, 1, 1, 1, 1, 0.5, 1, 0.6, 1, 0.45]];
+export const CHAPTER_HP_MUL = [1, 4.5, 6, 17, 26, 130, 820, 2200, 2600, 1800, 1800, 2400];
+/**
+ * 輪ゴム鉄砲の「弾5本＋爆ぜる」を やめた ぶん、後半の 本物の戦闘は 群れを 片づけにくく なった。その分 虫の 体力を 下げる。
+ * 目安（stageRatio）には 入れない（＝目安の 計算は 前と 同じ。実戦より 楽観的 だった 目安が 実戦に 近づく）。ボットで 測った 章ごとの 値。
+ */
+export const REAL_EASE = [1, 1, 1, 1, 1, 0.3, 0.3, 0.25, 0.25, 0.25, 0.25, 0.1];
 
 /** 虫の体力の倍率（ふつうの伸び × 章の中の伸び × 章の倍率 × 難関の上乗せ）。 */
 export function stageHpMul(g: number): number {
@@ -79,7 +91,7 @@ export function stageHpMul(g: number): number {
   const base = HP_BASE_START + (HP_BASE - HP_BASE_START) * Math.pow(Math.min(1, g / STAGES_PER_CHAPTER), 2);
   const w = wallOf(g);
   const spike = w > 0 ? WALL_HP_MUL[w] * (1 + WALL_HP_PER_CHAPTER * ch) * (WALL_EXTRA[w][ch] ?? 1) : 1;
-  return base * Math.pow(HP_GROWTH, g) * Math.pow(IN_CHAPTER_GROWTH, i) * (CHAPTER_HP_MUL[ch] ?? 1) * spike;
+  return base * Math.pow(HP_GROWTH, g) * Math.pow(IN_CHAPTER_GROWTH, i) * (CHAPTER_HP_MUL[ch] ?? 1) * spike * (REAL_EASE[ch] ?? 1);
 }
 
 /** ステージの報酬の目安（core の grantRewards がこれをもとに抽選）。難関は多め。 */
@@ -382,9 +394,11 @@ function makeStage(g: number): StageDef {
       const pack = Math.max(1, b.pack ?? 1);
       const size = (g < 4 ? 6 : SWARM_BASE) + w * 1.5 + chapter * 1.8 + (g % 10) * 0.4;
       // 群れの虫は、1回に pack 匹出るので回数を減らす（それでも数は多め）
-      const count = Math.max(3, Math.round((size * waveRamp(p) * Math.pow(2 / b.hp, 0.5) * (pack > 1 ? 1.5 : 1)) / pack));
-      // 出てくる間かくも、最初はゆっくり・最後はびっしり
-      const every = Math.round(Math.max(0.25, (1.4 - g * 0.009) * (1.4 - 0.8 * p) * (pack > 1 ? 1.6 : 1)) * 100) / 100;
+      // 群れは 数を SWARM_PACE で わって、1匹の 体力を その分 強く（波の hpMul）。画面の 虫と エフェクトが へり、
+      // 間かくの 長い 攻撃でも 追いつける（2026-10-26）
+      const count = Math.max(3, Math.round((size * waveRamp(p) * Math.pow(2 / b.hp, 0.5) * (pack > 1 ? 1.5 : 1)) / pack / swarmPaceOf(chapter)));
+      // 出てくる間かくも、最初はゆっくり・最後はびっしり（数を へらした ぶん 間を あける）
+      const every = Math.round(Math.max(0.25, (1.4 - g * 0.009) * (1.4 - 0.8 * p) * (pack > 1 ? 1.6 : 1) * swarmPaceOf(chapter)) * 100) / 100;
       // はじめは1か所から。進むと、いくつもの所から同時に出てくる（lanes なしは、ばらばら）。難関は出口が多い
       const nLanes = g < 3 ? 1
         : wall > 0 ? Math.min(5, 2 + Math.floor(chapter / 3) + wall - 1 + Math.floor(rng() * 2))
@@ -392,7 +406,7 @@ function makeStage(g: number): StageDef {
       const lanes = rng() < (wall > 0 ? 0.35 : 0.25) && g >= 10 ? undefined : pickLanes(rng, nLanes);
       bugs.push(lanes ? { bug: b.id, count, every, lanes } : { bug: b.id, count, every });
     }
-    waves.push({ at: t, bugs });
+    waves.push(swarmPaceOf(chapter) > 1 ? { at: t, hpMul: swarmPaceOf(chapter), bugs } : { at: t, bugs });
     // 次の波は前の波が出きる前から（とぎれずに次々と）
     const longest = Math.max(...bugs.map((x) => x.count * x.every));
     t += Math.max(8, Math.round(longest * 0.7));
@@ -422,7 +436,7 @@ function makeStage(g: number): StageDef {
     obstacles: makeObstacles(g, chapter, wall, themes, theme, mulberry32(4242 + g * 131)),
     // 序盤（1・2章）はカリカリを多めに（はじめの手持ちと、虫が落とす量）
     startKibble: g < 10 ? 100 : g < 20 ? 85 : 60,
-    kibbleMul: g < 10 ? 1.5 : g < 20 ? 1.3 : 1,
+    kibbleMul: (g < 10 ? 1.5 : g < 20 ? 1.3 : 1) * swarmPaceOf(chapter), // 虫が へった ぶん 1匹の カリカリを ふやす
     kibblePerSec: 0,   // カリカリは時間では増えない。虫を倒して落とす（と餌皿）だけ
     rewards: rewardsOf(g, wall),
     wall,

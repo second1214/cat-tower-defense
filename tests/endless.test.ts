@@ -62,7 +62,7 @@ describe("エンドレスの EX", () => {
     for (let i = 0; i < 30; i++) for (const r of (pull(s, rng, 10) as { ok: true; value: { rarity: string }[] }).value) expect(r.rarity).not.toBe("EX");
     s.endlessBest = 25;
     const got = syncEndlessRewards(s);
-    expect(got.map((g) => g.id)).toEqual(["laser", "nijiironokenami"]);
+    expect(got.map((g) => g.id)).toEqual(["laser", "gatling", "nijiironokenami"]);
     expect(s.objects.laser).toBeTruthy();
     expect(s.wazas.nijiironokenami).toBeTruthy();
     expect(syncEndlessRewards(s)).toEqual([]);

@@ -24,7 +24,7 @@ import {
 } from "../data/equips";
 import { RELICS, RELIC_MAP, type RelicStat } from "../data/relics";
 import { ENDLESS_REWARDS, type EndlessReward } from "../data/endless";
-import { makeEndlessStage, STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
+import { makeEndlessStage, REAL_EASE, STAGES, STAGE_MAP, mazeLength, stageIndexOf } from "../data/stages";
 import { bugDefs } from "../data/bugs";
 
 export type Result<T = undefined> = { ok: true; value: T } | { ok: false; reason: string };
@@ -65,8 +65,12 @@ export function nextStageId(save: SaveData): string {
 // ================= 猫・経験値・ちゅ〜る =================
 
 /** 次のレベルまでの経験値。 */
+// レベル100 から 上は 伸びを ゆるめる（ねこドアの Lv150・200 まで 遠すぎたので。2026-10-26）
+export const EXP_SOFT_FROM = 100;
+export const EXP_SOFT_GROWTH = 1.12;
 export function expToNext(level: number): number {
-  return Math.round(8 * Math.pow(1.2, level - 1));
+  const hard = Math.min(level, EXP_SOFT_FROM) - 1, soft = Math.max(0, level - EXP_SOFT_FROM);
+  return Math.round(8 * Math.pow(1.2, hard) * Math.pow(EXP_SOFT_GROWTH, soft));
 }
 
 /** そのレベルに上がったときにもらえるちゅ〜る（ふだん 3、10 レベルごとに +10、50 レベルごとにさらに +30）。 */
@@ -791,6 +795,7 @@ export function resolveCat(save: SaveData, uid: string = heroUid(save), companio
   const b = { ...ROLE_BASE[role], ...SPECIAL0, ...(w.shape ?? {}) };
   const lv = c.level;
   const baseMul = RARITY_MUL[w.rarity] * bondMul(c.bond) * (companion ? COMPANION_POWER : 1);
+  const pace = pacedAttack(b.atkInterval, Math.max(0.15, (b.atkInterval * m.intervalMul) / (1 + p.atkSpd))); // 0.15 秒は 前からの 上限（それより 速い分は 前から 効かない）
   const combos: Partial<Record<ComboId, number>> = {};
   for (const [k, v] of Object.entries(m.combos) as [ComboId, number][]) if (v > 0) combos[k] = v;
   return {
@@ -807,8 +812,8 @@ export function resolveCat(save: SaveData, uid: string = heroUid(save), companio
       charge: SPECIAL_CHARGE[w.rarity],
     },
     maxHp: b.maxHp * baseMul * Math.pow(CHAR_GROWTH.hp, lv - 1) * m.hpMul * (1 + p.hp) * eq.charHpMul * rel.charHp,
-    atk: b.atk * baseMul * Math.pow(CHAR_GROWTH.atk, lv - 1) * m.atkMul * (1 + p.atk) * eq.charAtkMul * rel.dmg,
-    atkInterval: Math.max(0.15, (b.atkInterval * m.intervalMul) / (1 + p.atkSpd)),
+    atk: b.atk * baseMul * Math.pow(CHAR_GROWTH.atk, lv - 1) * m.atkMul * (1 + p.atk) * eq.charAtkMul * rel.dmg * pace.atkMul,
+    atkInterval: pace.interval,
     range: b.range + m.range,
     aoe: b.aoe > 0 ? b.aoe + m.aoe : 0,
     moveSpeed: b.moveSpeed * m.moveMul * (1 + p.move) * eq.charMoveMul,
@@ -862,6 +867,20 @@ export function applyPerks(base: ObjectBase, perks: ObjectPerk[], lv: number): {
   return { stats, names };
 }
 
+/**
+ * 攻撃の 間隔を 一律に 長くして、そのぶん 1回の 威力を 上げる（強さは 同じ。弾・エフェクト・計算が へって 電池が もつ）。
+ * 速さの 強化（スキル・装備・強化パーク）は もとの 間隔の MIN_INTERVAL_FRAC まで。それより 速い分は 威力に まわす。
+ */
+export const ATTACK_PACE = 1.6;
+export const MIN_INTERVAL_FRAC = 0.6;
+export function pacedAttack(baseInterval: number, interval: number): { interval: number; atkMul: number } {
+  const floor = baseInterval * ATTACK_PACE * MIN_INTERVAL_FRAC;
+  const iv = interval * ATTACK_PACE;
+  return iv >= floor ? { interval: iv, atkMul: ATTACK_PACE } : { interval: floor, atkMul: ATTACK_PACE * (floor / iv) };
+}
+/** 間隔を のばす オブジェクト（弾・範囲・電撃・毒）。生産・壁・足止め・地雷・電源は そのまま。 */
+const PACED_KINDS = new Set(["shooter", "aoe", "zap", "poison"]);
+
 /** オブジェクトの攻撃の底上げ（押し戻しで足止めできなくなったぶん。オブジェクトが主役）。 */
 export const OBJ_ATK_BOOST = 1.3;
 /** 1回に落ちる、かけらの数の倍率。 */
@@ -882,14 +901,15 @@ export function resolveObject(save: SaveData, id: string): ResolvedObject | null
   const costMul = Math.max(0.4, 1 - eq.objCost - rel.objCost);
   const attacks = b.atk > 0;
   const shooter = def.kind === "shooter";
+  const pace = attacks && PACED_KINDS.has(def.kind) ? pacedAttack(def.base.interval, Math.max(0.1, b.interval * intMul)) : { interval: Math.max(0.1, b.interval * intMul), atkMul: 1 };
   return {
     id: def.id,
     name: def.name,
     kind: def.kind,
     cost: Math.max(1, Math.round(b.cost * costMul)),
     maxHp: b.maxHp * g * eq.baseHpMul * (1 + eq.objHp) * sk.objHpMul,
-    atk: b.atk * g * atkMul,
-    interval: Math.max(0.1, b.interval * intMul),
+    atk: b.atk * g * atkMul * pace.atkMul,
+    interval: pace.interval,
     range: b.range,
     slow: Math.max(0.15, Math.min(1, b.slow)),
     produce: b.produce * (1 + OBJ_PRODUCE_PER_LEVEL * (lv - 1)) * (1 + eq.produce),
@@ -1179,8 +1199,9 @@ export function stageParts(stage: StageDef): {
       const b = bugs[g.bug];
       if (!b) continue;
       const n = g.count * Math.max(1, Math.floor(b.pack ?? 1));
-      if (b.boss) { bossHp = Math.max(bossHp, b.hp * stage.hpMul); bossCount += n; bossSpeed = b.speed; continue; }
-      regHp += b.hp * stage.hpMul * n;
+      const wm = w.hpMul ?? 1; // 波ごとの 体力の 倍率（群れは 数を へらして 1匹を 強く している）
+      if (b.boss) { bossHp = Math.max(bossHp, b.hp * stage.hpMul * wm); bossCount += n; bossSpeed = b.speed; continue; }
+      regHp += b.hp * stage.hpMul * wm * n;
       regCount += n;
       sp += b.speed * n;
     }
@@ -1230,8 +1251,13 @@ export function stageRatio(lo: Pick<Loadout, "char" | "objects" | "stage"> & Par
     const dps = catBoss + many.placed * single * many.upMul * aura;
     boss = (EST_SCALE_BOSS * dps * (p.path / p.bossSpeed)) / p.bossHp;
   }
-  return { ratio: Math.min(swarm, boss), swarm, boss, parts: { char, companions, objects } };
+  // 難関は 本物の戦闘では 目安より ずっと きびしい（はじめの波から 強い虫が つづき、ママに 着く前に 倒しきれない）。
+  // ボットの 戦闘で 測って 目安を 合わせる（[ふつう, 難関, 大難関]）
+  // 体力の ゆるめ（REAL_EASE）は 目安に 入れない（目安は 前と 同じ きびしさ で 見る）
+  const wm = (WALL_EST_MUL[st.wall ?? 0] ?? 1) * (REAL_EASE[st.chapter - 1] ?? 1);
+  return { ratio: Math.min(swarm, boss) * wm, swarm: swarm * wm, boss: boss * wm, parts: { char: char * wm, companions: companions * wm, objects: objects * wm } };
 }
+export const WALL_EST_MUL = [1, 0.5, 0.4];
 
 /**
  * だいたいの DPS（1秒あたりのダメージ）。char は主人公、companions は相棒の合計。
@@ -1273,7 +1299,7 @@ export function stageLoad(stage: StageDef): { totalHp: number; duration: number;
     for (const g of w.bugs) {
       const b = bugs[g.bug];
       const n = g.count * Math.max(1, Math.floor(b?.pack ?? 1));
-      totalHp += (b?.hp ?? 0) * stage.hpMul * n;
+      totalHp += (b?.hp ?? 0) * stage.hpMul * (w.hpMul ?? 1) * n;
       count += n;
       const walk = path / Math.max(0.1, b?.speed ?? 0.5);
       end = Math.max(end, w.at + g.count * g.every + walk * 0.5);

@@ -21,9 +21,11 @@ export interface BugInfo extends BugDef {
  * 章ごとのぬし（ボス）の体力の倍率。ぬしは1匹ずつ（まとめて当てる範囲・拡散・連鎖があまり効かない）なので、
  * ふつうの虫（群れ）とは別に、ふつうに進めたときの「1匹に当てる強さ」に合わせる。
  */
-export const BOSS_HP_SCALE = [0.17, 0.23, 0.43, 0.06, 0.09, 0.053, 0.09, 0.025, 0.03, 0.015];
+export const BOSS_HP_SCALE = [0.17, 0.23, 0.43, 0.06, 0.09, 0.053, 0.09, 0.025, 0.03, 0.015, 0.015, 0.015];
 /** ぬしはオブジェクトの攻撃が 0.35 倍しか効かない（battle/engine の BOSS_OBJ_MUL）ぶん、体力を下げてならす。 */
 export const BOSS_RESIST_COMP = 0.5;
+/** ぬしが いる 章の数（stages.ts の CHAPTERS と 同じ。循環 import を さけて ここにも 書く）。 */
+export const BOSS_CHAPTERS = 12;
 
 export const BUGS: BugInfo[] = [
   { id: "ari", name: "アリ", hp: 2, atk: 1, speed: 0.45, atkInterval: 1, drop: 2, from: 0, desc: "列になってやってくる。お菓子のにおいが好き。" },
@@ -65,10 +67,10 @@ export const BUGS: BugInfo[] = [
 
 /** 章ごとのぬし: 奇数の章はハチ、偶数の章はムカデ（後の章ほど大物）。id の頭が絵の形（suzumebachi / mukade）。 */
 function makeBosses(): BugInfo[] {
-  const hornets = ["スズメバチ", "オオスズメバチ", "キイロスズメバチ", "クロスズメバチ", "女王スズメバチ"];
-  const centis = ["ムカデ", "オオムカデ", "トビズムカデ", "アオズムカデ", "ムカデの親分"];
+  const hornets = ["スズメバチ", "オオスズメバチ", "キイロスズメバチ", "クロスズメバチ", "女王スズメバチ", "でんせつのスズメバチ"];
+  const centis = ["ムカデ", "オオムカデ", "トビズムカデ", "アオズムカデ", "ムカデの親分", "ムカデの大王"];
   const out: BugInfo[] = [];
-  for (let ch = 1; ch <= 10; ch++) {
+  for (let ch = 1; ch <= BOSS_CHAPTERS; ch++) {
     const hornet = ch % 2 === 1;
     const k = Math.floor((ch - 1) / 2);
     out.push({

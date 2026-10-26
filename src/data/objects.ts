@@ -104,15 +104,16 @@ const P = (level: number, id: string, name: string, desc: string, ...effects: Pe
 export const OBJECTS: ObjectDef[] = [
   {
     id: "wagomu", name: "輪ゴム鉄砲", kind: "shooter", rarity: "N", unlockStage: 0,
-    desc: "近くの虫に向かって、輪ゴムをぱちん。レベルが上がると何本もまとめて撃てる。",
+    desc: "近くの虫に向かって、輪ゴムをぱちん。レベルが上がると2本・3本と撃てる。",
     base: B("shooter", { cost: 30, maxHp: 12, atk: 2, interval: 1.0, range: 4, w: 2, h: 2 }),
+    // 2026-10-26: 弾5本＋爆ぜる で 群れに 強すぎたので ふつうの 強さに（強い 型は EX の わりばしガトリングへ）
     perks: [
       P(3, "rapid", "連射", "引き金が軽くなる。間隔 -15%", mul("interval", 0.85)),
-      P(6, "spread", "拡散", "輪ゴムを3本まとめて。弾 +2", add("multishot", 2), add("spread", 0.5)),
+      P(6, "spread", "2本うち", "輪ゴムを2本まとめて。弾 +1", add("multishot", 1), add("spread", 0.35)),
       P(10, "pierce", "貫通", "太い輪ゴムで、虫を1匹つらぬく", add("pierce", 1)),
       P(15, "crit", "会心", "ねらいすまして。会心 15%", add("crit", 0.15)),
-      P(20, "spread2", "拡散+", "5本まとめて。弾 +2", add("multishot", 2), add("spread", 0.2)),
-      P(30, "burst", "爆ぜる", "当たった輪ゴムがはじけて、まわりの虫にも", add("splash", 0.8)),
+      P(20, "thick", "太い輪ゴム", "攻撃 ×1.3", mul("atk", 1.3)),
+      P(30, "spread2", "3本うち", "3本まとめて。弾 +1", add("multishot", 1), add("spread", 0.15)),
       P(40, "rapid2", "連射+", "目にもとまらぬ早撃ち。間隔 -20%", mul("interval", 0.8)),
       P(50, "crit2", "会心+", "会心 +15%・会心の倍率 +1", add("crit", 0.15), add("critMul", 1)),
     ],
@@ -359,6 +360,22 @@ export const OBJECTS: ObjectDef[] = [
     ],
   },
   // ======== エンドレスでだけ手に入る（EX）。unlockStage はストーリーでは来ない数 ========
+  {
+    id: "gatling", name: "わりばしガトリング", kind: "shooter", rarity: "EX", unlockStage: EX_ONLY,
+    power: 0.3,
+    desc: "わりばしを 何本も 組んだ 連射の 鉄砲。輪ゴムが 5本ずつ 飛んで、当たると はじける。",
+    base: B("shooter", { cost: 40, maxHp: 14, atk: 2, interval: 1.0, range: 4, w: 2, h: 2 }),
+    perks: [
+      P(3, "rapid", "連射", "間隔 -15%", mul("interval", 0.85)),
+      P(6, "spread", "拡散", "輪ゴムを3本まとめて。弾 +2", add("multishot", 2), add("spread", 0.5)),
+      P(10, "pierce", "貫通", "虫を1匹つらぬく", add("pierce", 1)),
+      P(15, "crit", "会心", "会心 15%", add("crit", 0.15)),
+      P(20, "spread2", "拡散+", "5本まとめて。弾 +2", add("multishot", 2), add("spread", 0.2)),
+      P(30, "burst", "爆ぜる", "当たった輪ゴムがはじけて、まわりの虫にも", add("splash", 0.8)),
+      P(40, "rapid2", "連射+", "間隔 -20%", mul("interval", 0.8)),
+      P(50, "crit2", "会心+", "会心 +15%・会心の倍率 +1", add("crit", 0.15), add("critMul", 1)),
+    ],
+  },
   {
     id: "laser", name: "レーザーポインター", kind: "shooter", rarity: "EX", unlockStage: EX_ONLY,
     power: 0.36,

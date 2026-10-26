@@ -13,6 +13,7 @@ import {
   objectPerks, resolveObject, objectDps, equipBonus, registerCat, updateCat, removeCat, setParty, equipWaza,
   familyLevel, catPower, partyRoles, addBondExp, bondToNext, COMPANION_POWER,
   IDLE_EXP_RATE, heroUid, powerRatio,
+  ATTACK_PACE,
 } from "../src/core/progress";
 import {
   GACHA_RATES, PITY_PULLS, PULL10_COST, PULL_COST, WAZA_REFUND, gainWaza, pull, pullCost, pullRates, pullsToPity,
@@ -92,7 +93,7 @@ describe("データ", () => {
     expect(CHARS.length).toBe(20);
     expect(OBJECTS.length).toBeGreaterThanOrEqual(10);
     expect(BUGS.length).toBeGreaterThanOrEqual(8);
-    expect(STAGES.length).toBe(100);
+    expect(STAGES.length).toBe(120); // 12章（2026-10-26 に 11・12章を 足した）
     expect(RELICS.length).toBeGreaterThanOrEqual(20);
     for (const list of [CHARS, OBJECTS, BUGS, EQUIPS, RELICS, STAGES, WAZAS, PERSONALITIES]) {
       const ids = list.map((x) => x.id);
@@ -337,7 +338,10 @@ describe("データ", () => {
     }
     // 種類ごとの「らしい」効果
     const has = (id: string, stat: string) => OBJECT_MAP[id].perks.some((p) => p.effects.some((e) => e.stat === stat));
-    expect(has("wagomu", "multishot") && has("wagomu", "pierce") && has("wagomu", "splash") && has("wagomu", "crit")).toBe(true);
+    expect(has("wagomu", "multishot") && has("wagomu", "pierce") && has("wagomu", "crit")).toBe(true);
+    // 群れに 強すぎた「爆ぜる」は EX の わりばしガトリングだけ
+    expect(has("wagomu", "splash")).toBe(false);
+    expect(has("gatling", "multishot") && has("gatling", "splash")).toBe(true);
     expect(has("soujiki", "range") && has("soujiki", "knockback") && has("soujiki", "slow")).toBe(true);
     expect(has("shitajiki", "chain") && has("shitajiki", "range")).toBe(true);
     expect(has("katorisenko", "poison") && has("katorisenko", "poisonSpread") && has("katorisenko", "range")).toBe(true);
@@ -461,7 +465,7 @@ describe("データ", () => {
     const counts = STAGES.map((s) => stageLoad(s).count);
     expect(counts[0]).toBeGreaterThanOrEqual(20);
     expect(counts[99]).toBeGreaterThanOrEqual(300);
-    expect(Math.min(...counts.slice(50))).toBeGreaterThanOrEqual(150);
+    expect(Math.min(...counts.slice(50))).toBeGreaterThanOrEqual(90); // 6章からは 数を へらして 1匹を 強く（SWARM_PACE）
     // 1ステージの中では、最初の波は少なく、最後の波ほど多い
     const waveCount = (w: (typeof STAGES)[number]["waves"][number]) => w.bugs.reduce((a, x) => a + x.count, 0);
     // （大難関の最後の「ぬしの波」は、ぬしとお供だけなので、その前の波でくらべる）
@@ -1153,18 +1157,18 @@ describe("オブジェクト", () => {
     expect(ps.filter((p) => p.unlocked).map((p) => p.level)).toEqual([3, 6]);
     expect(ps[0]).toMatchObject({ level: 3, name: "連射", unlocked: true });
     const r6 = resolveObject(s, "wagomu")!;
-    expect(r6.perks).toEqual(["連射", "拡散"]);
-    expect(r6.multishot).toBe(2);
+    expect(r6.perks).toEqual(["連射", "2本うち"]);
+    expect(r6.multishot).toBe(1);
     expect(r6.spread).toBeGreaterThan(0);
-    expect(r6.interval).toBeCloseTo(OBJECT_MAP.wagomu.base.interval * 0.85);
+    expect(r6.interval).toBeCloseTo(OBJECT_MAP.wagomu.base.interval * 0.85 * ATTACK_PACE);
     s.objects.wagomu.level = 2;
     expect(resolveObject(s, "wagomu")!.perks).toEqual([]);
     s.objects.wagomu.level = 50;
     const r50 = resolveObject(s, "wagomu")!;
     expect(r50.perks.length).toBe(8);
-    expect(r50.multishot).toBe(4);
+    expect(r50.multishot).toBe(2);
     expect(r50.pierce).toBe(1);
-    expect(r50.splash).toBeGreaterThan(0);
+    expect(r50.splash).toBe(0); // 爆ぜるは EX の わりばしガトリングへ
     expect(r50.crit).toBeCloseTo(0.3);
     expect(r50.critMul).toBeCloseTo(2.5);
     // 電撃の連鎖・毒の伝染
@@ -1190,7 +1194,7 @@ describe("オブジェクト", () => {
     const d5 = objectDps(resolveObject(s, "wagomu")!) / resolveObject(s, "wagomu")!.atk;
     s.objects.wagomu.level = 6;
     const d6 = objectDps(resolveObject(s, "wagomu")!) / resolveObject(s, "wagomu")!.atk;
-    expect(d6).toBeGreaterThan(d5 * 1.5);
+    expect(d6).toBeGreaterThan(d5); // 2本うちで 少し 上がる（5本＋爆ぜるは EX へ）
   });
   test("装備の特殊効果の補正", () => {
     const rng = mulberry32(11);
@@ -1325,7 +1329,7 @@ describe("戦闘の準備・報酬", () => {
     const s = newSave();
     const lo = buildLoadout(s, "1-1")!;
     expect(lo.char.atk).toBeGreaterThanOrEqual(1);
-    expect(lo.char.atk).toBeLessThanOrEqual(3);
+    expect(lo.char.atk).toBeLessThanOrEqual(3 * ATTACK_PACE); // 攻撃の 間隔を のばした ぶん 1回が 強い
     expect(lo.char.companion).toBe(false);
     expect(lo.companions).toEqual([]);
     expect(lo.objects.length).toBe(3);
@@ -1344,7 +1348,7 @@ describe("戦闘の準備・報酬", () => {
     expect(lo.stage.kibbleMul).toBe(1.5);
     expect(lo.stage.kibblePerSec).toBe(0);
     expect(estimateDps(lo).total * duration).toBeGreaterThan(totalHp * 2);
-    expect(buildLoadout(s, "11-1")).toBeNull();
+    expect(buildLoadout(s, "13-1")).toBeNull();
   });
   test("相棒も戦闘に出る（強さ 0.45）・戦力の目安にも入る", () => {
     const s = newSave();
