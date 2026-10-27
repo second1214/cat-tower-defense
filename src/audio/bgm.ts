@@ -51,9 +51,9 @@ const BATTLE: Song = {
   kick: [0.6, 0, 0, 0, 0.5, 0, 0, 0, 0.6, 0, 0, 0, 0.5, 0, 0, 0],
   snare: [0, 0, 0, 0, 0.3, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0, 0.1],
   hat: [0.1, 0, 0.14, 0, 0.1, 0, 0.14, 0, 0.1, 0, 0.14, 0, 0.1, 0, 0.14, 0.08],
-  mel: [0.6, 0, 0.4, 0.15, 0.5, 0, 0.45, 0, 0.6, 0, 0.4, 0.15, 0.5, 0, 0.3, 0.2],
+  mel: [0.55, 0, 0.3, 0, 0.45, 0, 0.35, 0, 0.55, 0, 0.3, 0, 0.45, 0, 0.25, 0],
   scale: [69, 71, 72, 74, 76, 79, 81, 84],
-  padVol: 0.05, padCut: 1800, bassVol: 0.15, bassType: "triangle", melVol: 0.08, swing: 0,
+  padVol: 0.05, padCut: 1800, bassVol: 0.15, bassType: "triangle", melVol: 0.07, swing: 0,
 };
 
 // ぬし・難関（少し速く、きんちょう。D マイナー）
@@ -240,26 +240,34 @@ function bassNote(ac: AudioContext, out: AudioNode, t: number, freq: number, dur
   o.stop(t + dur + 0.02);
 }
 
-/** はじく音（三角波＋1オクターブ上のうすい音。すぐ消える）。 */
+/** メロディの音: やわらかい木琴（マリンバ）風。正弦波の 本体＋すぐ消える 高い倍音（木を たたいた 感じ）。
+ *  前は 三角波を はじく音で、戦いの 速い 曲だと 三味線の ように 聞こえて 耳ざわりだった（2026-10-27 ユーザー報告）。 */
 function pluck(ac: AudioContext, out: AudioNode, t: number, freq: number, dur: number, vol: number): void {
+  const len = Math.max(0.25, dur * 1.2);
   const g = ac.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(vol, t + 0.006);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  g.gain.linearRampToValueAtTime(vol, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  const f = ac.createBiquadFilter();
+  f.type = "lowpass";
+  f.frequency.value = Math.min(4000, freq * 4);
+  f.connect(g);
   g.connect(out);
   const o1 = ac.createOscillator();
-  o1.type = "triangle";
+  o1.type = "sine";
   o1.frequency.value = freq;
-  o1.connect(g);
+  o1.connect(f);
+  // 木の 音: 4倍の 倍音を ほんの 一瞬だけ
   const g2 = ac.createGain();
-  g2.gain.value = 0.25;
-  g2.connect(g);
+  g2.gain.setValueAtTime(0.18, t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  g2.connect(f);
   const o2 = ac.createOscillator();
   o2.type = "sine";
-  o2.frequency.value = freq * 2;
+  o2.frequency.value = freq * 3.99;
   o2.connect(g2);
   o1.start(t); o2.start(t);
-  o1.stop(t + dur + 0.02); o2.stop(t + dur + 0.02);
+  o1.stop(t + len + 0.02); o2.stop(t + 0.08);
 }
 
 function kick(ac: AudioContext, out: AudioNode, t: number, vol: number): void {
