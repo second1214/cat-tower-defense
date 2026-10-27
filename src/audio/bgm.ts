@@ -74,7 +74,8 @@ const SONGS: Record<Exclude<BgmMood, "none">, Song> = { cafe: CAFE, battle: BATT
 
 const LOOKAHEAD = 0.25;   // 何秒先まで予約するか
 const TICK_MS = 60;       // 予約の間かく
-const FADE = 1.2;         // 曲の切りかえ（クロスフェード）
+const FADE = 1.2;         // 曲の切りかえ（新しい曲が 大きくなるまで）
+const FADE_OUT = 0.35;    // 前の曲を しぼる 時間（調の ちがう 曲が 長く 重なると 不協和音に 聞こえるので 短く）
 
 interface Player {
   song: Song;
@@ -115,18 +116,21 @@ function applyMood(): void {
   if (want && players.some((p) => p.stopAt === Infinity && p.song === want)) return;
   for (const p of players) {
     if (p.stopAt === Infinity) {
-      p.stopAt = t + FADE;
+      p.stopAt = t + FADE_OUT;
       p.gain.gain.cancelScheduledValues(t);
       p.gain.gain.setValueAtTime(p.gain.gain.value, t);
-      p.gain.gain.linearRampToValueAtTime(0.0001, t + FADE);
+      p.gain.gain.linearRampToValueAtTime(0.0001, t + FADE_OUT);
     }
   }
   if (mood !== "none") {
     const g = ac.createGain();
+    // 新しい曲は 前の曲が しぼれてから 始める（重ならない）
+    const start = t + (players.some((p) => p.stopAt !== Infinity && p.stopAt > t) ? FADE_OUT : 0);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(1, t + FADE);
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(1, start + FADE);
     g.connect(out);
-    players.push({ song: SONGS[mood], gain: g, step: 0, next: t + 0.1, stopAt: Infinity, melIdx: 3 });
+    players.push({ song: SONGS[mood], gain: g, step: 0, next: start + 0.1, stopAt: Infinity, melIdx: 3 });
   }
   ensureTimer();
 }

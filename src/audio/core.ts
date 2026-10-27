@@ -44,10 +44,12 @@ export function setAudioSettings(patch: Partial<AudioSettings>): void {
 /** 音量（0〜1）を、耳に自然な大きさに（2乗）。 */
 function curve(v: number): number { return v * v; }
 
+let hiddenFade = false; // 画面が 隠れる 途中（全体の 音を しぼっている）
+
 function applyVolumes(): void {
   if (!ctx || !master || !sfxBus || !bgmBus) return;
   const t = ctx.currentTime;
-  master.gain.setTargetAtTime(settings.mute ? 0 : 0.9, t, 0.03);
+  if (!hiddenFade) master.gain.setTargetAtTime(settings.mute ? 0 : 0.9, t, 0.03);
   sfxBus.gain.setTargetAtTime(curve(settings.sfx), t, 0.03);
   bgmBus.gain.setTargetAtTime(curve(settings.bgm) * 0.55, t, 0.05);
 }
@@ -117,16 +119,45 @@ let installed = false;
 export function installAudio(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
+  // 画面が 隠れる・もどる: いきなり 止める／鳴らすと、iPhone では「ブツッ」「ビヨッ」と 変な音が 出る（2026-10-27 ユーザー報告）。
+  // 隠れる時は 全体の 音を すばやく しぼってから 止め、もどる時は 無音で 動かしてから ゆっくり 上げる。
+  let suspendTimer: ReturnType<typeof setTimeout> | null = null;
+  const fadeOutAndSuspend = () => {
+    if (!ctx || !master) return;
+    hiddenFade = true;
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(master.gain.value, t);
+    master.gain.linearRampToValueAtTime(0, t + 0.06);
+    if (suspendTimer) clearTimeout(suspendTimer);
+    suspendTimer = setTimeout(() => { suspendTimer = null; if (document.hidden) void ctx?.suspend().catch(() => undefined); }, 90);
+  };
+  const resumeAndFadeIn = () => {
+    if (!ctx || !master) return;
+    if (suspendTimer) { clearTimeout(suspendTimer); suspendTimer = null; }
+    const g = master.gain;
+    g.cancelScheduledValues(ctx.currentTime);
+    g.setValueAtTime(0, ctx.currentTime);
+    void ctx.resume().catch(() => undefined).then(() => {
+      if (!ctx || !master || document.hidden || ctx.state !== "running") return; // ことわられたら 次の タップで もう一度
+      hiddenFade = false;
+      const t = ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(0, t);
+      g.linearRampToValueAtTime(settings.mute ? 0 : 0.9, t + 0.4);
+    });
+  };
+  // さわった時: 音を 使えるように する。iPhone は もどった 直後に 再開を ことわる ことが あるので、その時も ここで 音を もどす
   const unlock = () => {
     create();
-    if (ctx && ctx.state !== "running" && !document.hidden) void ctx.resume().catch(() => undefined);
+    if (!ctx || document.hidden) return;
+    if (hiddenFade) resumeAndFadeIn();
+    else if (ctx.state !== "running") void ctx.resume().catch(() => undefined);
   };
   window.addEventListener("pointerdown", unlock, { capture: true, passive: true });
   window.addEventListener("keydown", unlock, { capture: true });
   window.addEventListener("touchend", unlock, { capture: true, passive: true });
-  document.addEventListener("visibilitychange", () => {
-    if (!ctx) return;
-    if (document.hidden) void ctx.suspend().catch(() => undefined);
-    else void ctx.resume().catch(() => undefined);
-  });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) fadeOutAndSuspend(); else resumeAndFadeIn(); });
+  window.addEventListener("pagehide", fadeOutAndSuspend);
+  window.addEventListener("pageshow", () => { if (!document.hidden) resumeAndFadeIn(); });
 }
