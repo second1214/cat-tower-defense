@@ -63,8 +63,9 @@ function overrideKey(kind: SpriteKind, id: string): string {
   }
 }
 
-/** 戦闘中の猫のポーズ。PNG（"<id>_<pose>"）があるときだけ使い、無ければふつうの "cat" の絵。 */
-export type CatPose = "walk1" | "walk2" | "run" | "melee" | "ranged" | "aoe" | "hurt" | "win";
+/** 戦闘中の猫のポーズ。PNG（"<id>_<pose>"）があるときだけ使い、無ければふつうの "cat" の絵。
+ *  歩きは walk1〜2（walk3・walk4 があれば 4コマ）、走りは run（run1〜run4 があれば 4コマ）。 */
+export type CatPose = "walk1" | "walk2" | "walk3" | "walk4" | "run" | "run1" | "run2" | "run3" | "run4" | "melee" | "ranged" | "aoe" | "hurt" | "win";
 
 export function getCatPose(id: string, pose: CatPose): HTMLImageElement | null {
   return overrides.get(`${id}_${pose}`) ?? null;

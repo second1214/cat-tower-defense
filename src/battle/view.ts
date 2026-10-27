@@ -1432,7 +1432,7 @@ export class BattleView {
     const ca = Math.cos(ang), sa = Math.sin(ang);
     const fx = d * flip * atk, fy = d * atk * sy;
     g.setTransform(fx * ca, fx * sa, -fy * sa, fy * ca, d * (x + this.shx), d * (y - hop + this.shy + (1 - sy) * s * 0.5));
-    const pose = this.catPose(cat, lc, dt);
+    const pose = this.catPose(cat, look, lc, dt);
     const img = pose ? getCatPose(look, pose) : null;
     g.drawImage(img ?? getSprite("cat", look, hint), -s / 2, -s / 2, s, s);
     if (cat.hurt > 0 && !(img && pose === "hurt")) {
@@ -1479,14 +1479,16 @@ export class BattleView {
   }
 
   /** 今のポーズ（攻撃 > 被弾 > 移動 > 待機）。攻撃の絵は attackAnim より長めに見せる。 */
-  private catPose(cat: CatState, lc: { moving: number; atkHold: number }, dt: number): CatPose | null {
+  private catPose(cat: CatState, look: string, lc: { moving: number; atkHold: number }, dt: number): CatPose | null {
     lc.atkHold = cat.attackAnim > 0 ? 0.3 : Math.max(0, lc.atkHold - dt);
     const role = cat.char.role;
     if (lc.atkHold > 0) return role === "ranged" ? "ranged" : role === "aoe" ? "aoe" : "melee";
     if (cat.hurt > 0) return "hurt";
     if (lc.moving > 0.3) {
-      if (role === "fast") return "run";
-      return Math.floor(this.simClock * 6 + cat.index * 0.5) % 2 ? "walk2" : "walk1";
+      const t = this.simClock + cat.index * 0.17;
+      if (role === "fast") return getCatPose(look, "run1") ? (`run${(Math.floor(t * 10) % 4) + 1}` as CatPose) : "run";
+      if (getCatPose(look, "walk4")) return `walk${(Math.floor(t * 8) % 4) + 1}` as CatPose;
+      return Math.floor(t * 6) % 2 ? "walk2" : "walk1";
     }
     return null;
   }
