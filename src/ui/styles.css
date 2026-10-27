@@ -1394,7 +1394,7 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 /* パーティ */
 .pt-panel { margin: 4px 0 6px; padding: 8px 8px 10px; }
 .pt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 12px; }
-.pt-head .panel-title { margin: 0; }
+.pt-head .panel-title { margin: 0; flex: none; white-space: nowrap; }
 .pt-head .muted { text-align: right; line-height: 1.25; }
 .pt-slots { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 8px; }
 .pt-slot { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 4px 7px; border-radius: var(--rad-m); background: var(--c-card-2); box-shadow: inset 0 0 0 2px var(--c-line-soft); transition: transform var(--dur) var(--ease); }
@@ -1549,9 +1549,12 @@ button.card:active { transform: translateY(3px); box-shadow: 0 0 0 2px var(--c-l
 .cf-name-input { width: 100%; height: 46px; padding: 0 14px; border-radius: var(--rad-m); border: 3px solid var(--c-line-soft); background: var(--c-card); color: var(--c-ink); font: inherit; font-size: var(--fs-l); font-weight: var(--fw-x); outline: none; user-select: text; -webkit-user-select: text; transition: border-color var(--dur), box-shadow var(--dur); }
 .cf-name-input:focus { border-color: var(--c-honey-d); box-shadow: var(--glow-honey); }
 .cf-name-input::placeholder { color: var(--c-ink-3); font-size: var(--fs-m); font-weight: var(--fw-b); }
-.cf-looks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
-.cf-look { position: relative; aspect-ratio: 1; border-radius: var(--rad-m); display: grid; place-items: center; background: var(--c-card); box-shadow: inset 0 0 0 2px var(--c-line-soft); transition: transform var(--dur) var(--ease); }
-.cf-look-ico { width: 78%; height: 78%; }
+.cf-looks { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.cf-look { position: relative; min-width: 0; aspect-ratio: 1; border-radius: var(--rad-m); display: grid; place-items: center; background: var(--c-card); box-shadow: inset 0 0 0 2px var(--c-line-soft); transition: transform var(--dur) var(--ease); }
+.cf-look-ico { width: 82%; height: 82%; }
+/* 絵（PNG）の元の大きさで マスが広がらないように */
+.cf-look-ico.ico-png img, .cf-prev-ico.ico-png img { position: absolute; inset: 0; }
+.cf-look-ico.ico-png, .cf-prev-ico.ico-png { position: relative; }
 .cf-look.on { background: radial-gradient(circle at 50% 40%, #fff3cf, var(--c-card)); box-shadow: inset 0 0 0 3px var(--c-honey), 0 0 0 2px var(--c-line); }
 .cf-look.on::after { content: ""; position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 50%; background: var(--c-honey) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M14 34 L27 47 L51 19' stroke='%234f2f05' stroke-width='9' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 70% no-repeat; box-shadow: 0 0 0 2px var(--c-line); }
 .cf-look:active { transform: scale(.95); }
