@@ -12,7 +12,6 @@ const SAMPLES: Partial<Record<SfxName, [file: string, gain: number][]>> = {
   place: [["drop_002", 0.697], ["drop_003", 0.681]],
   remove: [["minimize_003", 1.063]],
   upgrade: [["maximize_006", 0.513]],
-  kibble: [["pluck_001", 0.612], ["pluck_002", 0.71]],
   hit: [["impactSoft_medium_000", 0.254], ["impactSoft_medium_001", 0.27], ["impactSoft_medium_002", 0.249], ["impactSoft_medium_003", 0.253], ["impactSoft_medium_004", 0.258]],
   crit: [["impactPunch_medium_000", 0.43], ["impactPunch_medium_001", 0.416], ["impactPunch_medium_002", 0.516]],
   punch: [["impactGeneric_light_000", 0.608], ["impactGeneric_light_001", 0.551], ["impactGeneric_light_002", 0.627]],
