@@ -6,7 +6,39 @@
 3. 下から作りたい猫のプロンプトを、右上のコピーボタンでまるごとコピーして送ります。
 4. できた画像は `<id>_sheet.png` という名前でアップしてください（例：`mike_sheet.png`）。
 
-猫の一覧: [みけ](#mike) / [くろ](#kuro) / [しろ](#shiro) / [はちわれ](#hachiware) / [さばとら](#sabatora) / [こむぎ](#komugi) / [おもち](#omochi) / [さび](#sabi) / [レオ](#leo) / [ルナ](#luna) / [ちび](#chibi) / [そら](#sora) / [プリン](#purin) / [こてつ](#kotetsu) / [ひめ](#hime) / [大将](#taisho) / [たま](#tama)
+猫の一覧: [ノルウェージャン](#chatora) / [みけ](#mike) / [くろ](#kuro) / [しろ](#shiro) / [はちわれ](#hachiware) / [さばとら](#sabatora) / [こむぎ](#komugi) / [おもち](#omochi) / [さび](#sabi) / [レオ](#leo) / [ルナ](#luna) / [ちび](#chibi) / [そら](#sora) / [プリン](#purin) / [こてつ](#kotetsu) / [ひめ](#hime) / [大将](#taisho) / [たま](#tama)
+
+<a id="chatora"></a>
+## ノルウェージャン（作り直し・`chatora_sheet.png`）
+
+今の絵（`2_style_reference.png`）と同じ猫で、18マスをそろえて作り直します。添付する画像は他の猫と同じ2枚です。
+
+```
+Image 1 is a pose reference sheet: 18 gray sketch poses in a grid of 6 columns x 3 rows.
+Image 2 is BOTH the art style reference AND this exact cat: keep its fur colors and markings.
+
+Create a NEW sprite sheet of the cat described below. Use exactly the same 6 x 3 grid and redraw every pose from Image 1 in the same cell, in the same order.
+
+Cat: a large, sturdy Norwegian Forest Cat with a very fluffy long coat: bright orange fur on the back, head, ears and tail, with a white chest ruff, white muzzle, white belly and white paws; a big bushy orange tail with a white tip; tufted ears; green-yellow eyes; calm, gentle and dependable look
+
+Cells (left to right, top to bottom):
+Row 1: 1-4 walk cycle (4 frames), 5-6 run cycle frames 1-2
+Row 2: 7-8 run cycle frames 3-4, 9 standing on hind legs swinging a paw, 10 lunging forward reaching out with a paw, 11 crouched low with tail raised high, 12 hurt: back arched, ears back, mouth open
+Row 3: 13 sitting front view, 14 loaf front view: round fluffy body, paws tucked under, eyes closed with a content smile, 15 lying on its back belly up, 16 eating from a small white bowl, 17 curled up asleep, 18 leaping happily
+
+Rules:
+- Art style: match Image 2 exactly — soft hand-drawn digital illustration, clean dark-brown outlines, gentle cel shading, fluffy fur strokes, cute but realistic proportions
+- The SAME cat in every cell: identical fur pattern, markings, colors, eye color and face
+- Copy each pose and facing direction from Image 1 (side views face RIGHT)
+- Full color, not gray
+- Exactly 6 columns x 3 rows (18 equal-size cells), separated by thin light-gray lines
+- Wide landscape image (16:9), as large and detailed as possible
+- One cat per cell, full body visible, centered, not touching or crossing the cell edges
+- Walk and run frames: keep the cat the same size and head height across the frames; only the legs and body stretch change
+- Pure white background (#FFFFFF), no floor shadow, no scenery
+- NO text, NO numbers, NO labels, NO title anywhere in the image
+- The only prop is the food bowl in cell 16
+```
 
 <a id="mike"></a>
 ## みけ（`mike_sheet.png`）
