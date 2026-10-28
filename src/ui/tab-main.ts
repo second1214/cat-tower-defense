@@ -12,7 +12,6 @@ import { h, svgIcon } from "./dom";
 import { ICONS, PLUS_ICON, objectSvg } from "./icons";
 import { rarityPill, roleTag } from "./parts";
 import { openCatDetail } from "./grow-char";
-import { openRanking } from "./ranking";
 import { LOOP_BONUS, MAX_LAPS } from "../data/stages";
 import { renderCafe, catIcon } from "./cafe";
 
@@ -129,7 +128,7 @@ export function renderMain(ctx: Ctx): HTMLElement {
     onclick: () => ctx.play(id),
   }, unlocked ? "プレイ" : "まだ遊べません");
 
-  // エンドレス（1-5 をこえたら）とランキング
+  // エンドレス（1-5 をこえたら）
   const endlessOpen = save.cleared >= ENDLESS_UNLOCK;
   const exNext = nextEndlessReward(save);
   const modeBtns = h("div", { class: "mn-modes" },
@@ -137,8 +136,7 @@ export function renderMain(ctx: Ctx): HTMLElement {
       class: `btn mn-mode ${endlessOpen ? "" : "is-off"}`, disabled: !endlessOpen,
       onclick: () => ctx.playEndless(),
     }, h("b", null, "エンドレス"), h("small", null, endlessOpen ? `記録 ${save.endlessBest}波` : "1-5 クリアで"),
-      endlessOpen && exNext ? h("small", { class: "ex-next" }, `${exNext.wave}波でEX`) : null),
-    h("button", { class: "btn mn-mode", onclick: () => openRanking(ctx) }, h("b", null, "ランキング"), h("small", null, "みんなの記録")));
+      endlessOpen && exNext ? h("small", { class: "ex-next" }, `${exNext.wave}波でEX`) : null));
 
   // ---- まん中: 猫カフェ ----
   const onCatTap = (uid: string) => {

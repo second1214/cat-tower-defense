@@ -461,7 +461,7 @@ export const ENDLESS_ID = "endless";
 
 /**
  * エンドレスのステージ。波の番号 w（0 始まり・全員共通のものさし）で強さが決まる。start 番目の波から始める
- * （自分の記録の少し手前から始められる。ランキングは「何番目の波までこえたか」）。10波ごとに、ぬし。
+ * （自分の記録の少し手前から始められる。記録は「何番目の波までこえたか」）。10波ごとに、ぬし。
  */
 export function makeEndlessStage(start = 0): StageDef {
   const rng = mulberry32(777 + start * 31);
