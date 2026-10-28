@@ -7,7 +7,7 @@ import { PERSONALITIES } from "../data/personality";
 import type { Ctx } from "./ctx";
 import { h, svgIcon } from "./dom";
 import { ICONS } from "./icons";
-import { catIcon } from "./cafe";
+import { catIcon, loadCatSprites } from "./cafe";
 
 interface FormState { name: string; look: string; personality: Personality }
 
@@ -60,6 +60,11 @@ function buildForm(st: FormState, intro?: string): { el: HTMLElement; focus(): v
   });
   const persList = h("div", { class: "cf-perslist" }, pers);
   updPreview();
+  // はじめての起動では 猫の絵の一覧（manifest）より先に 画面ができるので、届いたら 絵に差しかえる
+  loadCatSprites(() => {
+    looks.forEach((b, i) => b.replaceChildren(catIcon(CAT_LOOKS[i], "cf-look-ico")));
+    updPreview();
+  });
 
   const el = h("div", { class: "cat-form" },
     intro ? h("div", { class: "cf-intro" }, svgIcon(ICONS.heart, "cf-intro-ico"), h("span", null, intro)) : null,
