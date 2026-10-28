@@ -1,4 +1,4 @@
-// Cloudflare Workers で公開するときの設定（npm run build で作った dist を配る。/api/ranking だけ worker/index.js が答える）
+// Cloudflare Workers で公開するときの設定（npm run build で作った dist を配る）
 {
   "name": "cat-tower-defense",
   "compatibility_date": "2026-10-01",
@@ -6,9 +6,6 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  // ランキングの保存先（KV「cat-ranking」）
-  "kv_namespaces": [{ "binding": "RANKING", "id": "a89f0704f6094facb63a8aa58ef99cd0" }]
+    "not_found_handling": "single-page-application"
+  }
 }

@@ -16,7 +16,6 @@ import { ICONS, bagSvg, objectSvg } from "./icons";
 import { WAZA_MAP } from "../data/waza";
 import { LOOP_BONUS, makeLoopStage, stageIndexOf } from "../data/stages";
 import { POWER_NAMES, powerMode, setPowerMode, type PowerMode } from "../core/power";
-import { openRanking, submitScore } from "./ranking";
 import { catIcon, loadCatSprites } from "./cafe";
 import { gachaBadge, growBadge, relicBadge } from "./badges";
 import { renderMain } from "./tab-main";
@@ -300,7 +299,7 @@ export function createApp(root: HTMLElement): AppHandle {
     await runBattle(lo, finishBattle);
   }
 
-  /** エンドレス（ママがやられるまで波が続く。こえた波を記録して、ランキングへ送る）。 */
+  /** エンドレス（ママがやられるまで波が続く。こえた波を記録する）。 */
   async function playEndless(): Promise<void> {
     if (inBattle) return;
     const start = endlessStart(save);
@@ -315,8 +314,6 @@ export function createApp(root: HTMLElement): AppHandle {
 
   function showEndless(r: EndlessResult): void {
     if (r.unlocked.length > 0 || r.newBest) sfx("unlock");
-    const rank = { v: null as number | null, done: false };
-    void submitScore(ctx, r.best).then((v) => { rank.v = v; rank.done = true; modals.rerenderAll(); });
     const m = modals.open({
       title: r.newBest ? "記録こうしん！" : "エンドレス おしまい",
       cls: "modal-small",
@@ -324,15 +321,13 @@ export function createApp(root: HTMLElement): AppHandle {
       render: () => h("div", { class: "lose" },
         catIcon(save.cats[heroUid(save)]?.look ?? "chatora", "lose-ico"),
         h("p", { class: "lose-msg" }, `${r.reached} 波まで こえたよ`),
-        h("p", { class: "muted small" }, `自分の記録 ${r.best} 波${rank.done ? (rank.v ? `・ランキング ${rank.v} 位` : "") : "・ランキングに送っています…"}`),
+        h("p", { class: "muted small" }, `自分の記録 ${r.best} 波`),
         h("p", { class: "muted small" }, `ちゅ〜る +${r.churu}・お金 +${fmt(r.coins)}`),
         r.unlocked.map((u) => h("div", { class: "ex-got" },
           h("div", { class: "ex-got-t" }, u.kind === "waza" ? "EX のわざを覚えた！" : "EX のオブジェクトを手に入れた！"),
           h("div", { class: "ex-got-n" }, u.kind === "waza" ? WAZA_MAP[u.id]?.name ?? u.id : OBJECT_MAP[u.id]?.name ?? u.id),
           h("div", { class: "muted small" }, u.kind === "waza" ? "これからは、ねこ福袋からも出るよ" : "これからは、ストーリーでもかけらが落ちるよ")))),
-      footer: () => h("div", { class: "row" },
-        h("button", { class: "btn", onclick: () => { m.close(); openRanking(ctx); } }, "ランキング"),
-        h("button", { class: "btn btn-gold", onclick: () => m.close() }, "OK")),
+      footer: () => h("button", { class: "btn btn-gold btn-wide", onclick: () => m.close() }, "OK"),
     });
   }
 
